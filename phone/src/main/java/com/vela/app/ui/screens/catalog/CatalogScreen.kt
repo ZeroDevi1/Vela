@@ -1,7 +1,6 @@
 package com.vela.app.ui.screens.catalog
 
 import android.app.Application
-import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,56 +18,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import com.vela.data.model.*
 import com.vela.data.repository.*
 import com.vela.app.ui.screens.dashboard.search.FederatedSessionNavigator
 import com.vela.shared.R
 import kotlinx.coroutines.launch
-import java.time.Instant
-
-@Composable
-fun CatalogScreen(onLibrary: (BaseItemDto) -> Unit, onCatalog: (CatalogTitle) -> Unit, modifier: Modifier = Modifier) {
-    val vm: CatalogViewModel = viewModel()
-    val state by vm.state.collectAsStateWithLifecycle()
-    LazyColumn(modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(stringResource(R.string.catalog_discover), style = MaterialTheme.typography.headlineLarge)
-            TextButton(onClick = vm::refresh, enabled = !state.loading) { Text(stringResource(R.string.catalog_retry)) }
-        } }
-        if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-        items(state.errors) { Text(it, color = MaterialTheme.colorScheme.error) }
-        if (state.resume.isNotEmpty()) {
-            item { Text(stringResource(R.string.catalog_continue), style = MaterialTheme.typography.titleLarge) }
-            item { LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(state.resume, key = { "${it.serverId}:${it.item.id}" }) { result ->
-                    Card(onClick = { vm.openLibrary(result, onLibrary) }, enabled = !state.opening, modifier = Modifier.width(272.dp)) {
-                        AsyncImage(result.imageUrl, result.item.name, Modifier.fillMaxWidth().height(150.dp), contentScale = ContentScale.Crop)
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(result.item.seriesName ?: result.item.name.orEmpty(), maxLines = 1)
-                            Text(result.serverName, style = MaterialTheme.typography.labelSmall)
-                            val ticks = result.item.userData?.playbackPositionTicks ?: 0L
-                            val seconds = ticks / 10_000_000
-                            LinearProgressIndicator(progress = { (ticks.toFloat() / (result.item.runTimeTicks ?: 1L).coerceAtLeast(1)).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                            Text(stringResource(R.string.catalog_position, "%02d:%02d".format(seconds / 60, seconds % 60)), style = MaterialTheme.typography.labelMedium)
-                            result.item.userData?.lastPlayedDate?.let { date ->
-                                val millis = runCatching { Instant.parse(date).toEpochMilli() }.getOrNull()
-                                if (millis != null) Text(DateUtils.getRelativeTimeSpanString(millis).toString(), style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                    }
-                }
-            } }
-        }
-        item { Text(stringResource(R.string.catalog_today), style = MaterialTheme.typography.titleLarge) }
-        item { if (!state.loading && state.day.isEmpty()) Text(stringResource(R.string.catalog_empty)) else CatalogPosters(state.day, onCatalog) }
-        item { Text(stringResource(R.string.catalog_week), style = MaterialTheme.typography.titleLarge) }
-        item { if (!state.loading && state.week.isEmpty()) Text(stringResource(R.string.catalog_empty)) else CatalogPosters(state.week, onCatalog) }
-        item { Text(stringResource(R.string.catalog_tmdb_attribution), style = MaterialTheme.typography.labelSmall) }
-    }
-}
 
 @Composable
 fun CatalogPosters(titles: List<CatalogTitle>, onClick: (CatalogTitle) -> Unit) {
@@ -78,7 +33,8 @@ fun CatalogPosters(titles: List<CatalogTitle>, onClick: (CatalogTitle) -> Unit) 
                 AsyncImage(title.posterUrl, title.displayTitle, Modifier.fillMaxWidth().height(210.dp), contentScale = ContentScale.Crop)
                 Column(Modifier.padding(10.dp)) {
                     Text(title.displayTitle, maxLines = 2, style = MaterialTheme.typography.titleSmall)
-                    Text(title.date.take(4), style = MaterialTheme.typography.labelMedium)
+                    Text(listOf(title.date.take(4), stringResource(if (title.mediaType == "movie") R.string.feed_movies else R.string.feed_series)).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.labelMedium)
+                    title.voteAverage?.takeIf { title.voteCount > 0 }?.let { Text("TMDB %.1f".format(it), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
                     if (title.genres.isNotEmpty()) Text(title.genres.joinToString(" · ") { it.name }, maxLines = 1, style = MaterialTheme.typography.labelSmall)
                 }
             }

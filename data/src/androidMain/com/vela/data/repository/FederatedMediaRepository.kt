@@ -44,6 +44,7 @@ data class FederatedMediaResponse(
 enum class FederatedContentSection {
     CONTINUE_WATCHING,
     FAVORITES,
+    RECENT,
     LIBRARIES
 }
 
@@ -55,6 +56,7 @@ class FederatedMediaRepository(context: Context) {
     private val authRepository = AuthRepositoryProvider.getInstance(appContext)
     private val secureSessionStore = SecureSessionStore(appContext)
     private val networkPreferences = NetworkPreferences(appContext)
+    private val catalogLookupGate = Semaphore(MAX_CONCURRENT_SERVERS)
 
     fun availableServers(): List<FederatedServer> =
         authenticatedServers().map { server ->
@@ -128,7 +130,7 @@ class FederatedMediaRepository(context: Context) {
     suspend fun matchCatalog(type: String, tmdbId: Int, imdbId: String? = null): FederatedMediaResponse = coroutineScope {
         require(type == "movie" || type == "tv")
         require(tmdbId > 0)
-        val gate = Semaphore(MAX_CONCURRENT_SERVERS)
+        val gate = catalogLookupGate
         val outcomes = authenticatedServers().map { server -> async {
             gate.withPermit {
                 try {
@@ -154,6 +156,35 @@ class FederatedMediaRepository(context: Context) {
         } }.awaitAll()
         val active = authRepository.getActiveSessionSnapshot().activeServerId
         FederatedMediaResponse(outcomes.flatMap { it.items }.sortedBy { it.serverId != active }, outcomes.mapNotNull { it.failure })
+    }
+
+    /** Read episodes using the matched server credentials without switching the active session. */
+    suspend fun subscriptionEpisodes(match: FederatedMediaItem, season: Int): List<FederatedMediaItem> = catalogLookupGate.withPermit {
+        require(season >= 0)
+        val server = authenticatedServers().firstOrNull { it.id == match.serverId } ?: error("Server signed out")
+        val token = secureSessionStore.getToken(server.id) ?: error("Missing access token")
+        val baseUrl = server.activeLine()?.url ?: server.serverUrl
+        val api = createApi(baseUrl, token, runCatching { ServerType.valueOf(server.serverTypeRaw) }.getOrNull())
+        val items = mutableListOf<BaseItemDto>()
+        var start = 0
+        // Bound malformed pagination; an incomplete result must not look like a complete season.
+        while (true) {
+            check(start < 10000) { "Episode list exceeds supported size" }
+            val response = api.getEpisodes(requireNotNull(match.item.id), server.userId,
+                fields = "UserData,SeriesName,SeriesId,IndexNumber,ParentIndexNumber,RunTimeTicks,ProviderIds",
+                limit = 200, startIndex = start)
+            check(response.isSuccessful) { "HTTP ${response.code()}" }
+            val page = response.body() ?: error("Missing episode response")
+            val batch = page.items.orEmpty()
+            val knownIds = items.mapNotNull { it.id }.toSet()
+            check(batch.none { it.id != null && it.id in knownIds }) { "Episode pagination did not advance; refresh the library" }
+            check(batch.isNotEmpty() || (page.totalRecordCount ?: start) <= start) { "Incomplete episode response" }
+            items.addAll(batch)
+            start += batch.size
+            if (batch.isEmpty() || (page.totalRecordCount?.let { start >= it } ?: (batch.size < 200))) break
+        }
+        items.filter { it.type == "Episode" && it.parentIndexNumber == season && !it.id.isNullOrBlank() }
+            .distinctBy { it.id }.map { match.copy(item = it) }
     }
 
     private fun authenticatedServers(): List<AuthRepository.SavedServer> =
@@ -287,6 +318,11 @@ class FederatedMediaRepository(context: Context) {
                 sortOrder = "Descending",
                 fields = CONTENT_FIELDS
             )
+            FederatedContentSection.RECENT -> api.getUserItems(
+                userId = userId, includeItemTypes = "Movie,Episode", recursive = true,
+                sortBy = "DateCreated", sortOrder = "Descending", limit = CONTENT_LIMIT_PER_SERVER,
+                fields = "$CONTENT_FIELDS,DateCreated"
+            )
             FederatedContentSection.FAVORITES -> api.getUserItems(
                 userId = userId,
                 includeItemTypes = "Movie,Series,Episode",
@@ -343,7 +379,7 @@ class FederatedMediaRepository(context: Context) {
                 item.seriesId to "Thumb"
             else -> (item.parentPrimaryImageItemId ?: item.id) to "Primary"
         }
-        FederatedContentSection.FAVORITES ->
+        FederatedContentSection.FAVORITES, FederatedContentSection.RECENT ->
             (if (item.type == "Episode") item.seriesId ?: item.id else item.id) to "Primary"
         FederatedContentSection.LIBRARIES -> item.id to "Primary"
     }

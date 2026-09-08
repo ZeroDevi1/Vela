@@ -44,7 +44,7 @@ private enum class AppHomeTab(
 ) {
     SERVERS(R.string.settings_server_label, Icons.Rounded.Dns),
     DISCOVER(R.string.catalog_discover, Icons.Rounded.Explore),
-    CALENDAR(R.string.catalog_calendar, Icons.Rounded.CalendarMonth),
+    CALENDAR(R.string.sub_tab, Icons.Rounded.CalendarMonth),
     FEDERATED(R.string.federated_search_title, Icons.Rounded.AllInclusive),
     SETTINGS(R.string.settings, Icons.Rounded.Settings)
 }

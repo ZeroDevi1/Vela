@@ -41,13 +41,26 @@ class SubscriptionRepository(context: Context) {
         return MoviePilotApi(url, secure.getToken("moviepilot:$url"))
     }
 
-    suspend fun subscribedSeasons(title: CatalogTitle): Set<Int> = api().subscriptions().filter { row ->
-        row.number("tmdbid") == title.id && (row.text("type") == "电影") == (title.mediaType == "movie")
-    }.map { it.number("season") ?: 0 }.toSet()
+    suspend fun subscriptions(): List<SubscriptionRecord> = api().subscriptions().map(::parseSubscription)
+    suspend fun publicCalendar(today: LocalDate = LocalDate.now()) = bangumiCalendar(today)
+    suspend fun subscriptionCalendar(records: List<SubscriptionRecord>, today: LocalDate = LocalDate.now()) = moviePilotCalendar(today, records)
+
+    suspend fun removeSubscription(record: SubscriptionRecord) {
+        check(syncRemoval) { "MoviePilot subscription removal is disabled" }
+        api().removeSubscription(record.id)
+    }
+
+    suspend fun subscribedSeasons(title: CatalogTitle): Set<Int> = subscriptions().filter { it.catalog?.key == title.key }
+        .mapNotNull { if (it.type == "movie") 0 else it.season }.toSet()
 
     suspend fun setSubscription(title: CatalogTitle, season: Int?, remove: Boolean) {
+        require(title.mediaType == "movie" || (season != null && season > 0)) { "Select a season" }
         check(!remove || syncRemoval) { "MoviePilot subscription removal is disabled" }
-        api().setSubscription(title, season, remove)
+        val matches = subscriptions().filter { it.catalog?.key == title.key && it.season == season }
+        if (remove) {
+            check(matches.size == 1) { "Subscription changed; manage individual entries in My subscriptions" }
+            api().removeSubscription(matches.single().id)
+        } else if (matches.isEmpty()) api().addSubscription(title, season)
     }
 
     suspend fun searchDouban(query: String): List<DoubanSearchTitle> = api().searchDouban(query).mapNotNull { row ->
@@ -84,32 +97,32 @@ class SubscriptionRepository(context: Context) {
         return bangumiCalendar(today)
     }
 
-    private suspend fun moviePilotCalendar(today: LocalDate): CalendarFeed = coroutineScope {
+    private suspend fun moviePilotCalendar(today: LocalDate, records: List<SubscriptionRecord>? = null): CalendarFeed = coroutineScope {
         val api = api()
-        val subscriptions = api.subscriptions()
+        val subscriptions = records ?: subscriptions()
         val gate = Semaphore(3)
         val responses = subscriptions.map { sub -> async { gate.withPermit { catalogResult {
-            val tmdb = sub.number("tmdbid")?.takeIf { it > 0 } ?: error("Subscription has no TMDB identity")
-            val type = if (sub.text("type") == "电影") "movie" else "tv"
-            val title = CatalogTitle(id = tmdb, mediaType = type, title = sub.text("name"), posterPath = sub.text("poster"))
-            val season = sub.number("season") ?: 1
+            val title = sub.catalog ?: error("Subscription ${sub.id} has no TMDB identity")
+            val tmdb = title.id
+            val type = title.mediaType
+            val season = if (type == "tv") sub.season ?: error("Subscription ${sub.id} has no season") else null
             val episodes = if (type == "movie") {
                 val detail = api.get("media/tmdb:$tmdb", mapOf("type_name" to "电影")).jsonObject
                 listOf(buildJsonObject { put("air_date", detail.text("release_date")); put("name", title.displayTitle) })
             } else {
-                api.get("tmdb/$tmdb/$season", sub.text("episode_group")?.let { mapOf("episode_group" to it) }.orEmpty()).jsonArray.map { it.jsonObject }
+                api.get("tmdb/$tmdb/$season", sub.episodeGroup?.let { mapOf("episode_group" to it) }.orEmpty()).jsonArray.map { it.jsonObject }
             }
             episodes.mapNotNull { ep ->
                 val date = ep.text("air_date")?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() } ?: return@mapNotNull null
                 if (date < today.minusDays(7) || date > today.plusDays(30)) return@mapNotNull null
-                CalendarEntry("mp:${sub.number("id")}:${ep.number("episode_number")}:$date", title.displayTitle, title.posterUrl,
+                CalendarEntry("mp:${sub.id}:${ep.number("episode_number")}:$date", title.displayTitle, title.posterUrl,
                     date, title, season = if (type == "tv") season else null, episode = ep.number("episode_number"),
-                    completed = sub.number("total_episode")?.let { it > 0 && ep.number("episode_number") == it })
+                    completed = sub.totalEpisodes?.let { it > 0 && ep.number("episode_number") == it }, episodeName = ep.text("name"))
             }
         } } } }.awaitAll()
         val failures = responses.mapNotNull { it.exceptionOrNull()?.message }
         if (responses.isNotEmpty() && responses.all { it.isFailure }) error(failures.first())
-        CalendarFeed("MoviePilot", responses.flatMap { it.getOrDefault(emptyList()) }.sortedBy { it.date }, failures.joinToString("\n").takeIf { it.isNotBlank() })
+        CalendarFeed("MoviePilot", responses.flatMap { it.getOrDefault(emptyList()) }.distinctBy { "${it.catalog?.key}:${it.season}:${it.episode}:${it.date}" }.sortedBy { it.date }, failures.joinToString("\n").takeIf { it.isNotBlank() })
     }
 
     private suspend fun bangumiCalendar(today: LocalDate): CalendarFeed {
@@ -131,7 +144,7 @@ class SubscriptionRepository(context: Context) {
 data class CalendarFeed(val source: String, val entries: List<CalendarEntry>, val warning: String? = null)
 data class CalendarEntry(val key: String, val title: String, val poster: String?, val date: LocalDate,
     val catalog: CatalogTitle?, val season: Int? = null, val episode: Int? = null, val completed: Boolean? = null,
-    val sourceUrl: String? = null, val originalTitle: String? = null)
+    val sourceUrl: String? = null, val originalTitle: String? = null, val episodeName: String? = null)
 
 data class DoubanSearchTitle(val id: String, val title: String, val overview: String, val poster: String?,
     val mediaType: String, val date: String?, val tmdbId: Int?, val imdbId: String?, val rating: Double?)

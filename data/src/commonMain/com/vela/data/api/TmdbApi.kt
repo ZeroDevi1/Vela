@@ -70,6 +70,15 @@ class TmdbApi(
             .filter { it.mediaType == "movie" || it.mediaType == "tv" }
     }
 
+    /** Type-specific lists omit media_type; restore it before exposing catalog identities. */
+    suspend fun browse(path: String, type: String, page: Int, filters: Map<String, String>): com.vela.data.model.CatalogPage {
+        require(type in setOf("all", "movie", "tv"))
+        require(page in 1..500)
+        val result = catalog<com.vela.data.model.CatalogPage>(path, params = filters + ("page" to page.toString()))
+        return result.copy(results = result.results.map { if (type == "all") it else it.copy(mediaType = type) }
+            .filter { it.id > 0 && it.mediaType in setOf("movie", "tv") }.distinctBy { it.key })
+    }
+
     suspend fun genres(type: String): List<com.vela.data.model.CatalogGenre> {
         require(type == "movie" || type == "tv")
         return catalog<com.vela.data.model.CatalogGenres>("genre/$type/list").genres
@@ -97,16 +106,17 @@ class TmdbApi(
 
     suspend fun collection(id: Int): com.vela.data.model.CatalogCollection = catalog("collection/$id")
 
-    private suspend inline fun <reified T> catalog(path: String, query: String? = null): T =
+    private suspend inline fun <reified T> catalog(path: String, query: String? = null, params: Map<String, String> = emptyMap()): T =
         catalogGate.withPermit {
             // 单次请求有界；429 交给页面显式重试，避免目录请求挤占播放流量。
             val response = client.get("https://api.themoviedb.org/3/$path") {
                 parameter("api_key", apiKey)
                 parameter("language", "zh-CN")
                 parameter("include_adult", false)
+                params.forEach { (key, value) -> parameter(key, value) }
                 if (query != null) parameter("query", query)
                 if (path.startsWith("find/")) parameter("external_source", "imdb_id")
-                if (path.startsWith("movie/") || path.startsWith("tv/")) {
+                if (path.matches(Regex("(movie|tv)/[0-9]+"))) {
                     parameter("append_to_response", "credits,external_ids,similar")
                 }
             }

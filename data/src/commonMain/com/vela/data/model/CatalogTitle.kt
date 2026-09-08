@@ -35,7 +35,11 @@ data class CatalogTitle(
 
 @Serializable data class CatalogGenres(val genres: List<CatalogGenre> = emptyList())
 @Serializable data class CatalogFindResult(@SerialName("movie_results") val movies: List<CatalogTitle> = emptyList(), @SerialName("tv_results") val shows: List<CatalogTitle> = emptyList())
-@Serializable data class CatalogPage(val results: List<CatalogTitle> = emptyList())
+@Serializable data class CatalogPage(
+    val results: List<CatalogTitle> = emptyList(),
+    val page: Int = 1,
+    @SerialName("total_pages") val totalPages: Int = 1
+)
 @Serializable data class CatalogGenre(val id: Int, val name: String)
 @Serializable data class CatalogExternalIds(@SerialName("imdb_id") val imdbId: String? = null)
 @Serializable data class CatalogCollection(val id: Int, val name: String = "", val parts: List<CatalogTitle> = emptyList())

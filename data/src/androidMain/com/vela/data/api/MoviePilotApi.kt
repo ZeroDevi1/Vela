@@ -35,22 +35,26 @@ class MoviePilotApi(private val baseUrl: String, private val token: String? = nu
         check(response.status.value in 200..299) { "MoviePilot HTTP ${response.status.value}" }
         return response.body()
     }
-    suspend fun setSubscription(title: com.vela.data.model.CatalogTitle, season: Int?, remove: Boolean) {
+    suspend fun addSubscription(title: com.vela.data.model.CatalogTitle, season: Int?) {
         val credential = token ?: error("MoviePilot login required")
-        val response = client.request(if (remove) "$root/subscribe/media/${title.id}" else "$root/subscribe/") {
-            method = if (remove) HttpMethod.Delete else HttpMethod.Post
+        val response = client.post("$root/subscribe/") {
             bearerAuth(credential)
-            if (remove) {
-                if (season != null) parameter("season", season)
-            } else {
-                contentType(ContentType.Application.Json)
-                setBody(buildJsonObject {
-                    put("name", title.displayTitle); put("tmdbid", title.id)
-                    put("type", if (title.mediaType == "movie") "电影" else "电视剧")
-                    put("year", title.date.take(4)); if (season != null) put("season", season)
-                })
-            }
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject {
+                put("name", title.displayTitle); put("tmdbid", title.id)
+                put("type", if (title.mediaType == "movie") "电影" else "电视剧")
+                put("year", title.date.take(4)); if (season != null) put("season", season)
+            })
         }
+        check(response.status.value in 200..299) { "MoviePilot HTTP ${response.status.value}" }
+        val result = response.body<JsonObject>()
+        check(result["success"]?.jsonPrimitive?.booleanOrNull == true) { result.text("message") ?: "MoviePilot subscription update failed" }
+    }
+
+    /** Delete by subscription row id, avoiding collisions between movie/TV TMDB namespaces. */
+    suspend fun removeSubscription(id: Int) {
+        require(id > 0)
+        val response = client.delete("$root/subscribe/$id") { bearerAuth(token ?: error("MoviePilot login required")) }
         check(response.status.value in 200..299) { "MoviePilot HTTP ${response.status.value}" }
         val result = response.body<JsonObject>()
         check(result["success"]?.jsonPrimitive?.booleanOrNull == true) { result.text("message") ?: "MoviePilot subscription update failed" }
