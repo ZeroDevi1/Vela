@@ -167,7 +167,7 @@ keyPassword=...
 
 ### 发布
 
-推送与根目录 `build.gradle` 里 `appVersionName` 一致的 `v*` tag（例如当前为 `1.2.2` 则打 `v1.2.2`），或在 Actions 里手动跑 `Release` workflow。CI 会构建已签名 phone / tv APK 并创建 GitHub Release。tag 与 `appVersionName` 不一致会直接失败，缺少签名 secret 也不会产出 unsigned 正式包。
+推送与根目录 `build.gradle` 里 `appVersionName` 一致的 `v*` tag（例如当前为 `1.2.3` 则打 `v1.2.3`），或在 Actions 里手动跑 `Release` workflow。CI 会构建已签名 phone / tv APK 并创建 GitHub Release。tag 与 `appVersionName` 不一致会直接失败，缺少签名 secret 也不会产出 unsigned 正式包。
 
 发版前在 [`docs/release-notes.md`](docs/release-notes.md) 增加与版本号对应的 `## x.y.z` 章节，写成面向用户的更新说明（一句简介 + 要点列表），不要贴 commit changelog。CI 用该章节作为 Release 正文，标题为 `Vela v{version}`。缺少对应章节、或内容不像更新说明时，发版会在构建 APK 之前失败。
 
@@ -183,8 +183,8 @@ keyPassword=...
 ```bash
 # 先把 build.gradle 的 appVersionName / appVersionCode 改到目标版本
 # 并在 docs/release-notes.md 顶部增加 ## x.y.z 更新说明，再提交
-git tag v1.2.2
-git push origin v1.2.2
+git tag v1.2.3
+git push origin v1.2.3
 ```
 
 应用内：关于页可检查 GitHub Release，按类型（手机/电视）和架构选择 APK，并可用 gh-proxy 等 CDN 加速下载。
