@@ -2,7 +2,6 @@ package com.vela.app.player.vr
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -65,11 +64,4 @@ class VrFlattenFilterTest {
         assertTrue(fisheye.contains("#define STEREO_MODE 0.0"))
     }
 
-    @Test
-    fun copyHwdecOnlyForZeroCopyMediacodec() {
-        assertEquals("mediacodec-copy", VrFlattenFilter.copyHwdec("mediacodec"))
-        assertEquals("mediacodec-copy", VrFlattenFilter.copyHwdec("auto"))
-        assertNull(VrFlattenFilter.copyHwdec("mediacodec-copy"))
-        assertNull(VrFlattenFilter.copyHwdec("no"))
-    }
 }

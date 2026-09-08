@@ -1,7 +1,5 @@
 package com.vela.app.player.vr
 
-import com.vela.player.preferences.PlayerPreferences
-
 /**
  * GPU flatten shader for mpv `vo=gpu` / `vo=gpu-next` hooks.
  *
@@ -30,15 +28,6 @@ object VrFlattenFilter {
             .replace("__ID_FOV__", "${layout.inputFov}.0")
             .replace("__PROJ_MODE__", "${layout.projMode}.0")
             .replace("__STEREO_MODE__", "${layout.stereoMode}.0")
-    }
-
-    fun copyHwdec(current: String): String? {
-        return when (current) {
-            PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC,
-            "auto",
-            "yes" -> PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC_COPY
-            else -> null
-        }
     }
 
     private fun format(value: Float): String {

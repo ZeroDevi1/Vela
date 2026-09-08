@@ -64,11 +64,14 @@ class MpvPlayerController(
     private var colorPolicyStreams: List<MediaStream>? = null
     private var requestedHwdec: String = hardwareDecoding
     private var vrShaderActive = false
-    private var hwdecBeforeVr: String? = null
     private var lastVrShaderSource: String? = null
     private val vrLookHandler = Handler(Looper.getMainLooper())
+    private var vrLookScheduled = false
     private val applyPendingVrLook = Runnable {
-        pendingVrLookSource?.let { reloadVrShader(it) }
+        vrLookScheduled = false
+        val source = pendingVrLookSource
+        pendingVrLookSource = null
+        source?.let { reloadVrShader(it) }
     }
     private var pendingVrLookSource: String? = null
     private val vrShaderTemplate: String? by lazy {
@@ -298,7 +301,7 @@ class MpvPlayerController(
         Log.i(
             COLOR_LOG_TAG,
             "hwdec=$resolved requested=$requestedHwdec streams=${colorPolicyStreams?.size ?: 0} " +
-                "software=${HevcHwdecColor.needsSoftwareColorPath(colorPolicyStreams)}"
+                "colorCopy=${HevcHwdecColor.needsCopyColorPath(colorPolicyStreams)}"
         )
     }
 
@@ -309,6 +312,10 @@ class MpvPlayerController(
                 "hwdec-current=${MPVLib.getPropertyString("hwdec-current")} " +
                 "colormatrix=${MPVLib.getPropertyString("video-params/colormatrix")} " +
                 "primaries=${MPVLib.getPropertyString("video-params/primaries")} " +
+                "output-matrix=${MPVLib.getPropertyString("video-out-params/colormatrix")} " +
+                "output-primaries=${MPVLib.getPropertyString("video-out-params/primaries")} " +
+                "dropped=${MPVLib.getPropertyString("frame-drop-count")} " +
+                "cache=${MPVLib.getPropertyString("demuxer-cache-duration")} " +
                 "vf=${MPVLib.getPropertyString("vf")}"
         )
     }
@@ -321,13 +328,13 @@ class MpvPlayerController(
     ) {
         if (released) return
         vrLookHandler.removeCallbacks(applyPendingVrLook)
+        vrLookScheduled = false
         pendingVrLookSource = null
         if (layout == null) {
             clearVrFlattenShader()
             return
         }
         val source = vrShaderSource(layout, yaw, pitch, outputFov) ?: return
-        enableVrCopyHwdec()
         vrShaderActive = true
         reloadVrShader(source)
     }
@@ -341,19 +348,22 @@ class MpvPlayerController(
         if (released || !vrShaderActive) return
         val source = vrShaderSource(layout, yaw, pitch, outputFov) ?: return
         pendingVrLookSource = source
-        vrLookHandler.removeCallbacks(applyPendingVrLook)
-        vrLookHandler.postDelayed(applyPendingVrLook, VR_LOOK_RELOAD_MS)
+        // 合并一帧内的手势；不能每次重置计时，否则连续拖动直到松手才更新。
+        if (!vrLookScheduled) {
+            vrLookScheduled = true
+            vrLookHandler.postDelayed(applyPendingVrLook, VR_LOOK_RELOAD_MS)
+        }
     }
 
     private fun clearVrFlattenShader() {
         vrLookHandler.removeCallbacks(applyPendingVrLook)
+        vrLookScheduled = false
         pendingVrLookSource = null
         lastVrShaderSource = null
         vrShaderActive = false
         if (!released) {
             MPVLib.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
             setMpv("glsl-shader-opts", "")
-            restoreVrHwdec()
         }
     }
 
@@ -388,23 +398,6 @@ class MpvPlayerController(
         }.onFailure { error ->
             Log.e(VR_LOG_TAG, "failed to write VR flatten shader", error)
         }.getOrNull()
-    }
-
-    private fun enableVrCopyHwdec() {
-        if (hwdecBeforeVr != null) return
-        val current = MPVLib.getPropertyString("hwdec") ?: hardwareDecoding
-        val copy = VrFlattenFilter.copyHwdec(current) ?: return
-        hwdecBeforeVr = current
-        MPVLib.setPropertyString("hwdec", copy)
-        Log.i(VR_LOG_TAG, "hwdec $current -> $copy for GLSL flatten")
-    }
-
-    private fun restoreVrHwdec() {
-        val previous = hwdecBeforeVr ?: return
-        hwdecBeforeVr = null
-        if (!released) {
-            MPVLib.setPropertyString("hwdec", previous)
-        }
     }
 
     fun setVolume(volume: Float) {
@@ -447,6 +440,7 @@ class MpvPlayerController(
         if (released) return
         released = true
         vrLookHandler.removeCallbacks(applyPendingVrLook)
+        vrLookScheduled = false
         MpvWarmPool.notifyReleased(this)
         runCatching { MPVLib.removeObserver(this) }
         runCatching { MPVLib.detachSurface() }
@@ -644,7 +638,7 @@ class MpvPlayerController(
         Log.i(
             COLOR_LOG_TAG,
             "hwdec=${MPVLib.getPropertyString("hwdec")} vf=${vf.ifBlank { "<none>" }} " +
-                "software=${HevcHwdecColor.needsSoftwareColorPath(colorPolicyStreams)}"
+                "colorCopy=${HevcHwdecColor.needsCopyColorPath(colorPolicyStreams)}"
         )
         if (asOptions) {
             MPVLib.setOptionString("vf", vf)

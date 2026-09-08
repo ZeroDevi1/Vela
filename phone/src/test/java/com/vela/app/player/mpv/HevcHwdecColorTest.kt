@@ -10,22 +10,22 @@ import org.junit.Test
 class HevcHwdecColorTest {
 
     @Test
-    fun unspecified4kHevcPrefersSoftwareAndBt709Filter() {
+    fun unspecified4kHevcUsesCopyAndBt709Filter() {
         val streams = listOf(unspecifiedHevc(width = 3840, height = 2160, codecTag = "hev1"))
         assertEquals(
-            PlayerPreferences.MPV_HARDWARE_DECODING_NONE,
+            PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC_COPY,
             HevcHwdecColor.hardwareDecoding(
                 PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC,
                 streams
             )
         )
-        assertEquals(HevcHwdecColor.BT709_FORMAT_VF, HevcHwdecColor.formatVf(streams))
-        assertTrue(HevcHwdecColor.needsSoftwareColorPath(streams))
+        assertEquals("${HevcHwdecColor.BT709_FORMAT_VF}:colorlevels=limited", HevcHwdecColor.formatVf(streams))
+        assertTrue(HevcHwdecColor.needsCopyColorPath(streams))
         assertTrue(HevcHwdecColor.needsBt709InputOverride(streams))
     }
 
     @Test
-    fun tagged4kBt709HevcPrefersSoftware() {
+    fun tagged4kBt709HevcUsesCopy() {
         val streams = listOf(
             MediaStream(
                 type = "Video",
@@ -42,14 +42,14 @@ class HevcHwdecColorTest {
             )
         )
         assertEquals(
-            PlayerPreferences.MPV_HARDWARE_DECODING_NONE,
+            PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC_COPY,
             HevcHwdecColor.hardwareDecoding(
                 PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC,
                 streams
             )
         )
-        assertTrue(HevcHwdecColor.needsSoftwareColorPath(streams))
-        assertEquals(HevcHwdecColor.BT709_FORMAT_VF, HevcHwdecColor.formatVf(streams))
+        assertTrue(HevcHwdecColor.needsCopyColorPath(streams))
+        assertEquals("${HevcHwdecColor.BT709_FORMAT_VF}:colorlevels=limited", HevcHwdecColor.formatVf(streams))
     }
 
     @Test
@@ -76,7 +76,7 @@ class HevcHwdecColorTest {
                 streams
             )
         )
-        assertFalse(HevcHwdecColor.needsSoftwareColorPath(streams))
+        assertFalse(HevcHwdecColor.needsCopyColorPath(streams))
         assertEquals("", HevcHwdecColor.formatVf(streams))
     }
 
@@ -107,7 +107,7 @@ class HevcHwdecColorTest {
     }
 
     @Test
-    fun bt2020SdrPrefersSoftwareWithoutTreatingAsHdr() {
+    fun bt2020SdrPreservesHardwareAndTags() {
         val streams = listOf(
             MediaStream(
                 type = "Video",
@@ -123,13 +123,13 @@ class HevcHwdecColorTest {
             )
         )
         assertEquals(
-            PlayerPreferences.MPV_HARDWARE_DECODING_NONE,
+            PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC,
             HevcHwdecColor.hardwareDecoding(
                 PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC,
                 streams
             )
         )
-        assertTrue(HevcHwdecColor.needsSoftwareColorPath(streams))
+        assertFalse(HevcHwdecColor.needsCopyColorPath(streams))
         assertFalse(HevcHwdecColor.needsBt709InputOverride(streams))
         assertEquals("", HevcHwdecColor.formatVf(streams))
         assertFalse(MPVPlayer.isHdr(streams))
@@ -148,10 +148,10 @@ class HevcHwdecColorTest {
     }
 
     @Test
-    fun copyPreferenceIsOverriddenToSoftware() {
+    fun copyPreferenceIsPreserved() {
         val streams = listOf(unspecifiedHevc(width = 3840, height = 2160))
         assertEquals(
-            PlayerPreferences.MPV_HARDWARE_DECODING_NONE,
+            PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC_COPY,
             HevcHwdecColor.hardwareDecoding(
                 PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC_COPY,
                 streams
@@ -162,7 +162,7 @@ class HevcHwdecColorTest {
     @Test
     fun sdUnspecifiedHevcDoesNotForceSoftware() {
         val streams = listOf(unspecifiedHevc(width = 720, height = 480, codecTag = "hvc1"))
-        assertFalse(HevcHwdecColor.needsSoftwareColorPath(streams))
+        assertFalse(HevcHwdecColor.needsCopyColorPath(streams))
         assertEquals("", HevcHwdecColor.formatVf(streams))
     }
 
@@ -176,15 +176,15 @@ class HevcHwdecColorTest {
                 height = 1080
             )
         )
-        assertFalse(HevcHwdecColor.needsSoftwareColorPath(streams))
+        assertFalse(HevcHwdecColor.needsCopyColorPath(streams))
         assertEquals("", HevcHwdecColor.formatVf(streams))
     }
 
     @Test
-    fun mpvHardwareDecodingForUnspecified4kHevcPrefersSoftware() {
+    fun mpvHardwareDecodingForUnspecified4kHevcUsesCopy() {
         val streams = listOf(unspecifiedHevc(width = 3840, height = 2160, codecTag = "hev1"))
         assertEquals(
-            PlayerPreferences.MPV_HARDWARE_DECODING_NONE,
+            PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC_COPY,
             MPVPlayer.hardwareDecodingFor(
                 mediaSource = null,
                 userPreference = PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC,
@@ -198,9 +198,22 @@ class HevcHwdecColorTest {
     fun composesDolbyFilterAfterColorFilter() {
         val streams = listOf(unspecifiedHevc(width = 3840, height = 2160))
         assertEquals(
-            "${HevcHwdecColor.BT709_FORMAT_VF},${DolbyVisionMpv.DV7_TO_DV81_VF}",
+            "${HevcHwdecColor.BT709_FORMAT_VF}:colorlevels=limited,${DolbyVisionMpv.DV7_TO_DV81_VF}",
             HevcHwdecColor.composedVf(DolbyVisionMpv.DV7_TO_DV81_VF, streams)
         )
+    }
+
+    @Test
+    fun fullRangeIsPreserved() {
+        val video = unspecifiedHevc(3840, 2160).copy(colorRange = "pc")
+        assertEquals("${HevcHwdecColor.BT709_FORMAT_VF}:colorlevels=full",
+            HevcHwdecColor.formatVf(listOf(video)))
+    }
+
+    @Test
+    fun explicitOtherPrimariesAreNotOverriddenByUhdOrHev1() {
+        val video = unspecifiedHevc(3840, 2160).copy(colorPrimaries = "smpte432")
+        assertEquals("", HevcHwdecColor.formatVf(listOf(video)))
     }
 
     private fun unspecifiedHevc(

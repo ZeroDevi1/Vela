@@ -4,7 +4,7 @@ package com.vela.app.player.mpv
  * MPV 杜比视界选项。亮度增强只改 DV 片；DV7→8.1 是解码期 filter，非 DV 片应被忽略。
  */
 internal object DolbyVisionMpv {
-    const val DV7_TO_DV81_VF = "format:dolbyvision=yes"
+    const val DV7_TO_DV81_VF = "format=dolbyvision=yes"
     const val DV7_TO_DV81_VD_LAVC = "enable_dovi=1"
     const val BRIGHTNESS_BOOST = "1.5"
     const val BRIGHTNESS_NEUTRAL = "1.0"
