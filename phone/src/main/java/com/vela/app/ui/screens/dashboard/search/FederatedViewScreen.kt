@@ -71,7 +71,8 @@ import kotlinx.coroutines.launch
 fun FederatedViewScreen(
     onNavigateToDetail: (BaseItemDto) -> Unit,
     onNavigateToLibrary: (BaseItemDto) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onCatalog: (com.vela.data.model.CatalogTitle) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val viewModel: FederatedHomeViewModel = viewModel {
@@ -93,6 +94,7 @@ fun FederatedViewScreen(
         FederatedSearchScreen(
             onNavigateToDetail = onNavigateToDetail,
             onBack = { showSearch = false },
+            onCatalog = onCatalog,
             modifier = modifier
         )
         return

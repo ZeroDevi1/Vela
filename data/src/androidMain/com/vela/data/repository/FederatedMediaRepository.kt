@@ -26,7 +26,8 @@ data class FederatedMediaItem(
     val item: BaseItemDto,
     val serverId: String,
     val serverName: String,
-    val imageUrl: String?
+    val imageUrl: String?,
+    val lineName: String? = null
 )
 
 data class FederatedServerFailure(
@@ -66,14 +67,15 @@ class FederatedMediaRepository(context: Context) {
     suspend fun search(
         query: String,
         selectedTypes: Set<SearchMediaType>,
-        limitPerServer: Int = 60
+        limitPerServer: Int = 60,
+        selectedServerIds: Set<String>? = null
     ): FederatedMediaResponse = coroutineScope {
         val trimmedQuery = query.trim()
         if (trimmedQuery.isEmpty() || selectedTypes.isEmpty()) {
             return@coroutineScope FederatedMediaResponse(emptyList(), emptyList())
         }
 
-        val servers = authenticatedServers()
+        val servers = authenticatedServers().filter { selectedServerIds == null || it.id in selectedServerIds }
         val includeItemTypes = selectedTypes.joinToString(",") { type ->
             when (type) {
                 SearchMediaType.MOVIE -> "Movie"
@@ -120,6 +122,38 @@ class FederatedMediaRepository(context: Context) {
             items = outcomes.flatMap { it.items },
             failures = outcomes.mapNotNull { it.failure }
         )
+    }
+
+    /** Provider identity is mandatory; title similarity never grants playback. */
+    suspend fun matchCatalog(type: String, tmdbId: Int, imdbId: String? = null): FederatedMediaResponse = coroutineScope {
+        require(type == "movie" || type == "tv")
+        require(tmdbId > 0)
+        val gate = Semaphore(MAX_CONCURRENT_SERVERS)
+        val outcomes = authenticatedServers().map { server -> async {
+            gate.withPermit {
+                try {
+                    val token = secureSessionStore.getToken(server.id) ?: error("Missing access token")
+                    val baseUrl = server.activeLine()?.url ?: server.serverUrl
+                    val api = createApi(baseUrl, token, runCatching { ServerType.valueOf(server.serverTypeRaw) }.getOrNull())
+                    val providerQuery = listOfNotNull("Tmdb.$tmdbId", imdbId?.takeIf { it.isNotBlank() }?.let { "Imdb.$it" }).joinToString(",")
+                    val response = api.getUserItems(userId = server.userId, recursive = true,
+                        includeItemTypes = if (type == "tv") "Series" else "Movie",
+                        anyProviderIdEquals = providerQuery, limit = 100,
+                        fields = "ProviderIds,MediaSources,MediaStreams,Chapters,UserData,Overview,RunTimeTicks,EpisodeCount")
+                    check(response.isSuccessful) { "HTTP ${response.code()}" }
+                    val items = response.body()?.items ?: error("Missing response")
+                    val identity = com.vela.data.model.CatalogIdentity(type, tmdbId, imdbId)
+                    // 再校验身份与媒体类型，兼容忽略请求过滤条件的服务器。
+                    ServerOutcome(items.filter(identity::matches).map { item ->
+                        FederatedMediaItem(item, server.id, server.displayName(), item.id?.let { buildImageUrl(baseUrl, it, token, "Primary") },
+                            server.activeLine()?.name?.takeIf { it.isNotBlank() })
+                    })
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { ServerOutcome.failure(server, e.message ?: "Resource lookup failed") }
+            }
+        } }.awaitAll()
+        val active = authRepository.getActiveSessionSnapshot().activeServerId
+        FederatedMediaResponse(outcomes.flatMap { it.items }.sortedBy { it.serverId != active }, outcomes.mapNotNull { it.failure })
     }
 
     private fun authenticatedServers(): List<AuthRepository.SavedServer> =

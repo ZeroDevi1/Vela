@@ -93,6 +93,8 @@ fun ConnectionsSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             contentPadding = PaddingValues(bottom = 32.dp)
         ) {
+            item { com.vela.app.ui.screens.catalog.MoviePilotConnectionCard() }
+            item { com.vela.app.ui.screens.catalog.TraktConnectionCard(onNavigateToRequestedItem) }
             item { SectionLabel(stringResource(R.string.settings_server_lines)) }
             item {
                 val activeServer = uiState.savedServers.firstOrNull { it.id == uiState.activeServerId }

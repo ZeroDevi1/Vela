@@ -13,7 +13,8 @@ internal class PlayerPlaybackReporter(
     private val mediaRepository: MediaRepository,
     private val scope: CoroutineScope,
     private val positionProvider: () -> Long,
-    private val isPausedProvider: () -> Boolean
+    private val isPausedProvider: () -> Boolean,
+    private val onScrobble: (String) -> Unit = {}
 ) {
 
     companion object {
@@ -25,6 +26,8 @@ internal class PlayerPlaybackReporter(
     private var session = PlaybackSessionContext()
     private var progressReportingJob: Job? = null
     private var hasReportedStart: Boolean = false
+    private var scrobbleStarted = false
+    private var scrobblePaused = false
 
     fun updateSession(newSession: PlaybackSessionContext) {
         session = newSession
@@ -36,13 +39,20 @@ internal class PlayerPlaybackReporter(
         progressReportingJob?.cancel()
         progressReportingJob = null
         hasReportedStart = false
+        scrobbleStarted = false
         session = PlaybackSessionContext()
     }
 
     fun reportPlaybackStatus() {
         val sessionSnapshot = session
         val mediaId = sessionSnapshot.mediaId ?: return
-        if (sessionSnapshot.isOfflinePlayback || hasReportedStart) return
+        if (sessionSnapshot.isOfflinePlayback) return
+        if (!scrobbleStarted) {
+            scrobbleStarted = true
+            scrobblePaused = isPausedProvider()
+            onScrobble(if (scrobblePaused) "pause" else "start")
+        }
+        if (hasReportedStart) return
 
         scope.launch {
             try {
@@ -78,6 +88,10 @@ internal class PlayerPlaybackReporter(
     fun reportPlaybackStopped(failed: Boolean = false) {
         val sessionSnapshot = session
         val mediaId = sessionSnapshot.mediaId ?: return
+        if (scrobbleStarted) {
+            onScrobble(if (failed) "pause" else "stop")
+            scrobbleStarted = false
+        }
         if (sessionSnapshot.isOfflinePlayback || !hasReportedStart) return
 
         hasReportedStart = false
@@ -108,6 +122,11 @@ internal class PlayerPlaybackReporter(
     }
 
     fun onPlaybackPauseStateChanged() {
+        val paused = isPausedProvider()
+        if (scrobbleStarted && paused != scrobblePaused) {
+            scrobblePaused = paused
+            onScrobble(if (paused) "pause" else "start")
+        }
         if (hasReportedStart) {
             reportPlaybackProgress()
         }

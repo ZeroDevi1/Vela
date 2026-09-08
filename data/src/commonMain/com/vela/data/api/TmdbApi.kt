@@ -12,6 +12,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.sync.withPermit
 
 internal data class TmdbTitleSummary(
     val title: String,
@@ -38,18 +39,18 @@ internal data class TmdbTitleDetail(
 @Serializable
 internal data class TmdbGenre(val name: String? = null)
 
-internal class TmdbApi(
+class TmdbApi(
     private val client: HttpClient,
     private val apiKey: String = TMDB_API_KEY
 ) {
-    suspend fun titleDetail(mediaType: String, tmdbId: String): TmdbTitleDetail? = runCatching {
+    internal suspend fun titleDetail(mediaType: String, tmdbId: String): TmdbTitleDetail? = runCatching {
         client.get("https://api.themoviedb.org/3/$mediaType/$tmdbId") {
             parameter("api_key", apiKey)
             parameter("language", "en-US")
         }.body<TmdbTitleDetail>()
     }.getOrNull()
 
-    suspend fun titleSummary(mediaType: String, tmdbId: String): TmdbTitleSummary? {
+    internal suspend fun titleSummary(mediaType: String, tmdbId: String): TmdbTitleSummary? {
         val detail = titleDetail(mediaType, tmdbId) ?: return null
         val title = detail.title?.takeIf { it.isNotBlank() }
             ?: detail.name?.takeIf { it.isNotBlank() }
@@ -60,6 +61,58 @@ internal class TmdbApi(
             ?.toIntOrNull()
         return TmdbTitleSummary(title = title, posterUrl = imageUrl(detail.posterPath, "w500"), year = year)
     }
+
+    private val catalogGate = kotlinx.coroutines.sync.Semaphore(2)
+
+    suspend fun trending(window: String): List<com.vela.data.model.CatalogTitle> {
+        require(window == "day" || window == "week")
+        return catalog<com.vela.data.model.CatalogPage>("trending/all/$window").results
+            .filter { it.mediaType == "movie" || it.mediaType == "tv" }
+    }
+
+    suspend fun genres(type: String): List<com.vela.data.model.CatalogGenre> {
+        require(type == "movie" || type == "tv")
+        return catalog<com.vela.data.model.CatalogGenres>("genre/$type/list").genres
+    }
+
+    suspend fun findByImdb(id: String): List<com.vela.data.model.CatalogTitle> {
+        require(id.matches(Regex("tt[0-9]+")))
+        val response = catalog<com.vela.data.model.CatalogFindResult>("find/$id")
+        return response.movies.map { it.copy(mediaType = "movie") } + response.shows.map { it.copy(mediaType = "tv") }
+    }
+
+    suspend fun search(query: String): List<com.vela.data.model.CatalogTitle> =
+        catalog<com.vela.data.model.CatalogPage>("search/multi", query).results
+            .filter { it.mediaType == "movie" || it.mediaType == "tv" }
+
+    suspend fun catalogDetail(type: String, id: Int): com.vela.data.model.CatalogTitle {
+        require(type == "movie" || type == "tv")
+        require(id > 0)
+        return catalog<com.vela.data.model.CatalogTitle>("$type/$id").let { detail ->
+            detail.copy(mediaType = type, similar = detail.similar?.let { page ->
+                page.copy(results = page.results.map { it.copy(mediaType = type) })
+            })
+        }
+    }
+
+    suspend fun collection(id: Int): com.vela.data.model.CatalogCollection = catalog("collection/$id")
+
+    private suspend inline fun <reified T> catalog(path: String, query: String? = null): T =
+        catalogGate.withPermit {
+            // 单次请求有界；429 交给页面显式重试，避免目录请求挤占播放流量。
+            val response = client.get("https://api.themoviedb.org/3/$path") {
+                parameter("api_key", apiKey)
+                parameter("language", "zh-CN")
+                parameter("include_adult", false)
+                if (query != null) parameter("query", query)
+                if (path.startsWith("find/")) parameter("external_source", "imdb_id")
+                if (path.startsWith("movie/") || path.startsWith("tv/")) {
+                    parameter("append_to_response", "credits,external_ids,similar")
+                }
+            }
+            check(response.status.value in 200..299) { "TMDB HTTP ${response.status.value}" }
+            response.body<T>()
+        }
 
     suspend fun titleLogoPath(mediaType: String, tmdbId: String): String? = runCatching {
         client.get("https://api.themoviedb.org/3/$mediaType/$tmdbId/images") {

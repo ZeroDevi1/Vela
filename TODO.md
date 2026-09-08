@@ -1,6 +1,10 @@
 # Vela 手机端开发计划
 
 ZeroDevi1/Vela fork。本文件是已确认的实现顺序，不是愿望清单。
+本轮状态（2026-09-08）：P1 / P2 功能代码已接入，清单勾选表示实现完成，不代表实机验收通过。
+实机验收由用户执行；开发侧只进行目标单测、构建与覆盖安装，不启动应用或操作屏幕。
+接口边界与验收入口见 `docs/p1-p2-testing.md`。
+
 上一轮（手势 / overlay / 多服务器 / 聚合搜索 / 线路）已归档到 `TODO.archive.md`。
 
 TV：本轮以手机为准。目录、搜索、日历、Trakt 能下沉 `data` 的共用；日历 / 发现 UI 不跟。杜比设置能共用 `PlayerPreferences` 的跟。
@@ -45,7 +49,7 @@ TV：本轮以手机为准。目录、搜索、日历、Trakt 能下沉 `data` �
 - Release 正文来自 `docs/release-notes.md` 对应版本章节（简介 + 要点），标题 `Vela v{version}`，不用 GitHub 自动 changelog
 - tag 与 `appVersionName` 不一致直接 fail；缺 `VELA_STORE_FILE_BASE64` / `VELA_STORE_PASSWORD` / `VELA_KEY_PASSWORD` 时列出缺项并拒绝 unsigned
 - 构建后 `apksigner verify`，未签名不发 Release
-- 版本在根 `build.gradle`：`appVersionName` / `appVersionCode`（当前 `1.2.2` / `7`）
+- 版本在根 `build.gradle`：`appVersionName` / `appVersionCode`（当前 `1.2.3` / `8`）
 - APK 名：`vela-phone-release-{version}-{abi}.apk`、`vela-tv-release-{version}-{abi}.apk`
 
 ### 做法
@@ -76,7 +80,7 @@ TV：本轮以手机为准。目录、搜索、日历、Trakt 能下沉 `data` �
 
 目标：底栏增加「发现」。热门来自 TMDB（及豆瓣评分装饰），继续观看来自已登录服务器。
 
-### 现状
+### 开发前基线
 
 - 应用级底栏 `AppHomeTab`：服务器 / 聚合 / 设置（`AppHomeContainer`）
 - 进服务器后 `DashboardDestination`：首页 / MyMedia(Discover) / 搜索 / 收藏 / 设置
@@ -86,13 +90,13 @@ TV：本轮以手机为准。目录、搜索、日历、Trakt 能下沉 `data` �
 
 ### 计划
 
-- [ ] 应用级底栏增加「发现」（可进、不强制先选服务器）
-- [ ] 区块：继续观看（跨已登录服务器，宽卡 + 进度 +「看到 mm:ss」+ 相对时间）
-- [ ] 今日趋势 / 本周趋势：TMDB trending `day` / `week`，中文标题 + 年份 + 类型
-- [ ] 可选：已有 Awards 数据可接一条精选横幅；没有就空着，不要假 Oscars 图
-- [ ] 点海报 → 目录详情（Phase 3），带 `tmdbId` + media type
-- [ ] 继续观看点条目 → 现有库详情 / 播放（`FederatedSessionNavigator` 切到对应 Saved Server）
-- [ ] TMDB 请求限流、失败显示可重试空态；不要因为没服务器就整页空白（趋势仍可看）
+- [x] 应用级底栏增加「发现」（可进、不强制先选服务器）
+- [x] 区块：继续观看（跨已登录服务器，宽卡 + 进度 +「看到 mm:ss」+ 相对时间）
+- [x] 今日趋势 / 本周趋势：TMDB trending `day` / `week`，中文标题 + 年份 + 类型
+- [ ] 可选：Awards 精选横幅（本轮无可靠数据，未接入）
+- [x] 点海报 → 目录详情（Phase 3），带 `tmdbId` + media type
+- [x] 继续观看点条目 → 现有库详情 / 播放（`FederatedSessionNavigator` 切到对应 Saved Server）
+- [x] TMDB 请求限流、失败显示可重试空态；不要因为没服务器就整页空白（趋势仍可看）
 
 TV 本阶段不做发现 tab。
 
@@ -113,7 +117,7 @@ TV 本阶段不做发现 tab。
 
 目标：目录条目的详情页。有库匹配时能播；没有时明确说没有资源。展开媒体信息对齐图 4。
 
-### 现状
+### 开发前基线
 
 - `DetailContent.kt` 绑定 `BaseItemDto`（Jellyfin/Emby 库条目）
 - 已有简介、演职员、Seerr 请求、codec badge、Cast
@@ -122,14 +126,14 @@ TV 本阶段不做发现 tab。
 
 ### 计划
 
-- [ ] 新目录详情（或现有详情加「无 itemId、有 tmdbId」模式），不要复制一套平行播放栈
-- [ ] 图 3 折叠：返回、日期·类型、主按钮、操作行（收藏 / 已看待有库条目才启用）、简介、评分徽章、系列、章节、播放资源、展开媒体信息
-- [ ] 主按钮：匹配到库资源 →「播放」并走现有 `onNavigateToPlayer`；否则「未加载到相关资源」，禁用，不 toast 假成功
-- [ ] 匹配：各 Saved Server 用 `ProviderIds.Tmdb`（及 imdb 兜底）查；多命中按当前活动服务器优先，列出资源卡（服务器名 + 绿勾）
-- [ ] 播放资源卡：SDR/HDR/DV、体积、码率、线路（复用已有线路，不新做负载均衡）
-- [ ] 图 4 展开：视频 / 音频技术卡、团队（圆头像）、分类 pill、相似作品
-- [ ] 评分行：TMDB 必有；豆瓣有则显示；Trakt 放到 Phase 7。没有的源留空，不写 0.0
-- [ ] 系列 / 相似：TMDB collection / similar；点条目仍进目录详情
+- [x] 新目录详情（或现有详情加「无 itemId、有 tmdbId」模式），不要复制一套平行播放栈
+- [x] 图 3 折叠：返回、日期·类型、主按钮、操作行（收藏 / 已看待有库条目才启用）、简介、评分徽章、系列、章节、播放资源、展开媒体信息
+- [x] 主按钮：匹配到库资源 →「播放」并走现有 `onNavigateToPlayer`；否则「未加载到相关资源」，禁用，不 toast 假成功
+- [x] 匹配：各 Saved Server 用 `ProviderIds.Tmdb`（及 imdb 兜底）查；多命中按当前活动服务器优先，列出资源卡（服务器名 + 绿勾）
+- [x] 播放资源卡：SDR/HDR/DV、体积、码率、线路（复用已有线路，不新做负载均衡）
+- [x] 图 4 展开：视频 / 音频技术卡、团队（圆头像）、分类 pill、相似作品
+- [x] 评分行：TMDB 必有；豆瓣有则显示；Trakt 放到 Phase 7。没有的源留空，不写 0.0
+- [x] 系列 / 相似：TMDB collection / similar；点条目仍进目录详情
 
 ### 锚点
 
@@ -148,7 +152,7 @@ TV 本阶段不做发现 tab。
 
 目标：搜索可勾选源。库内结果可播；TMDB / 豆瓣结果进目录详情。
 
-### 现状
+### 开发前基线
 
 - 服务器内 `SearchViewModel`：当前服 + 可选 Seerr
 - 应用级 `FederatedSearchViewModel`：所有 Saved Server，chips 筛服，无 TMDB / 豆瓣
@@ -156,14 +160,14 @@ TV 本阶段不做发现 tab。
 
 ### 计划
 
-- [ ] 搜索页增加源选择（多选）：每个已登录 Saved Server、TMDB、豆瓣
-- [ ] 全选 / 取消全选
-- [ ] 结果一列，带源徽章；chips 可按源筛
-- [ ] 点库结果：切到该 Saved Server 再进详情 / 播放（现有 `FederatedSessionNavigator`）
-- [ ] 点 TMDB / 豆瓣结果：进 Phase 3 目录详情
-- [ ] 单源失败：条级提示，其它源照出
-- [ ] Seerr 保持可选附加，不占默认源槽；默认源 = 全部 Saved Server + TMDB
-- [ ] 限并发，避免 K50 上同时打爆多台服 + 两个目录 API
+- [x] 搜索页增加源选择（多选）：每个已登录 Saved Server、TMDB、豆瓣
+- [x] 全选 / 取消全选
+- [x] 结果一列，带源徽章；chips 可按源筛
+- [x] 点库结果：切到该 Saved Server 再进详情 / 播放（现有 `FederatedSessionNavigator`）
+- [x] 点 TMDB / 豆瓣结果：进 Phase 3 目录详情；豆瓣优先按 TMDB / IMDb 映射，缺失时由用户选择对应作品，不用中文名自动认定身份
+- [x] 单源失败：条级提示，其它源照出
+- [x] Seerr 保持可选附加，不占默认源槽；默认源 = 全部 Saved Server + TMDB
+- [x] 限并发，避免 K50 上同时打爆多台服 + 两个目录 API
 
 ### 锚点
 
@@ -182,7 +186,7 @@ TV 本阶段不做发现 tab。
 
 目标：按播出日查看已订阅剧集。数据优先 MoviePilot，否则 Bangumi。
 
-### 现状
+### 开发前基线
 
 - 无日历、无订阅模型、无 MoviePilot 客户端
 - 连接设置只有 Seerr（`ConnectionsSettingsScreen`）
@@ -190,13 +194,13 @@ TV 本阶段不做发现 tab。
 
 ### 计划
 
-- [ ] 应用级底栏「日历」
-- [ ] 按日分组的时间线：今日 / 未来 / 过去一周；空日显示「今日无剧更新」
-- [ ] 卡片：海报、标题、季集进度（有库匹配才显示）、播出状态（更新 / 完结）
-- [ ] 设置里「服务器订阅」（对齐参考图）：开关、MoviePilot 地址、是否登录、连通性、用户名/密码
-- [ ] 连通成功则日历走 MoviePilot 的 subscribe / calendar API；关掉或失败则 Bangumi 公开日历
-- [ ] 点卡片：有库匹配 → 库详情；否则 → 目录详情
-- [ ] 同步移除订阅跟 MoviePilot 开关走，默认开；本地不另做第二份订阅真相源
+- [x] 应用级底栏「日历」
+- [x] 按日分组的时间线：今日 / 未来 / 过去一周；空日显示「今日无剧更新」
+- [x] 卡片：海报、标题、季集进度（有库匹配才显示）、播出状态（更新 / 完结）
+- [x] 设置里「服务器订阅」（对齐参考图）：开关、MoviePilot 地址、是否登录、连通性、用户名/密码
+- [x] 连通成功则使用 MoviePilot 前端同款 `subscribe/` + `tmdb/{id}/{season}` 日程接口；关掉或失败则 Bangumi 公开日历
+- [x] 点卡片：有库匹配 → 库详情；否则 → 目录详情。Bangumi 无可靠 TMDB 映射时保留来源详情及手动选择入口
+- [x] 同步移除订阅跟 MoviePilot 开关走，默认开；本地不另做第二份订阅真相源
 
 不做：在 App 里做完整 MoviePilot 下载/整理；不做弹幕。
 
@@ -217,7 +221,7 @@ TV 本阶段不做发现 tab。
 
 目标：杜比视界能播、能关、能降级，设置语义对齐参考「画面」页。K50 实测。
 
-### 现状
+### 开发前基线
 
 - Exo：`HdrCapabilityManager` / `DolbyVisionCompatibleRenderersFactory`，DV → HEVC 回退
 - MPV：`target-prim` / `target-trc` / `hdr-compute-peak` / HDR→SDR 开关；无 DV Profile 7→8.1，无「杜比亮度增强」
@@ -253,18 +257,18 @@ K50 上 DV 片可播、不发灰不过曝；关 DV7 转换后异常片可退回�
 
 目标：登录 Trakt 后，播放进度上报，历史 / 在看可同步。发现详情可显示 Trakt 评分。
 
-### 现状
+### 开发前基线
 
 - 进度只报给 Emby/Jellyfin（`MediaRepository` session reporting）
 - 无 Trakt OAuth、无 scrobble
 
 ### 计划
 
-- [ ] 连接设置增加 Trakt：OAuth 登录、显示用户名、退出
-- [ ] 播放 start / pause / stop 向 Trakt scrobble；失败重试一次，不阻断本地进度上报
-- [ ] 同步 watched / watching 到本地展示（继续观看、日历进度可只读用），Jellyfin UserData 仍是库内已看的真相源
-- [ ] 目录详情评分行加 Trakt（有则显示）
-- [ ] Token 走 `SecureSessionStore` 一类安全存储，不进普通 DataStore 明文
+- [x] 连接设置增加 Trakt：OAuth 登录、显示用户名、退出
+- [x] 播放 start / pause / stop 向 Trakt scrobble；失败重试一次，不阻断本地进度上报
+- [x] 同步 watched / watching 到本地展示（继续观看、日历进度可只读用），Jellyfin UserData 仍是库内已看的真相源
+- [x] 目录详情评分行加 Trakt（有则显示）
+- [x] Token 走 `SecureSessionStore` 一类安全存储，不进普通 DataStore 明文
 
 不做：Trakt 社交、评论、自定义列表编辑。
 

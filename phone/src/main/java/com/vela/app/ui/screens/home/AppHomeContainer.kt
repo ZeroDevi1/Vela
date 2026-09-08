@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AllInclusive
+import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.CalendarMonth
+import com.vela.app.ui.screens.catalog.*
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
@@ -40,6 +43,8 @@ private enum class AppHomeTab(
     val icon: ImageVector
 ) {
     SERVERS(R.string.settings_server_label, Icons.Rounded.Dns),
+    DISCOVER(R.string.catalog_discover, Icons.Rounded.Explore),
+    CALENDAR(R.string.catalog_calendar, Icons.Rounded.CalendarMonth),
     FEDERATED(R.string.federated_search_title, Icons.Rounded.AllInclusive),
     SETTINGS(R.string.settings, Icons.Rounded.Settings)
 }
@@ -64,6 +69,7 @@ fun AppHomeContainer(
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(AppHomeTab.SERVERS) }
 
+    CatalogNavigationHost(onNavigateToDetail) { openCatalog ->
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         // 子页面各自拥有 top app bar；外层只分配底部导航空间，避免状态栏 inset 被消费两次。
@@ -96,8 +102,11 @@ fun AppHomeContainer(
                     onAddUser = onAddUser,
                     modifier = contentModifier
                 )
+                AppHomeTab.DISCOVER -> CatalogScreen(onNavigateToDetail, openCatalog, contentModifier)
+                AppHomeTab.CALENDAR -> CalendarScreen(onNavigateToDetail, openCatalog, onNavigateToConnections, contentModifier)
                 AppHomeTab.FEDERATED -> FederatedViewScreen(
                     onNavigateToDetail = onNavigateToDetail,
+                    onCatalog = openCatalog,
                     onNavigateToLibrary = { library ->
                         val contentType = when (library.collectionType) {
                             "movies" -> ContentType.MOVIES
@@ -129,6 +138,8 @@ fun AppHomeContainer(
             }
         }
     }
+}
+
 }
 
 @Composable

@@ -115,7 +115,20 @@ class PlayerViewModel @Inject constructor(
         mediaRepository = mediaRepository,
         scope = viewModelScope,
         positionProvider = { getCurrentPosition() },
-        isPausedProvider = { !isPlayingNow() }
+        isPausedProvider = { !isPlayingNow() },
+        onScrobble = { action ->
+            val context = playerContext
+            val item = currentItemDetails
+            if (context != null && item != null) {
+                try {
+                    com.vela.data.repository.TraktRepository.getInstance(context)
+                        .scrobble(action, item, getCurrentPosition(), getDuration())
+                } catch (error: Exception) {
+                    // 可选跟踪失败不能打断播放或媒体服务器自身的进度上报。
+                    Log.w(TAG, "Trakt reporting unavailable: ${error.javaClass.simpleName}")
+                }
+            }
+        }
     )
     private var spatializerHelper: SpatializerHelper? = null
     private var playerContext: Context? = null

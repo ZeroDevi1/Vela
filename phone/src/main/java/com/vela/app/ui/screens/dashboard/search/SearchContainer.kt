@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -139,6 +140,13 @@ fun SearchContainer(
     onCancel: () -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel()
 ) {
+    var multiSource by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    if (multiSource) {
+        com.vela.app.ui.screens.catalog.CatalogNavigationHost(onNavigateToDetail) { openCatalog ->
+            FederatedSearchScreen(onNavigateToDetail, onBack = { multiSource = false }, onCatalog = openCatalog)
+        }
+        return
+    }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedDiscoveryTab by viewModel.selectedDiscoveryTab.collectAsStateWithLifecycle()
@@ -288,6 +296,9 @@ fun SearchContainer(
             )
         }
 
+        TextButton(onClick = { multiSource = true }, modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()) {
+            Text(stringResource(R.string.catalog_source_title))
+        }
         SearchBar(
             query = searchQuery,
             onQueryChange = viewModel::updateSearchQuery,
