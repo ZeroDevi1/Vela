@@ -7,7 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.vela.data.DataModuleConfig
 import com.vela.data.R
 import com.vela.data.api.MediaServerApi
-import com.vela.data.api.TmdbApi
+import com.vela.data.network.CatalogNetwork
 import com.vela.data.datastore.DataStoreProvider
 import com.vela.data.datastore.HomeSnapshotStore
 import com.vela.data.model.AudioTranscodeMode
@@ -39,7 +39,6 @@ import com.vela.data.model.UserConfiguration
 import com.vela.data.model.DisplayPreferencesDto
 import com.vela.data.model.toSearchQueries
 import com.vela.data.network.HttpStatusException
-import com.vela.data.network.VelaJson
 import com.vela.data.network.NetworkModule
 import com.vela.data.network.ServerType
 import com.vela.data.network.trimTrailingSlash
@@ -50,10 +49,6 @@ import com.vela.data.security.LEGACY_ACCESS_TOKEN_KEY
 import com.vela.data.security.SecureSessionStore
 import com.vela.data.util.buildServerUrl
 import com.vela.data.util.getServerUrl
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.serialization.kotlinx.json.json
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -99,7 +94,7 @@ class MediaRepository(private val context: Context) {
     private val dataStore: DataStore<Preferences> = DataStoreProvider.getDataStore(context)
     private val networkPreferences = NetworkPreferences(context)
     private val secureSessionStore = SecureSessionStore(context)
-    private val tmdbApi by lazy { TmdbApi(createTmdbHttpClient()) }
+    private val tmdbApi by lazy { CatalogNetwork.tmdb }
 
     private data class ImageAuthState(
         val serverUrl: String?
@@ -2603,26 +2598,6 @@ class MediaRepository(private val context: Context) {
     private fun string(resId: Int, vararg formatArgs: Any): String =
         context.getString(resId, *formatArgs)
 
-    private fun createTmdbHttpClient(): HttpClient {
-        val timeouts = networkPreferences.getTimeoutConfig()
-        val okHttpClient = OkHttpClient.Builder()
-            .callTimeout(timeouts.requestTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
-            .connectTimeout(timeouts.connectionTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
-            .readTimeout(timeouts.socketTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
-            .writeTimeout(timeouts.socketTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
-            .retryOnConnectionFailure(true)
-            .build()
-
-        return HttpClient(OkHttp) {
-            expectSuccess = false
-            engine {
-                preconfigured = okHttpClient
-            }
-            install(ContentNegotiation) {
-                json(VelaJson)
-            }
-        }
-    }
 }
 
 private fun BaseItemDto.localMediaVersions(): List<BaseItemDto> =

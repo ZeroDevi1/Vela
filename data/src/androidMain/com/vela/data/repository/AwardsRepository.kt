@@ -1,7 +1,7 @@
 package com.vela.data.repository
 
 import android.content.Context
-import com.vela.data.api.TmdbApi
+import com.vela.data.network.CatalogNetwork
 import com.vela.data.api.WikidataAwardsClient
 import com.vela.data.model.AwardDefinition
 import com.vela.data.model.AwardMode
@@ -33,7 +33,7 @@ class AwardsRepository(
     private val appContext = context.applicationContext
     private val networkPreferences = NetworkPreferences(appContext)
     private val wikidata by lazy { WikidataAwardsClient(createHttpClient()) }
-    private val tmdb by lazy { TmdbApi(createHttpClient()) }
+    private val tmdb by lazy { CatalogNetwork.tmdb }
 
     private val refsCache = ConcurrentHashMap<String, List<AwardTitleRef>>()
     private val titleCache = ConcurrentHashMap<String, SeerrRecommendationTitle>()

@@ -7,12 +7,14 @@ import com.vela.data.model.TmdbVideosResponse
 import com.vela.data.model.toMediaExtras
 import com.vela.data.model.toRawVideos
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
+import io.ktor.client.statement.bodyAsText
+import kotlinx.serialization.json.Json
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.coroutines.sync.withPermit
 
 internal data class TmdbTitleSummary(
     val title: String,
@@ -43,12 +45,38 @@ class TmdbApi(
     private val client: HttpClient,
     private val apiKey: String = TMDB_API_KEY
 ) {
-    internal suspend fun titleDetail(mediaType: String, tmdbId: String): TmdbTitleDetail? = runCatching {
-        client.get("https://api.themoviedb.org/3/$mediaType/$tmdbId") {
-            parameter("api_key", apiKey)
-            parameter("language", "en-US")
-        }.body<TmdbTitleDetail>()
-    }.getOrNull()
+    private val requests = TmdbRequestCache()
+    private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
+
+    private suspend inline fun <reified T> request(path: String, params: Map<String, String> = emptyMap()): T {
+        val key = path + params.entries.sortedBy { it.key }.joinToString { "|${it.key.length}:${it.key}=${it.value.length}:${it.value}" }
+        val body = requests.get(key) {
+            withTimeoutOrNull(6_000) {
+                val response = client.get("https://api.themoviedb.org/3/$path") {
+                    parameter("api_key", apiKey)
+                    params.forEach { (key, value) -> parameter(key, value) }
+                }
+                if (response.status.value !in 200..299) {
+                    throw TmdbHttpException(response.status.value,
+                        response.headers["Retry-After"]?.toLongOrNull()?.coerceIn(0, 3600)?.times(1000))
+                }
+                response.bodyAsText().also { json.decodeFromString<T>(it) }
+            } ?: throw IllegalStateException("TMDB 请求超时")
+        }
+        return json.decodeFromString<T>(body)
+    }
+
+    private suspend fun <T> optional(block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
+
+    internal suspend fun titleDetail(mediaType: String, tmdbId: String): TmdbTitleDetail? = optional {
+        request<TmdbTitleDetail>("$mediaType/$tmdbId", mapOf("language" to "en-US"))
+    }
 
     internal suspend fun titleSummary(mediaType: String, tmdbId: String): TmdbTitleSummary? {
         val detail = titleDetail(mediaType, tmdbId) ?: return null
@@ -61,8 +89,6 @@ class TmdbApi(
             ?.toIntOrNull()
         return TmdbTitleSummary(title = title, posterUrl = imageUrl(detail.posterPath, "w500"), year = year)
     }
-
-    private val catalogGate = kotlinx.coroutines.sync.Semaphore(2)
 
     suspend fun trending(window: String): List<com.vela.data.model.CatalogTitle> {
         require(window == "day" || window == "week")
@@ -107,27 +133,19 @@ class TmdbApi(
     suspend fun collection(id: Int): com.vela.data.model.CatalogCollection = catalog("collection/$id")
 
     private suspend inline fun <reified T> catalog(path: String, query: String? = null, params: Map<String, String> = emptyMap()): T =
-        catalogGate.withPermit {
-            // 单次请求有界；429 交给页面显式重试，避免目录请求挤占播放流量。
-            val response = client.get("https://api.themoviedb.org/3/$path") {
-                parameter("api_key", apiKey)
-                parameter("language", "zh-CN")
-                parameter("include_adult", false)
-                params.forEach { (key, value) -> parameter(key, value) }
-                if (query != null) parameter("query", query)
-                if (path.startsWith("find/")) parameter("external_source", "imdb_id")
-                if (path.matches(Regex("(movie|tv)/[0-9]+"))) {
-                    parameter("append_to_response", "credits,external_ids,similar")
-                }
+        request(path, buildMap {
+            putAll(params)
+            put("language", "zh-CN")
+            put("include_adult", "false")
+            if (query != null) put("query", query)
+            if (path.startsWith("find/")) put("external_source", "imdb_id")
+            if (path.matches(Regex("(movie|tv)/[0-9]+"))) {
+                put("append_to_response", "credits,external_ids,similar")
             }
-            check(response.status.value in 200..299) { "TMDB HTTP ${response.status.value}" }
-            response.body<T>()
-        }
+        })
 
-    suspend fun titleLogoPath(mediaType: String, tmdbId: String): String? = runCatching {
-        client.get("https://api.themoviedb.org/3/$mediaType/$tmdbId/images") {
-            parameter("api_key", apiKey)
-        }.body<TmdbImagesResponse>()
+    suspend fun titleLogoPath(mediaType: String, tmdbId: String): String? = optional {
+        request<TmdbImagesResponse>("$mediaType/$tmdbId/images")
             .logos
             .asSequence()
             .filter { image -> !image.filePath.isNullOrBlank() }
@@ -139,7 +157,7 @@ class TmdbApi(
             )
             .firstOrNull()
             ?.filePath
-    }.getOrNull()
+    }
 
     suspend fun titleLogoUrl(
         mediaType: String,
@@ -149,14 +167,12 @@ class TmdbApi(
         return imageUrl(titleLogoPath(mediaType, tmdbId), size)
     }
 
-    suspend fun fetchExtras(mediaType: String, tmdbId: String): List<MediaExtra> = runCatching {
-        client.get("https://api.themoviedb.org/3/$mediaType/$tmdbId/videos") {
-            parameter("api_key", apiKey)
-        }.body<TmdbVideosResponse>()
+    suspend fun fetchExtras(mediaType: String, tmdbId: String): List<MediaExtra> = optional {
+        request<TmdbVideosResponse>("$mediaType/$tmdbId/videos")
             .results
             .toRawVideos()
             .toMediaExtras()
-    }.getOrDefault(emptyList())
+    }.orEmpty()
 
     private companion object {
         private const val TMDB_API_KEY = "4219e299c89411838049ab0dab19ebd5"

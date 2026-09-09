@@ -9,6 +9,7 @@ kotlin {
         namespace = 'com.vela.data'
         compileSdk = 37
         minSdk = 27
+        withHostTest {}
 
         androidResources {
             enable = true
@@ -46,6 +47,13 @@ kotlin {
     }
 
     sourceSets {
+        commonTest {
+            dependencies {
+                implementation kotlin('test')
+                implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0'
+                implementation 'io.ktor:ktor-client-mock:3.5.2'
+            }
+        }
         commonMain {
             kotlin.srcDirs = ['src/commonMain']
             dependencies {

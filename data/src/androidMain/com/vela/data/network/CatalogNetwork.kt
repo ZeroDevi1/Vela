@@ -17,5 +17,16 @@ object CatalogNetwork {
             install(HttpTimeout) { requestTimeoutMillis = 20_000; connectTimeoutMillis = 10_000 }
         }
     }
-    val tmdb by lazy { com.vela.data.api.TmdbApi(client) }
+    // TMDB 的故障预算独立于其他元数据服务，不继承媒体服务器的长超时。
+    val tmdb by lazy {
+        com.vela.data.api.TmdbApi(HttpClient(OkHttp) {
+            followRedirects = false
+            engine { config { retryOnConnectionFailure(false) } }
+            install(HttpTimeout) {
+                requestTimeoutMillis = 6_000
+                connectTimeoutMillis = 2_000
+                socketTimeoutMillis = 4_000
+            }
+        })
+    }
 }

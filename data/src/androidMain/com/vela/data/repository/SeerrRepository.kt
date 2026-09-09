@@ -6,7 +6,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
 import com.vela.data.R
 import com.vela.data.api.SeerrApiClient
-import com.vela.data.api.TmdbApi
+import com.vela.data.network.CatalogNetwork
 import com.vela.data.network.ApiResponse
 import com.vela.data.network.ApiHeaders
 import com.vela.data.model.*
@@ -823,7 +823,7 @@ class SeerrRepository(context: Context) {
         val (mediaType, tmdbId) = SeerrItemIds.detailParams(itemId ?: return@withContext null)
             ?: return@withContext null
         val tmdbType = if (mediaType.equals("tv", ignoreCase = true)) "tv" else "movie"
-        val logoPath = TmdbApi(createHttpClient()).titleLogoPath(tmdbType, tmdbId)
+        val logoPath = CatalogNetwork.tmdb.titleLogoPath(tmdbType, tmdbId)
             ?: return@withContext null
 
         seerrImageUrl(storedConnection.serverUrl, logoPath, "original")
