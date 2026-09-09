@@ -8,6 +8,11 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.Image
@@ -55,6 +60,10 @@ fun BookReaderScreen(file: File, format: String, title: String, progressKey: Str
     var page by remember(progressKey) { mutableIntStateOf(prefs.getInt("$progressKey.page", 0)) }
     var fontSize by remember(progressKey) { mutableFloatStateOf(prefs.getFloat("$progressKey.font", 18f).coerceIn(14f, 30f)) }
     var night by remember(progressKey) { mutableStateOf(prefs.getBoolean("$progressKey.night", false)) }
+    var readingMode by remember(progressKey) { mutableIntStateOf(prefs.getInt("$progressKey.mode", 0).coerceIn(0, 2)) }
+    var sliderPage by remember { mutableStateOf<Float?>(null) }
+    val raster = normalizedFormat in setOf("pdf", "cbz", "zip")
+    LaunchedEffect(readingMode) { prefs.edit().putInt("$progressKey.mode", readingMode).apply() }
     var controls by remember { mutableStateOf(true) }
     var contents by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
@@ -106,7 +115,7 @@ fun BookReaderScreen(file: File, format: String, title: String, progressKey: Str
                         Text("${page + 1} / ${current.chapters.size} · ${((page + 1f) / current.chapters.size * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
                         TextButton(onClick = { controls = false }) { Text("沉浸") }
                     }
-                    if (current.chapters.size > 1) Slider(value = page.toFloat(), onValueChange = { page = it.toInt() }, valueRange = 0f..current.chapters.lastIndex.toFloat())
+                    if (current.chapters.size > 1) Slider(value = sliderPage ?: page.toFloat(), onValueChange = { sliderPage = it }, onValueChangeFinished = { sliderPage?.let { page = it.toInt() }; sliderPage = null }, valueRange = 0f..current.chapters.lastIndex.toFloat())
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         TextButton(onClick = { page-- }, enabled = page > 0) { Text("上一页") }
                         TextButton(onClick = { page++ }, enabled = page < current.chapters.lastIndex) { Text("下一页") }
@@ -123,6 +132,8 @@ fun BookReaderScreen(file: File, format: String, title: String, progressKey: Str
                     TextButton(onClick = onBack) { Text("返回书库") }
                 }
                 current == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                raster -> RasterReader(file, normalizedFormat, current, page, readingMode,
+                    onPage = { page = it }, onMenu = { controls = !controls }, onError = { error = it })
                 else -> key(file, page) {
                     when (normalizedFormat) {
                         "epub" -> EpubChapter(current.archive!!, current.chapters[page], fontSize, night,
@@ -135,7 +146,7 @@ fun BookReaderScreen(file: File, format: String, title: String, progressKey: Str
                             LaunchedEffect(scroll.value) { prefs.edit().putInt("$progressKey.scroll.$page", scroll.value).apply() }
                             Text(current.textPages[page], Modifier.fillMaxSize().verticalScroll(scroll).padding(24.dp), color = foreground, fontSize = fontSize.sp, lineHeight = (fontSize * 1.75f).sp)
                         }
-                        else -> RasterBookPage(file, normalizedFormat, current, page, { error = it })
+                        else -> Unit
                     }
                 }
             }
@@ -161,6 +172,15 @@ fun BookReaderScreen(file: File, format: String, title: String, progressKey: Str
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) { Text("夜间背景", Modifier.weight(1f)); Switch(night, { night = it }) }
             if (normalizedFormat in setOf("epub", "txt")) { Text("字号 ${fontSize.toInt()}"); Slider(fontSize, { fontSize = it }, valueRange = 14f..30f, steps = 15) }
+            if (raster) {
+                Text("翻页方向", style = MaterialTheme.typography.titleSmall)
+                listOf("从左向右", "从右向左", "上下翻页").forEachIndexed { index, label ->
+                    Row(Modifier.fillMaxWidth().clickable { readingMode = index }, verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = readingMode == index, onClick = { readingMode = index }); Text(label)
+                    }
+                }
+                Text("滑动翻页 · 轻点显示菜单 · 双击或双指缩放。放大后拖动查看，缩回原尺寸再翻页。", style = MaterialTheme.typography.bodySmall)
+            }
             Text("阅读位置自动保存在当前账户下。", style = MaterialTheme.typography.bodySmall)
         }
     }, confirmButton = { TextButton(onClick = { settings = false }) { Text("完成") } })
@@ -169,7 +189,24 @@ fun BookReaderScreen(file: File, format: String, title: String, progressKey: Str
 private fun <T> openPdf(file: File, block: (PdfRenderer) -> T): T = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor -> PdfRenderer(descriptor).use(block) }
 
 @Composable
-private fun RasterBookPage(file: File, format: String, book: ReaderBook, page: Int, onError: (String) -> Unit) {
+private fun RasterReader(file: File, format: String, book: ReaderBook, page: Int, mode: Int,
+    onPage: (Int) -> Unit, onMenu: () -> Unit, onError: (String) -> Unit) {
+    val pager = rememberPagerState(initialPage = page, pageCount = { book.chapters.size })
+    val zoomed = remember(file) { mutableStateMapOf<Int, Boolean>() }
+    val latestPage by rememberUpdatedState(onPage)
+    LaunchedEffect(page) { if (pager.currentPage != page) pager.scrollToPage(page) }
+    LaunchedEffect(pager) {
+        snapshotFlow { pager.settledPage }.collect { latestPage(it) }
+    }
+    val content: @Composable (Int) -> Unit = { index ->
+        RasterBookPage(file, format, book, index, onError, onMenu) { zoomed[index] = it }
+    }
+    if (mode == 2) VerticalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = zoomed[pager.currentPage] != true) { content(it) }
+    else HorizontalPager(pager, Modifier.fillMaxSize(), reverseLayout = mode == 1, userScrollEnabled = zoomed[pager.currentPage] != true) { content(it) }
+}
+
+@Composable
+private fun RasterBookPage(file: File, format: String, book: ReaderBook, page: Int, onError: (String) -> Unit, onMenu: () -> Unit, onZoom: (Boolean) -> Unit) {
     var bitmap by remember(file, page) { mutableStateOf<Bitmap?>(null) }
     DisposableEffect(bitmap) {
         val displayed = bitmap
@@ -203,11 +240,16 @@ private fun RasterBookPage(file: File, format: String, book: ReaderBook, page: I
     }
     var zoom by remember(file, page) { mutableFloatStateOf(1f) }
     var offset by remember(file, page) { mutableStateOf(Offset.Zero) }
+    LaunchedEffect(zoom) { onZoom(zoom > 1f) }
     val transform = rememberTransformableState { change, pan, _ ->
         zoom = (zoom * change).coerceIn(1f, 5f)
         offset = if (zoom == 1f) Offset.Zero else offset + pan
     }
-    Box(Modifier.fillMaxSize().clipToBounds().transformable(transform), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().clipToBounds()
+        .pointerInput(file, page) { detectTapGestures(onTap = { onMenu() }, onDoubleTap = {
+            zoom = if (zoom > 1f) 1f else 2.5f; offset = Offset.Zero
+        }) }
+        .transformable(transform, canPan = { zoom > 1f }), contentAlignment = Alignment.Center) {
         bitmap?.let { Image(it.asImageBitmap(), "第 ${page + 1} 页，可双指缩放", Modifier.fillMaxSize().graphicsLayer {
             scaleX = zoom; scaleY = zoom
             translationX = offset.x.coerceIn(-size.width * (zoom - 1) / 2, size.width * (zoom - 1) / 2)

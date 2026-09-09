@@ -3,6 +3,7 @@ package com.vela.app.ui.screens.library
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,11 +19,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +89,7 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
     else listOf(LibrarySection.BOOKS, LibrarySection.AUTHORS, LibrarySection.AUDIOBOOKS, LibrarySection.FAVORITES, LibrarySection.FOLDERS)
     var section by rememberSaveable { mutableStateOf(sections.first()) }
     var query by rememberSaveable { mutableStateOf("") }
+    var listView by rememberSaveable(kind) { mutableStateOf(false) }
     var newest by rememberSaveable { mutableStateOf(false) }
     var title by remember { mutableStateOf(kind.title) }
     var group by remember { mutableStateOf<BaseItemDto?>(null) }
@@ -148,7 +152,7 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
     val groupSnapshot = group
     val sectionSnapshot = section
     val querySnapshot = request(0, 60)
-    val signature = listOf(section, query, newest, group?.id)
+    val signature = listOf(section, query, newest, group?.id, reload)
     val latestSignature by rememberUpdatedState(signature)
     suspend fun page(start: Int, limit: Int): QueryResult<BaseItemDto> = when {
         groupSnapshot?.type == "Playlist" -> session.playlistItems(requireNotNull(groupSnapshot.id), start, limit)
@@ -241,8 +245,14 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
         return
     }
 
+    val supportsGrid = group?.type !in listOf("MusicAlbum", "Playlist") &&
+        (section in listOf(LibrarySection.BOOKS, LibrarySection.ALBUMS, LibrarySection.PLAYLISTS, LibrarySection.AUDIOBOOKS) ||
+            (kind == MediaLibraryKind.BOOKS && section == LibrarySection.FAVORITES))
     Scaffold(topBar = {
-        TopAppBar(title = { Text(group?.name ?: title, maxLines = 1, overflow = TextOverflow.Ellipsis) }, navigationIcon = {
+        TopAppBar(title = { Column {
+            Text(group?.name ?: title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+            Text(if (kind == MediaLibraryKind.BOOKS) "每一页，都是新的世界" else "让喜欢的声音陪伴你", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } }, navigationIcon = {
             IconButton(onClick = { back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
         }, actions = {
             IconButton(onClick = { reload++ }, enabled = !loading) { Icon(Icons.Default.Refresh, "刷新") }
@@ -258,7 +268,8 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
                 trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "清除搜索") } },
                 shape = MaterialTheme.shapes.extraLarge)
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (loading) "正在加载…" else "${items.size} / $total 项", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (loading) "正在加载…" else "${section.label} · $total 项", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (supportsGrid) IconButton(onClick = { listView = !listView }) { Icon(if (listView) Icons.Default.GridView else Icons.Default.ViewList, if (listView) "网格视图" else "列表视图") }
                 TextButton(onClick = { newest = !newest }, enabled = !loading && group?.type != "Playlist") {
                     Icon(Icons.Default.Sort, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(if (newest) "最近添加" else "名称排序")
                 }
@@ -270,56 +281,77 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
                 OutlinedButton(onClick = { playAll(true) }, enabled = !preparingQueue) { Icon(Icons.Default.Shuffle, null); Text("随机播放") }
             }
             error?.let { LibraryError(it, { reload++ }) }
+            PullToRefreshBox(isRefreshing = loading, onRefresh = { reload++ }, modifier = Modifier.weight(1f)) {
             when {
                 loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 items.isEmpty() && error == null -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                     Text(if (query.isNotBlank()) "没有匹配的内容，试试其他关键词" else "这里还没有${section.label}，可在 Jellyfin 中添加或整理媒体", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 else -> {
-                    val grid = group?.type !in listOf("MusicAlbum", "Playlist") && (section in listOf(LibrarySection.BOOKS, LibrarySection.ALBUMS, LibrarySection.PLAYLISTS, LibrarySection.AUDIOBOOKS) || (kind == MediaLibraryKind.BOOKS && section == LibrarySection.FAVORITES))
+                    val grid = !listView && supportsGrid
                     if (grid) LazyVerticalGrid(GridCells.Adaptive(if (kind == MediaLibraryKind.BOOKS) 128.dp else 144.dp),
-                        Modifier.weight(1f), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                        Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                         if (kind == MediaLibraryKind.BOOKS && group == null && section == LibrarySection.BOOKS && query.isBlank() && recent != null) item(span = { GridItemSpan(maxLineSpan) }) {
                             Card(onClick = { selectedBook = recent }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    LibraryArtwork(session, recent!!, Modifier.size(48.dp, 64.dp))
-                                    Column(Modifier.weight(1f)) { Text("继续阅读", style = MaterialTheme.typography.labelMedium); Text(recent!!.name.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                                    LibraryArtwork(session, recent!!, Modifier.size(72.dp, 100.dp))
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("继续阅读", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                        Text(recent!!.name.orEmpty(), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleLarge)
+                                        Text("回到上次停下的地方", style = MaterialTheme.typography.bodySmall)
+                                    }
                                     Icon(Icons.Default.ArrowForward, null)
                                 }
                             }
                         }
                         gridItems(items, key = { it.id ?: it.hashCode().toString() }) { item ->
-                            Column(Modifier.clickable { open(item) }) {
-                                LibraryArtwork(session, item, Modifier.fillMaxWidth().aspectRatio(if (item.isBookItem() || item.type == "AudioBook") .7f else 1f))
+                            Column(Modifier.combinedClickable(onClick = { open(item) }, onLongClickLabel = "更多操作", onLongClick = { actionItem = item })) {
+                                Box {
+                                    LibraryArtwork(session, item, Modifier.fillMaxWidth().aspectRatio(if (item.isBookItem() || item.type == "AudioBook") .7f else 1f))
+                                    FilledTonalIconButton(onClick = { actionItem = item }, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(48.dp)) {
+                                        Icon(Icons.Default.MoreHoriz, "${item.name}的更多操作", Modifier.size(20.dp))
+                                    }
+                                    if (item.userData?.isFavorite == true) Icon(Icons.Default.Favorite, "已收藏", Modifier.align(Alignment.BottomStart).padding(8.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp)).padding(4.dp), tint = MaterialTheme.colorScheme.primary)
+                                }
                                 Spacer(Modifier.height(8.dp)); Text(item.name ?: "未命名", maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                                 Text(item.librarySubtitle(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         if (canLoadMore) item(span = { GridItemSpan(maxLineSpan) }) { LoadMore(loadingMore) { loadMore() } }
-                    } else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
+                    } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
                         itemsIndexed(items, key = { index, item -> "${item.id}:$index" }) { _, item ->
                             ListItem(headlineContent = { Text(item.name ?: "未命名", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 supportingContent = { Text(item.librarySubtitle(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 leadingContent = { LibraryArtwork(session, item, Modifier.size(52.dp)) },
                                 trailingContent = { if (item.isAudioItem() || item.isBookItem()) IconButton(onClick = { actionItem = item }) { Icon(Icons.Default.MoreVert, "${item.name}的更多操作") } else Icon(Icons.Default.ChevronRight, null) },
-                                modifier = Modifier.clickable { open(item) })
+                                colors = ListItemDefaults.colors(containerColor = if (item.id == playback.item?.id && item.isAudioItem()) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
+                                modifier = Modifier.combinedClickable(onClick = { open(item) }, onLongClickLabel = "更多操作", onLongClick = { actionItem = item }))
                         }
                         if (canLoadMore) item { LoadMore(loadingMore) { loadMore() } }
                     }
                 }
             }
+            }
         }
     }
-    actionItem?.takeIf { playlistName == null }?.let { item -> AlertDialog(onDismissRequest = { actionItem = null }, title = { Text(item.name.orEmpty()) }, text = {
-        Column {
-            TextButton(onClick = { scope.launch {
-                try { session.favorite(requireNotNull(item.id), item.userData?.isFavorite != true); actionItem = null; reload++ }
-                catch (e: CancellationException) { throw e }
-                catch (e: Exception) { error = e.message ?: "收藏失败"; actionItem = null }
-            } }) { Text(if (item.userData?.isFavorite == true) "取消收藏" else "添加收藏") }
-            if (item.isAudioItem()) TextButton(onClick = { playlistName = "" }) { Text("新建歌单并添加") }
+    actionItem?.takeIf { playlistName == null }?.let { item ->
+        ModalBottomSheet(onDismissRequest = { actionItem = null }) {
+            ListItem(headlineContent = { Text(item.name.orEmpty(), style = MaterialTheme.typography.titleLarge) },
+                supportingContent = { Text(item.librarySubtitle()) }, leadingContent = { LibraryArtwork(session, item, Modifier.size(56.dp)) })
+            ListItem(headlineContent = { Text(if (item.isBookItem()) "查看书籍 / 继续阅读" else if (item.isAudioItem()) "立即播放" else "打开") },
+                leadingContent = { Icon(if (item.isBookItem()) Icons.Default.MenuBook else Icons.Default.PlayArrow, null) },
+                modifier = Modifier.clickable { actionItem = null; open(item) })
+            ListItem(headlineContent = { Text(if (item.userData?.isFavorite == true) "取消收藏" else "添加收藏") },
+                leadingContent = { Icon(Icons.Default.FavoriteBorder, null) }, modifier = Modifier.clickable { scope.launch {
+                    try { session.favorite(requireNotNull(item.id), item.userData?.isFavorite != true); actionItem = null; reload++ }
+                    catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { error = e.message ?: "收藏失败"; actionItem = null }
+                } })
+            if (item.isAudioItem()) ListItem(headlineContent = { Text("新建歌单并添加") },
+                leadingContent = { Icon(Icons.Default.PlaylistAdd, null) }, modifier = Modifier.clickable { playlistName = "" })
+            Spacer(Modifier.height(24.dp))
         }
-    }, confirmButton = { TextButton(onClick = { actionItem = null }) { Text("关闭") } }) }
+    }
     playlistName?.let { name -> AlertDialog(onDismissRequest = { playlistName = null }, title = { Text("新建歌单") }, text = {
         OutlinedTextField(name, { playlistName = it }, singleLine = true, label = { Text("歌单名称") })
     }, confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = { scope.launch {
@@ -375,16 +407,18 @@ internal fun BaseItemDto.librarySubtitle(): String = when {
     if (reading) { BookReadingRoute(session, book, { reading = false }, onRead); return }
     Scaffold(topBar = { TopAppBar(title = { Text("书籍详情") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回书库") } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            item { Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                LibraryArtwork(session, book, Modifier.size(112.dp, 160.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(book.name.orEmpty(), style = MaterialTheme.typography.headlineSmall)
+            item {
+                Column(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.extraLarge)
+                    .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.surfaceContainerLow)))
+                    .padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    LibraryArtwork(session, book, Modifier.width(150.dp).aspectRatio(.7f))
+                    Text(book.name.orEmpty(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     Text(book.librarySubtitle(), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     book.productionYear?.let { Text(it.toString(), style = MaterialTheme.typography.bodySmall) }
                 }
-            } }
+            }
             item { Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { reading = true }) { Icon(Icons.Default.MenuBook, null); Spacer(Modifier.width(6.dp)); Text("阅读 / 继续阅读") }
+                Button(onClick = { reading = true }, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) { Icon(Icons.Default.MenuBook, null); Spacer(Modifier.width(6.dp)); Text("阅读 / 继续阅读") }
                 FilledTonalIconButton(onClick = { scope.launch {
                     try {
                         val favorite = book.userData?.isFavorite != true

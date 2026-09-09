@@ -1,6 +1,15 @@
 package com.vela.app.ui.screens.music
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,6 +25,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,6 +43,7 @@ import com.vela.app.ui.screens.library.librarySubtitle
 import com.vela.data.model.LyricLine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import java.util.Locale
 
 internal fun musicTime(ms: Long): String {
@@ -41,12 +57,12 @@ internal fun musicTime(ms: Long): String {
 internal fun MusicMiniPlayer(onOpen: () -> Unit, modifier: Modifier = Modifier) {
     val state by MusicPlayback.state.collectAsState()
     val item = state.item ?: return
-    Surface(modifier.fillMaxWidth(), tonalElevation = 5.dp) {
+    Surface(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clip(MaterialTheme.shapes.extraLarge), color = MaterialTheme.colorScheme.secondaryContainer, tonalElevation = 5.dp) {
         Column {
             LinearProgressIndicator(progress = { if (state.durationMs > 0) (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f) else 0f }, modifier = Modifier.fillMaxWidth().height(2.dp))
             Row(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 LibraryArtwork(state.session, item, Modifier.size(44.dp))
-                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Column(Modifier.weight(1f).musicSwipe(onPrevious = MusicPlayback::previous, onNext = MusicPlayback::next, onUp = onOpen).padding(horizontal = 12.dp)) {
                     Text(item.name.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                     Text(if (state.error != null) "播放失败 · 点击查看" else item.librarySubtitle(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -95,13 +111,13 @@ internal fun MusicNowPlayingScreen(onBack: () -> Unit) {
     if (item == null) { LaunchedEffect(Unit) { onBack() }; return }
     Scaffold(topBar = {
         TopAppBar(title = { Column { Text("正在播放", style = MaterialTheme.typography.titleMedium); Text(if (state.compatibleAudio) "兼容音频 · MP3" else "原始音质", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回音乐库") } },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "收起播放器") } },
             actions = { IconButton(onClick = { settings = true }) { Icon(Icons.Default.MoreHoriz, "播放设置") } })
     }) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val compact = maxHeight < 600.dp
-            Column(Modifier.fillMaxSize().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                if (showLyrics) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Column(Modifier.fillMaxSize().then(if (compact) Modifier.verticalScroll(rememberScrollState()) else Modifier).background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .6f), MaterialTheme.colorScheme.surface))).padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (showLyrics) Box((if (compact) Modifier.height(240.dp) else Modifier.weight(1f)).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     when {
                         lyricLoading -> CircularProgressIndicator()
                         lyricError != null -> LibraryError(lyricError.orEmpty()) { lyricsRetry++ }
@@ -112,8 +128,17 @@ internal fun MusicNowPlayingScreen(onBack: () -> Unit) {
                                 style = MaterialTheme.typography.titleLarge, fontWeight = if (index == activeLine) FontWeight.Bold else FontWeight.Normal, textAlign = TextAlign.Center) }
                         }
                     }
-                } else Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = if (compact) 8.dp else 24.dp), contentAlignment = Alignment.Center) {
-                    LibraryArtwork(state.session, item, Modifier.aspectRatio(1f, matchHeightConstraintsFirst = true).sizeIn(maxWidth = 420.dp, maxHeight = 420.dp))
+                } else Box((if (compact) Modifier.height(240.dp) else Modifier.weight(1f)).fillMaxWidth().padding(vertical = if (compact) 8.dp else 24.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.weight(1f, fill = false).aspectRatio(1f, matchHeightConstraintsFirst = true).sizeIn(maxWidth = 420.dp, maxHeight = 420.dp)
+                            .musicSwipe(MusicPlayback::previous, MusicPlayback::next, onUp = { queue = true }, onDown = onBack)
+                            .pointerInput(Unit) { detectTapGestures(onTap = { showLyrics = true }, onDoubleTap = { MusicPlayback.toggle() }) }, contentAlignment = Alignment.Center) {
+                            VinylRecord(state.playing && !state.buffering) {
+                                LibraryArtwork(state.session, item, Modifier.fillMaxSize(.56f).clip(CircleShape))
+                            }
+                        }
+                        Text("轻点看歌词 · 双击播放/暂停 · 左右滑动切歌", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                    }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -177,4 +202,48 @@ internal fun MusicNowPlayingScreen(onBack: () -> Unit) {
             Text("兼容音频由服务器转为 MP3，适用于设备无法解码的格式。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }, confirmButton = { TextButton(onClick = { settings = false }) { Text("完成") } })
+}
+
+/** 手势仅绑定封面和迷你播放器标题，避免抢占歌词滚动与进度条拖动。 */
+@Composable
+private fun Modifier.musicSwipe(onPrevious: () -> Unit, onNext: () -> Unit, onUp: () -> Unit, onDown: () -> Unit = {}): Modifier {
+    val previous by rememberUpdatedState(onPrevious)
+    val next by rememberUpdatedState(onNext)
+    val up by rememberUpdatedState(onUp)
+    val down by rememberUpdatedState(onDown)
+    val threshold = with(LocalDensity.current) { 56.dp.toPx() }
+    return pointerInput(threshold) {
+        var distance = 0f
+        detectHorizontalDragGestures(onDragStart = { distance = 0f }, onDragCancel = { distance = 0f },
+            onDragEnd = { if (distance < -threshold) next() else if (distance > threshold) previous() }) { change, amount ->
+            change.consume(); distance += amount
+        }
+    }.pointerInput(threshold) {
+        var distance = 0f
+        detectVerticalDragGestures(onDragStart = { distance = 0f }, onDragCancel = { distance = 0f },
+            onDragEnd = { if (distance < -threshold) up() else if (distance > threshold) down() }) { change, amount ->
+            change.consume(); distance += amount
+        }
+    }
+}
+
+@Composable
+private fun VinylRecord(playing: Boolean, artwork: @Composable () -> Unit) {
+    val rotation = remember { Animatable(0f) }
+    LaunchedEffect(playing) {
+        if (playing) while (isActive) {
+            rotation.animateTo(rotation.value + 360f, tween(24_000, easing = LinearEasing))
+            rotation.snapTo(rotation.value % 360f)
+        }
+    }
+    Box(Modifier.fillMaxSize().graphicsLayer { rotationZ = rotation.value }, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val radius = size.minDimension / 2
+            drawCircle(Color(0xFF303139), radius)
+            drawCircle(Brush.radialGradient(listOf(Color(0xFF34353C), Color(0xFF101116))), radius * .98f)
+            for (index in 0..15) drawCircle(Color.White.copy(alpha = .07f), radius * (.60f + index * .024f), style = Stroke(1.dp.toPx()))
+        }
+        artwork()
+        Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF141519)))
+    }
 }

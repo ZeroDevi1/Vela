@@ -24,3 +24,18 @@
 按用户要求完成代码编辑后提交推送，不运行后续编译、自动化测试或模拟器验收。真实 Jellyfin 12 的登录后书库/音乐库、目录续读、音频解码、歌词、锁屏控制、账户切换、收藏与歌单写入仍待后续实机测试。
 
 参考：[Jellyfin 12 发布说明](https://jellyfin.org/posts/jellyfin-release-12.0/)、[官方 AudioController](https://github.com/jellyfin/jellyfin/blob/v12.0/Jellyfin.Api/Controllers/AudioController.cs)、[官方 LyricsController](https://github.com/jellyfin/jellyfin/blob/v12.0/Jellyfin.Api/Controllers/LyricsController.cs)、[Media3 后台播放](https://developer.android.com/media/media3/session/background-playback)。
+
+
+## 2026-09-09 界面与手势调整
+
+继续使用 Vela 的 Material 3 配色，参考本机 `ZeroDevi1/ugreen` 源码中的漫画续读卡片、阅读方向设置与黑胶播放器。
+
+- 书架：放大续读卡片、封面网格与列表切换、封面更多按钮、长按操作底部面板；书籍详情使用居中封面和独立阅读入口。
+- 音乐：正在播放的歌曲高亮、悬浮圆角迷你播放器、旋转唱片和主题渐变背景；小高度播放器支持滚动。
+- 书籍/音乐列表：下拉刷新；长按条目打开操作面板，提供打开、收藏以及音频的新建歌单入口。收藏与歌单仍写入当前 Jellyfin 账户。
+- 迷你播放器标题区：左右滑动切歌，上滑打开播放器。
+- 播放器唱片区：单击歌词，双击播放/暂停，左滑下一首、右滑上一首，上滑队列、下滑收起。上一首沿用播放服务行为：已播放超过 3 秒时先回到曲首。按钮入口保留；歌词纵向滚动和进度条不承载切歌手势。
+- PDF/CBZ/ZIP：横向正序、横向反序、竖向翻页；单击切换菜单，双击在原尺寸与 2.5 倍间切换，双指缩放支持 1–5 倍。放大后拖动图片，恢复原尺寸后才能手势翻页。方向按当前书籍/账户保存；EPUB/TXT 保留正文滚动与目录/翻页按钮。
+- 阅读进度滑块在松手后跳页，避免拖动过程中连续解码图片。
+
+本轮 `:phone:compileDebugKotlin` 与 `git diff --check` 通过。设备检查：ADB 无已连接设备，SDK 没有可用 AVD。实际页面视觉、手势冲突、真实媒体阅读与播放仍需设备验收，不能以编译通过代替。
