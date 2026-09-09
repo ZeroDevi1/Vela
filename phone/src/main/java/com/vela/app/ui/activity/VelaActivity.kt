@@ -1,6 +1,7 @@
 package com.vela.app.ui.activity
 
 import android.Manifest
+import android.content.Intent
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -36,6 +37,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 @UnstableApi
 @AndroidEntryPoint
 class VelaActivity : ComponentActivity() {
+    private var openMusic by mutableStateOf(false)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == com.vela.app.ui.screens.music.MusicPlaybackService.ACTION_OPEN_MUSIC) openMusic = true
+    }
+
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -53,6 +62,7 @@ class VelaActivity : ComponentActivity() {
         val splashScreen = installSplashScreen()
 
         super.onCreate(savedInstanceState)
+        openMusic = intent.action == com.vela.app.ui.screens.music.MusicPlaybackService.ACTION_OPEN_MUSIC
         AppLanguageManager.applySavedLanguage(this)
         requestNotificationPermission()
 
@@ -90,7 +100,7 @@ class VelaActivity : ComponentActivity() {
                     val shouldShowSplash by splashViewModel.shouldShowSplash.collectAsState()
 
                     Box(modifier = Modifier.fillMaxSize()) {
-                        AppNavigation()
+                        AppNavigation(openMusic = openMusic, onMusicOpened = { openMusic = false })
                         if (shouldShowSplash) {
                             SplashScreen(
                                 onSplashComplete = {

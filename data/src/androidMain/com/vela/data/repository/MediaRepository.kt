@@ -165,6 +165,26 @@ class MediaRepository(private val context: Context) {
         }
         .distinctUntilChanged()
 
+    /** 创建固定账户的阅读/音乐会话，调用方负责在退出账户时结束播放。 */
+    suspend fun openLibrarySession(): LibraryMediaSession {
+        val config = getSessionConfig() ?: throw IllegalStateException("请先连接媒体服务器")
+        val token = config.accessToken?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("登录已失效，请重新登录")
+        val api = NetworkModule.createMediaServerApi(
+            baseUrl = config.serverUrl, accessToken = token, serverType = config.serverType,
+            storageDir = context.filesDir, timeoutConfig = config.timeoutConfig
+        )
+        val accountKey = AuthRepositoryProvider.getInstance(context).getActiveSessionSnapshot().activeServerId
+            ?: AuthSessionIds.buildServerId(config.serverUrl, config.userId)
+        return LibraryMediaSession(
+            accountKey = accountKey, baseUrl = config.serverUrl, userId = config.userId,
+            serverType = config.serverType, accessToken = token, deviceId = NetworkModule.getClientDeviceId(), api = api,
+            requestHeaders = mapOf("Authorization" to com.vela.data.model.AuthHeaderDto.fromServerType(
+                config.serverType, NetworkModule.getClientDeviceId(), DataModuleConfig.CLIENT_VERSION, token
+            ).asHeaderValue())
+        )
+    }
+
     private suspend fun getApi(): MediaServerApi? = getApiSession()?.api
 
     private suspend fun getUserId(): String? = getApiSession()?.userId

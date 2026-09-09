@@ -326,6 +326,8 @@ fun MyMedia(
                                         val contentType = when (library.collectionType) {
                                             "movies" -> com.vela.app.ui.screens.dashboard.media.ContentType.MOVIES
                                             "tvshows" -> com.vela.app.ui.screens.dashboard.media.ContentType.SERIES
+                                            "music" -> com.vela.app.ui.screens.dashboard.media.ContentType.MUSIC
+                                            "books" -> com.vela.app.ui.screens.dashboard.media.ContentType.BOOKS
                                             else -> com.vela.app.ui.screens.dashboard.media.ContentType.ALL
                                         }
                                         onLibraryClick(

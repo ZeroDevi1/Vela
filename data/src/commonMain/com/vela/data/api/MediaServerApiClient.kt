@@ -43,6 +43,44 @@ internal class MediaServerApiClient(
     private val serverType: ServerType? = null
 ) : MediaServerApi {
 
+    override suspend fun getMediaLibraryItems(
+        userId: String,
+        query: com.vela.data.model.MediaLibraryQuery
+    ): ApiResponse<QueryResult<BaseItemDto>> = get(
+        endpoint = "Items",
+        queryParameters = listOf(
+            "userId" to userId, "parentId" to query.parentId,
+            "includeItemTypes" to query.includeItemTypes, "recursive" to query.recursive,
+            "searchTerm" to query.searchTerm, "startIndex" to query.startIndex, "limit" to query.limit,
+            "sortBy" to query.sortBy, "sortOrder" to query.sortOrder,
+            "filters" to query.filters, "personIds" to query.personIds, "genreIds" to query.genreIds,
+            "enableUserData" to true,
+            "fields" to "Overview,Genres,People,Path,MediaSources,Chapters,ChildCount"
+        )
+    )
+
+    override suspend fun getMediaLibraryPeople(
+        userId: String, parentId: String?, personTypes: String, searchTerm: String?, startIndex: Int, limit: Int
+    ): ApiResponse<QueryResult<BaseItemDto>> = get(
+        endpoint = "Persons",
+        queryParameters = listOf(
+            "userId" to userId, "parentId" to parentId, "personTypes" to personTypes,
+            "searchTerm" to searchTerm, "startIndex" to startIndex, "limit" to limit,
+            "enableUserData" to true
+        )
+    )
+
+    override suspend fun getPlaylistItems(
+        userId: String, playlistId: String, startIndex: Int, limit: Int
+    ): ApiResponse<QueryResult<BaseItemDto>> = get(
+        endpoint = "Playlists/$playlistId/Items",
+        queryParameters = listOf("userId" to userId, "startIndex" to startIndex, "limit" to limit,
+            "fields" to "Path,MediaSources,Chapters", "enableUserData" to true)
+    )
+
+    override suspend fun getLyrics(itemId: String): ApiResponse<com.vela.data.model.LyricsDto> =
+        get("Audio/$itemId/Lyrics")
+
     override suspend fun getPublicSystemInfo(): ApiResponse<ServerInfo> =
         get("System/Info/Public")
 

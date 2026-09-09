@@ -10,8 +10,7 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -50,6 +49,13 @@ import com.vela.app.ui.activity.PlayerActivity
 import com.vela.app.player.mpv.MpvWarmPool
 import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.delay
+import com.vela.data.model.BaseItemDto
+import com.vela.data.model.isAudioItem
+import com.vela.data.model.isBookItem
+import com.vela.app.ui.screens.library.MediaLibraryKind
+import com.vela.app.ui.screens.library.MediaLibraryScreen
+import com.vela.app.ui.screens.music.MusicPlayback
+import com.vela.app.ui.screens.music.MusicMiniPlayer
 
 @Composable
 private fun PredictiveBackScene(
@@ -135,6 +141,10 @@ private fun NavController.openViewAll(
     searchTerm: String? = null,
     tag: String? = null
 ) {
+    if (contentType in setOf("MUSIC", "BOOKS")) {
+        navigate("media_library/$contentType?libraryId=${android.net.Uri.encode(parentId.orEmpty())}")
+        return
+    }
     val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
     val params = buildList {
         when {
@@ -152,9 +162,20 @@ private fun NavController.openViewAll(
     navigate("viewall/$contentType?${params.joinToString("&")}")
 }
 
+private fun NavController.openMediaItem(item: BaseItemDto, mergeVersions: Boolean = false) {
+    val id = item.id ?: return
+    val kind = when {
+        item.isBookItem() -> "BOOKS"
+        item.isAudioItem() || item.type in setOf("MusicAlbum", "MusicArtist") -> "MUSIC"
+        else -> null
+    }
+    if (kind != null) navigate("media_library/$kind?itemId=${android.net.Uri.encode(id)}")
+    else navigate("detail/$id${if (mergeVersions) "?mergeVersions=true" else ""}")
+}
+
 @UnstableApi
 @Composable
-fun AppNavigation() {
+fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val authRepository = remember(context) { AuthRepositoryProvider.getInstance(context) }
@@ -181,7 +202,15 @@ fun AppNavigation() {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    LaunchedEffect(openMusic) {
+        if (openMusic) {
+            navController.navigate("media_library/MUSIC?nowPlaying=true") { launchSingleTop = true }
+            onMusicOpened()
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        val musicState by MusicPlayback.state.collectAsState()
         val currentEntry by navController.currentBackStackEntryAsState()
         val canPopNav = currentEntry != null && navController.previousBackStackEntry != null
         SideEffect {
@@ -196,7 +225,7 @@ fun AppNavigation() {
     NavHost(
         navController = navController,
         startDestination = "servers",
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.weight(1f).fillMaxWidth(),
         enterTransition = { NavTransitions.enter() },
         exitTransition = { NavTransitions.exit() },
         popEnterTransition = { NavTransitions.popEnter() },
@@ -376,16 +405,8 @@ fun AppNavigation() {
                             launchSingleTop = true
                         }
                     },
-                    onNavigateToDetail = { item ->
-                        item.id?.let { itemId ->
-                            navController.navigate("detail/$itemId")
-                        }
-                    },
-                    onNavigateToMergedDetail = { item ->
-                        item.id?.let { itemId ->
-                            navController.navigate("detail/$itemId?mergeVersions=true")
-                        }
-                    },
+                    onNavigateToDetail = { item -> navController.openMediaItem(item) },
+                    onNavigateToMergedDetail = { item -> navController.openMediaItem(item, mergeVersions = true) },
                     onNavigateToViewAll = { contentType, parentId, title ->
                         navController.openViewAll(contentType, parentId, title)
                     },
@@ -400,6 +421,25 @@ fun AppNavigation() {
                     onNavigateToPlayer = { itemId ->
                         PlayerActivity.start(context, itemId)
                     }
+                )
+            }
+
+            scene(
+                navController,
+                "media_library/{kind}?libraryId={libraryId}&itemId={itemId}&nowPlaying={nowPlaying}",
+                arguments = listOf(
+                    navArgument("kind") { type = NavType.StringType },
+                    navArgument("libraryId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("itemId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("nowPlaying") { type = NavType.BoolType; defaultValue = false }
+                )
+            ) { entry ->
+                MediaLibraryScreen(
+                    kind = if (entry.arguments?.getString("kind") == "BOOKS") MediaLibraryKind.BOOKS else MediaLibraryKind.MUSIC,
+                    libraryId = entry.arguments?.getString("libraryId")?.takeIf { it.isNotBlank() },
+                    initialItemId = entry.arguments?.getString("itemId")?.takeIf { it.isNotBlank() },
+                    showNowPlaying = entry.arguments?.getBoolean("nowPlaying") == true,
+                    onBack = { navController.popBackStack() }
                 )
             }
 
@@ -624,7 +664,7 @@ fun AppNavigation() {
                     onItemClick = { item ->
                         item.id?.let { itemId ->
                             val mergeVersions = parentId == com.vela.app.ui.screens.dashboard.media.WATCHED_VIEW_ALL_PARENT_ID
-                            navController.navigate("detail/$itemId${if (mergeVersions) "?mergeVersions=true" else ""}")
+                            navController.openMediaItem(item, mergeVersions)
                         }
                     },
                     onPlayFromBeginning = { itemId ->
@@ -702,11 +742,7 @@ fun AppNavigation() {
                     onServerSwitched = {
                         navController.enterDashboard()
                     },
-                    onNavigateToDetail = { item ->
-                        item.id?.let { itemId ->
-                            navController.navigate("detail/$itemId")
-                        }
-                    },
+                    onNavigateToDetail = { item -> navController.openMediaItem(item) },
                     onNavigateToViewAll = { contentType, parentId, title ->
                         navController.openViewAll(contentType, parentId, title)
                     },
@@ -754,7 +790,7 @@ fun AppNavigation() {
                         navController.popBackStack()
                     },
                     onNavigateToRequestedItem = { item ->
-                        navController.navigate("detail/${item.id}")
+                        navController.openMediaItem(item)
                     }
                 )
             }
@@ -797,6 +833,12 @@ fun AppNavigation() {
                     }
                 )
             }
+        }
+        if (musicState.item != null && currentEntry?.destination?.route?.startsWith("media_library/") != true) {
+            MusicMiniPlayer(
+                onOpen = { navController.navigate("media_library/MUSIC?nowPlaying=true") { launchSingleTop = true } },
+                modifier = Modifier.navigationBarsPadding()
+            )
         }
     }
 }

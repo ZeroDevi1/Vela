@@ -111,6 +111,8 @@ fun AppHomeContainer(
                         val contentType = when (library.collectionType) {
                             "movies" -> ContentType.MOVIES
                             "tvshows" -> ContentType.SERIES
+                            "music" -> ContentType.MUSIC
+                            "books" -> ContentType.BOOKS
                             else -> ContentType.ALL
                         }
                         onNavigateToViewAll(contentType.name, library.id, library.name.orEmpty())

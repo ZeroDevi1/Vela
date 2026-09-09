@@ -24,6 +24,15 @@ import com.vela.data.network.ApiResponse
 
 interface MediaServerApi {
 
+    suspend fun getMediaLibraryItems(userId: String, query: com.vela.data.model.MediaLibraryQuery): ApiResponse<QueryResult<BaseItemDto>>
+
+    suspend fun getMediaLibraryPeople(userId: String, parentId: String?, personTypes: String, searchTerm: String?, startIndex: Int, limit: Int): ApiResponse<QueryResult<BaseItemDto>>
+
+    suspend fun getPlaylistItems(userId: String, playlistId: String, startIndex: Int, limit: Int): ApiResponse<QueryResult<BaseItemDto>>
+
+    suspend fun getLyrics(itemId: String): ApiResponse<com.vela.data.model.LyricsDto>
+
+
     suspend fun getPublicSystemInfo(): ApiResponse<ServerInfo>
 
     suspend fun authenticateByName(request: AuthenticationRequest): ApiResponse<AuthenticationResult>

@@ -192,7 +192,7 @@ fun ViewAllScreen(
             ContentType.EPISODES,
             ContentType.SEERR_STUDIO,
             ContentType.SEERR_NETWORK,
-            ContentType.AWARD -> null
+            ContentType.AWARD, ContentType.MUSIC, ContentType.BOOKS -> null
         }
     }
     var serverGenres by rememberSaveable(contentType, parentId, genreId, searchTerm, tag) {

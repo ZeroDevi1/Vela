@@ -133,6 +133,7 @@ class PlayerActivity : ComponentActivity(), PictureInPictureHost {
             remoteTitle: String? = null
         ) {
             if (mediaId.isBlank() && remoteUrl.isNullOrBlank()) return
+            com.vela.app.ui.screens.music.MusicPlayback.pauseForVideo()
             val activity = context.findActivity()
             val intent = Intent(context, PlayerActivity::class.java).apply {
                 putExtra(EXTRA_MEDIA_ID, mediaId)

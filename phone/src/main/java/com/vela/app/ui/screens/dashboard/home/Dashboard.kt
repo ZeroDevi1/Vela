@@ -1846,6 +1846,8 @@ fun Dashboard(
                                 val contentType = when (library.collectionType) {
                                     "movies" -> "MOVIES"
                                     "tvshows" -> "SERIES"
+                                    "music" -> "MUSIC"
+                                    "books" -> "BOOKS"
                                     else -> "ALL"
                                 }
                                 onNavigateToViewAll(
@@ -3008,6 +3010,8 @@ private fun BurstLibrarySection(
                     val contentType = when (section.collectionType) {
                         "movies" -> "MOVIES"
                         "tvshows" -> "SERIES"
+                        "music" -> "MUSIC"
+                        "books" -> "BOOKS"
                         else -> "ALL"
                     }
                     onNavigateToViewAll(contentType, section.libraryId, sectionTitle)
