@@ -126,7 +126,8 @@ internal class DownloadTransfer(
             .url(requestData.downloadUrl)
 
         requestData.authToken?.takeIf { it.isNotBlank() }?.let { token ->
-            requestBuilder.header("X-Emby-Token", token)
+            val scheme = if (requestData.serverType == com.vela.data.network.ServerType.EMBY) "Emby" else "MediaBrowser"
+            requestBuilder.header("Authorization", "$scheme Token=\"$token\"")
         }
 
         val fileExists = storage.exists(destination.location)

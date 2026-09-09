@@ -114,6 +114,7 @@ object NetworkModule {
 
         return MediaServerApiClient(
             client = httpClient,
+            serverType = endpointType,
             baseUrl = baseUrlStd
         ).also { apiCache[cacheKey] = it }
     }

@@ -128,7 +128,8 @@ class MediaRepository(private val context: Context) {
         val authToken: String?,
         val fileExtension: String?,
         val estimatedBytes: Long = 0L,
-        val isTranscodeResume: Boolean = false
+        val isTranscodeResume: Boolean = false,
+        val serverType: ServerType? = null
     )
 
     @Volatile
@@ -1920,6 +1921,7 @@ class MediaRepository(private val context: Context) {
                     displayName = displayName,
                     downloadUrl = downloadUrl,
                     authToken = accessToken,
+                    serverType = config.serverType,
                     fileExtension = extension
                 )
             )
@@ -2005,6 +2007,7 @@ class MediaRepository(private val context: Context) {
                     displayName = displayName,
                     downloadUrl = downloadUrl,
                     authToken = accessToken,
+                    serverType = config.serverType,
                     fileExtension = container,
                     estimatedBytes = estimatedBytes,
                     isTranscodeResume = startTimeTicks != null && startTimeTicks > 0L
@@ -2135,8 +2138,7 @@ class MediaRepository(private val context: Context) {
     ): String? {
         val downloadUrl = buildServerUrl(
             baseUrl = authContext.serverUrl,
-            encodedPath = "Items/$itemId/Download",
-            queryParams = listOf("api_key" to authContext.accessToken)
+            encodedPath = "Items/$itemId/Download"
         )
         return withContext(Dispatchers.IO) {
             runCatching {
@@ -2146,7 +2148,12 @@ class MediaRepository(private val context: Context) {
                     .header("User-Agent", STRM_PLAYBACK_USER_AGENT)
                     .apply {
                         authContext.accessToken?.takeIf { it.isNotBlank() }?.let { token ->
-                            header("X-Emby-Token", token)
+                            header("Authorization", com.vela.data.model.AuthHeaderDto.fromServerType(
+                                serverType = authContext.serverType,
+                                deviceId = authContext.deviceId,
+                                version = authContext.clientVersion,
+                                accessToken = token
+                            ).asHeaderValue())
                         }
                     }
                     .build()

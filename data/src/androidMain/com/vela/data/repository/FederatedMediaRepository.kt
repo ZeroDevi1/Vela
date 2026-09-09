@@ -5,6 +5,7 @@ import com.vela.data.api.MediaServerApi
 import com.vela.data.model.BaseItemDto
 import com.vela.data.model.SearchMediaType
 import com.vela.data.network.NetworkModule
+import com.vela.data.network.tokenQueryParameter
 import com.vela.data.network.ServerType
 import com.vela.data.network.trimTrailingSlash
 import com.vela.data.preferences.NetworkPreferences
@@ -147,7 +148,7 @@ class FederatedMediaRepository(context: Context) {
                     val identity = com.vela.data.model.CatalogIdentity(type, tmdbId, imdbId)
                     // 再校验身份与媒体类型，兼容忽略请求过滤条件的服务器。
                     ServerOutcome(items.filter(identity::matches).map { item ->
-                        FederatedMediaItem(item, server.id, server.displayName(), item.id?.let { buildImageUrl(baseUrl, it, token, "Primary") },
+                        FederatedMediaItem(item, server.id, server.displayName(), item.id?.let { buildImageUrl(baseUrl, it, token, "Primary", server.serverTypeRaw) },
                             server.activeLine()?.name?.takeIf { it.isNotBlank() })
                     })
                 } catch (e: CancellationException) { throw e }
@@ -247,7 +248,7 @@ class FederatedMediaRepository(context: Context) {
                         serverId = server.id,
                         serverName = server.displayName(),
                         imageUrl = item.id?.let { itemId ->
-                            buildImageUrl(baseUrl, itemId, token, "Primary")
+                            buildImageUrl(baseUrl, itemId, token, "Primary", server.serverTypeRaw)
                         }
                     )
                 }
@@ -291,7 +292,7 @@ class FederatedMediaRepository(context: Context) {
                             serverId = server.id,
                             serverName = server.displayName(),
                             imageUrl = imageItemId?.let { itemId ->
-                                buildImageUrl(baseUrl, itemId, token, imageType)
+                                buildImageUrl(baseUrl, itemId, token, imageType, server.serverTypeRaw)
                             }
                         )
                     }
@@ -388,11 +389,13 @@ class FederatedMediaRepository(context: Context) {
         baseUrl: String,
         itemId: String,
         token: String,
-        imageType: String
+        imageType: String,
+        serverTypeRaw: String
     ): String {
+        val tokenParameter = runCatching { ServerType.valueOf(serverTypeRaw) }.getOrNull().tokenQueryParameter
         val encodedToken = URLEncoder.encode(token, Charsets.UTF_8.name())
         return "${trimTrailingSlash(baseUrl)}/Items/$itemId/Images/$imageType" +
-            "?maxWidth=640&quality=85&api_key=$encodedToken"
+            "?maxWidth=640&quality=85&$tokenParameter=$encodedToken"
     }
 
     private data class ServerOutcome(

@@ -3,22 +3,30 @@ package com.vela.data.model
 import android.content.Context
 import android.net.Uri
 import com.vela.data.R
+import com.vela.data.network.tokenQueryParameter
 import com.vela.data.network.ServerType
 import com.vela.data.util.buildServerUrl
 import com.vela.data.util.getServerUrl
 import com.vela.data.util.removeQueryParameter
 
-private const val API_KEY_QUERY_PARAM = "api_key"
+private val API_KEY_QUERY_PARAMS = listOf("ApiKey", "api_key")
 
 data class PlaybackRequest(
     val url: String,
     val requestHeaders: Map<String, String> = emptyMap()
 ) {
     fun authorizeRelatedUrl(relatedUrl: String): String {
-        if (relatedUrl.apiKey() != null) return relatedUrl
-        val apiKey = url.apiKey() ?: tokenFromHeaders() ?: return relatedUrl
-        return Uri.parse(relatedUrl).buildUpon()
-            .appendQueryParameter(API_KEY_QUERY_PARAM, apiKey)
+        if (Uri.parse(relatedUrl).getQueryParameter("Token") != null) return relatedUrl
+        val apiKey = relatedUrl.apiKey() ?: url.apiKey() ?: tokenFromHeaders() ?: return relatedUrl
+        val authHeader = requestHeaders["Authorization"] ?: requestHeaders["X-Emby-Authorization"]
+        val parameter = when {
+            authHeader?.startsWith("Emby ", ignoreCase = true) == true -> ServerType.EMBY.tokenQueryParameter
+            authHeader?.startsWith("MediaBrowser ", ignoreCase = true) == true -> ServerType.JELLYFIN.tokenQueryParameter
+            Uri.parse(url).getQueryParameter("api_key") != null -> "api_key"
+            else -> "ApiKey"
+        }
+        return Uri.parse(relatedUrl.withoutApiKey()).buildUpon()
+            .appendQueryParameter(parameter, apiKey)
             .build()
             .toString()
     }
@@ -38,8 +46,13 @@ data class PlaybackRequest(
 }
 
 private fun String.apiKey(): String? {
-    return Uri.parse(this).getQueryParameter(API_KEY_QUERY_PARAM)?.takeIf { it.isNotBlank() }
+    return API_KEY_QUERY_PARAMS.firstNotNullOfOrNull { name ->
+        Uri.parse(this).getQueryParameter(name)?.takeIf { it.isNotBlank() }
+    }
 }
+
+private fun String.withoutApiKey(): String =
+    API_KEY_QUERY_PARAMS.fold(this) { url, name -> removeQueryParameter(url, name) }
 
 internal data class PlaybackAuthContext(
     val serverUrl: String,
@@ -250,7 +263,7 @@ internal object PlaybackUrlBuilder {
             streamQueryParams.add("DeviceId" to authContext.deviceId)
             if (options.includeAccessToken) {
                 authContext.accessToken?.takeIf { it.isNotBlank() }?.let { accessToken ->
-                    streamQueryParams.add(API_KEY_QUERY_PARAM to accessToken)
+                    streamQueryParams.add(authContext.serverType.tokenQueryParameter to accessToken)
                 }
             }
 
@@ -286,7 +299,7 @@ internal object PlaybackUrlBuilder {
         url: String?
     ): String? {
         return finalUrl(serverUrl, url)?.let { parsedUrl ->
-            removeQueryParameter(parsedUrl, API_KEY_QUERY_PARAM)
+            parsedUrl.withoutApiKey()
         }
     }
 
@@ -299,11 +312,11 @@ internal object PlaybackUrlBuilder {
         authContext: PlaybackAuthContext,
         options: PlaybackStreamOptions
     ): String {
-        if (!options.includeAccessToken) return url
-        val apiKey = authContext.accessToken?.takeIf { it.isNotBlank() } ?: return url
-        if (url.apiKey() != null) return url
-        return Uri.parse(url).buildUpon()
-            .appendQueryParameter(API_KEY_QUERY_PARAM, apiKey)
+        val cleanUrl = url.withoutApiKey()
+        if (!options.includeAccessToken) return cleanUrl
+        val apiKey = authContext.accessToken?.takeIf { it.isNotBlank() } ?: return cleanUrl
+        return Uri.parse(cleanUrl).buildUpon()
+            .appendQueryParameter(authContext.serverType.tokenQueryParameter, apiKey)
             .build()
             .toString()
     }

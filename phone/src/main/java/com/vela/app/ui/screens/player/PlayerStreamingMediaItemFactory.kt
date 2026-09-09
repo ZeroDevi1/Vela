@@ -168,44 +168,7 @@ private fun String.toGuid(): String {
 }
 
 private fun authorizeUrl(targetUrl: String, sourceUrl: String, requestHeaders: Map<String, String>): String {
-    val targetUri = Uri.parse(targetUrl)
-    
-    val hasAuth = targetUri.queryParameterNames.any { 
-        it.equals("api_key", ignoreCase = true) || 
-        it.equals("ApiKey", ignoreCase = true) || 
-        it.equals("Token", ignoreCase = true) 
-    }
-    if (hasAuth) return targetUrl
-
-    val sourceUri = Uri.parse(sourceUrl)
-    
-    val authParamName = sourceUri.queryParameterNames.firstOrNull { 
-        it.equals("api_key", ignoreCase = true) || 
-        it.equals("ApiKey", ignoreCase = true) || 
-        it.equals("Token", ignoreCase = true) 
-    }
-    
-    var authValue = authParamName?.let { sourceUri.getQueryParameter(it) }
-
-    if (authValue == null) {
-        val authHeader = requestHeaders["Authorization"] ?: requestHeaders["X-Emby-Authorization"]
-        if (authHeader != null) {
-            authValue = when {
-                authHeader.contains("Token=\"", ignoreCase = true) -> 
-                    authHeader.substringAfter("Token=\"").substringBefore("\"")
-                authHeader.contains("Token ", ignoreCase = true) -> 
-                    authHeader.substringAfter("Token ").trim()
-                else -> null
-            }
-        }
-    }
-
-    return if (authValue != null) {
-        val paramToUse = authParamName ?: "api_key"
-        targetUri.buildUpon().appendQueryParameter(paramToUse, authValue).build().toString()
-    } else {
-        targetUrl
-    }
+    return com.vela.data.model.PlaybackRequest(sourceUrl, requestHeaders).authorizeRelatedUrl(targetUrl)
 }
 
 @UnstableApi

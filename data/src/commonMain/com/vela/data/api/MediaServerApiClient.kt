@@ -21,6 +21,8 @@ import com.vela.data.model.SystemInfoFull
 import com.vela.data.model.UserDto
 import com.vela.data.model.UserConfiguration
 import com.vela.data.model.DisplayPreferencesDto
+import com.vela.data.network.ServerType
+import com.vela.data.network.tokenQueryParameter
 import com.vela.data.network.ApiHeaders
 import com.vela.data.network.ApiResponse
 import io.ktor.client.HttpClient
@@ -37,7 +39,8 @@ import io.ktor.http.contentType
 
 internal class MediaServerApiClient(
     private val client: HttpClient,
-    private val baseUrl: String
+    private val baseUrl: String,
+    private val serverType: ServerType? = null
 ) : MediaServerApi {
 
     override suspend fun getPublicSystemInfo(): ApiResponse<ServerInfo> =
@@ -426,7 +429,7 @@ internal class MediaServerApiClient(
             "static" to static,
             "mediaSourceId" to mediaSourceId,
             "deviceId" to deviceId,
-            "api_key" to apiKey
+            serverType.tokenQueryParameter to apiKey
         )
     )
 
