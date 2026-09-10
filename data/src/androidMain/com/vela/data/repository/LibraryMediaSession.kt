@@ -107,6 +107,24 @@ class LibraryMediaSession internal constructor(
             failed = failed)).requireSuccess()
     }
 
+    /** 复用先前完整下载的账户私有缓存，允许已缓存书籍离线打开。 */
+    fun cachedBook(item: BaseItemDto, cacheDir: File): File? = bookCacheFile(item, cacheDir)
+        .takeIf { it.isFile && it.length() > 0 }
+
+    private fun bookCacheFile(item: BaseItemDto, cacheDir: File): File {
+        val id = requireNotNull(item.id) { "书籍缺少编号" }
+        val directory = File(cacheDir, "books/${libraryCacheKey(accountKey)}")
+        return File(directory, "${libraryCacheKey(id + ":" + item.etag.orEmpty() + ":" + item.dateCreated.orEmpty())}.${item.bookFormat()}")
+    }
+
+    /** CBZ/ZIP 阅读器按目录和页面读取，沿用打开书库时的账户鉴权。 */
+    fun comicSource(item: BaseItemDto): BookRangeSource {
+        require(item.isBookItem() && item.bookFormat() in setOf("cbz", "zip"))
+        val id = requireNotNull(item.id)
+        return BookRangeSource(bookClient, Request.Builder().url(url("Items/$id/File"))
+            .apply { requestHeaders.forEach { (name, value) -> header(name, value) } }.build())
+    }
+
     /** 书籍只缓存到应用私有目录；失败/取消不会留下可被当作完整书籍的文件。 */
     suspend fun cacheBook(item: BaseItemDto, cacheDir: File, onProgress: (Long, Long?) -> Unit): File = withContext(Dispatchers.IO) {
         require(item.isBookItem()) { "该条目不是书籍" }
@@ -114,7 +132,7 @@ class LibraryMediaSession internal constructor(
         val format = item.bookFormat()
         require(format in setOf("epub", "pdf", "cbz", "zip", "txt")) { "暂不支持 ${format.ifBlank { "未知" }} 格式，请使用 EPUB、PDF、CBZ 或 TXT" }
         val directory = File(cacheDir, "books/${libraryCacheKey(accountKey)}").apply { mkdirs() }
-        val target = File(directory, "${libraryCacheKey(itemId + ":" + item.etag.orEmpty() + ":" + item.dateCreated.orEmpty())}.$format")
+        val target = bookCacheFile(item, cacheDir)
         if (target.isFile && target.length() > 0) return@withContext target
         // 清理旧缓存，不影响当前返回给阅读器的书籍。
         directory.listFiles()?.filter { it.isFile && it != target }?.sortedBy { it.lastModified() }

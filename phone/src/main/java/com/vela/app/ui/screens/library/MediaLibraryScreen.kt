@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import coil3.compose.AsyncImage
 import com.vela.app.ui.screens.books.BookReaderScreen
+import com.vela.app.ui.screens.books.RemoteComicArchive
+import com.vela.data.repository.BookRangeUnsupportedException
 import com.vela.app.ui.screens.music.MusicMiniPlayer
 import com.vela.app.ui.screens.music.MusicNowPlayingScreen
 import com.vela.app.ui.screens.music.MusicPlayback
@@ -440,23 +442,36 @@ internal fun BaseItemDto.librarySubtitle(): String = when {
 
 @Composable private fun BookReadingRoute(session: LibraryMediaSession, item: BaseItemDto, back: () -> Unit, onRead: () -> Unit) {
     val context = LocalContext.current
-    var file by remember(item.id) { mutableStateOf<File?>(null) }
+    var comic by remember(session, item.id) { mutableStateOf<RemoteComicArchive?>(null) }
+    var fallback by remember(session, item.id) { mutableStateOf(false) }
+    var file by remember(session, item.id) { mutableStateOf<File?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var received by remember { mutableLongStateOf(0) }
     var length by remember { mutableStateOf<Long?>(null) }
     var retry by remember { mutableIntStateOf(0) }
-    LaunchedEffect(item.id, retry) {
+    LaunchedEffect(session, item.id, retry) {
         error = null
-        try { file = session.cacheBook(item, context.cacheDir) { read, size -> received = read; length = size }; onRead() }
+        received = 0
+        length = null
+        fallback = false
+        try {
+            file = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { session.cachedBook(item, context.cacheDir) }
+            if (file == null && item.bookFormat() in setOf("cbz", "zip")) {
+                try { comic = RemoteComicArchive.open(session.comicSource(item)::read) }
+                catch (_: BookRangeUnsupportedException) { fallback = true }
+            }
+            if (comic == null && file == null) file = session.cacheBook(item, context.cacheDir) { read, size -> received = read; length = size }
+            onRead()
+        }
         catch (e: CancellationException) { throw e }
         catch (e: Exception) { error = e.message ?: "无法打开书籍" }
     }
     val cached = file
-    if (cached != null) BookReaderScreen(cached, item.bookFormat(), item.name.orEmpty(), libraryCacheKey(session.accountKey + "|" + item.id), back)
+    if (cached != null || comic != null) BookReaderScreen(cached, item.bookFormat(), item.name.orEmpty(), libraryCacheKey(session.accountKey + "|" + item.id), back, comic)
     else {
         LibraryLoadingScaffold("正在打开书籍", back, error, { retry++ })
         if (error == null) Box(Modifier.fillMaxSize().padding(top = 100.dp), contentAlignment = Alignment.Center) {
-            Text("${received / 1024} KB" + (length?.let { " / ${it / 1024} KB" } ?: ""), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text((if (fallback) "服务器不支持分段读取，正在下载完整书籍\n" else if (item.bookFormat() in setOf("cbz", "zip")) "正在读取漫画目录\n" else "") + "${received / 1024} KB" + (length?.let { " / ${it / 1024} KB" } ?: ""), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

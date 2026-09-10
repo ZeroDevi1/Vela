@@ -46,17 +46,17 @@ import java.io.File
 import java.io.IOException
 import java.util.Locale
 
-private data class ReaderBook(val chapters: List<BookChapter>, val archive: BookArchive? = null, val textPages: List<String> = emptyList())
+private data class ReaderBook(val chapters: List<BookChapter>, val archive: BookArchive? = null, val comic: RemoteComicArchive? = null, val textPages: List<String> = emptyList())
 
-/** Downloads and account-scoped progress keys are supplied by the library route. */
+/** 书库提供本地完整文件或按页读取的漫画源，以及账户隔离的阅读进度键。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BookReaderScreen(file: File, format: String, title: String, progressKey: String, onBack: () -> Unit) {
+internal fun BookReaderScreen(file: File?, format: String, title: String, progressKey: String, onBack: () -> Unit, comic: RemoteComicArchive? = null) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("book_reader", android.content.Context.MODE_PRIVATE) }
     val normalizedFormat = format.lowercase(Locale.ROOT).removePrefix(".")
-    var book by remember(file, normalizedFormat) { mutableStateOf<ReaderBook?>(null) }
-    var error by remember(file, normalizedFormat) { mutableStateOf<String?>(null) }
+    var book by remember(file, normalizedFormat, comic) { mutableStateOf<ReaderBook?>(null) }
+    var error by remember(file, normalizedFormat, comic) { mutableStateOf<String?>(null) }
     var page by remember(progressKey) { mutableIntStateOf(prefs.getInt("$progressKey.page", 0)) }
     var fontSize by remember(progressKey) { mutableFloatStateOf(prefs.getFloat("$progressKey.font", 18f).coerceIn(14f, 30f)) }
     var night by remember(progressKey) { mutableStateOf(prefs.getBoolean("$progressKey.night", false)) }
@@ -70,18 +70,18 @@ fun BookReaderScreen(file: File, format: String, title: String, progressKey: Str
     var resourceWarning by remember(file) { mutableStateOf<String?>(null) }
     val background = if (night) Color(0xFF181818) else Color(0xFFF7F2E8)
     val foreground = if (night) Color(0xFFE5DFD4) else Color(0xFF24211E)
-    LaunchedEffect(file, normalizedFormat) {
+    LaunchedEffect(file, normalizedFormat, comic) {
         try {
             book = withContext(Dispatchers.IO) {
-                when (normalizedFormat) {
-                    "epub" -> BookArchive(file).let { ReaderBook(it.epubChapters(), it) }
-                    "cbz", "zip" -> BookArchive(file).let { ReaderBook(it.comicPages(), it) }
-                    "pdf" -> openPdf(file) { pdf ->
+                if (comic != null) ReaderBook(comic.chapters, comic = comic) else when (normalizedFormat) {
+                    "epub" -> BookArchive(requireNotNull(file)).let { ReaderBook(it.epubChapters(), it) }
+                    "cbz", "zip" -> BookArchive(requireNotNull(file)).let { ReaderBook(it.comicPages(), it) }
+                    "pdf" -> openPdf(requireNotNull(file)) { pdf ->
                         if (pdf.pageCount == 0) throw IOException("PDF 没有可阅读的页面")
                         ReaderBook(List(pdf.pageCount) { BookChapter("$it", "第 ${it + 1} 页") })
                     }
                     "txt" -> {
-                        if (file.length() > 16 * 1024 * 1024) throw IOException("文本超过 16 MB，暂不支持")
+                        if (requireNotNull(file).length() > 16 * 1024 * 1024) throw IOException("文本超过 16 MB，暂不支持")
                         val text = file.readBytes().let { bytes ->
                             when {
                                 bytes.size >= 2 && bytes[0] == 0xff.toByte() && bytes[1] == 0xfe.toByte() -> bytes.toString(Charsets.UTF_16LE).removePrefix("\uFEFF")
@@ -133,7 +133,7 @@ fun BookReaderScreen(file: File, format: String, title: String, progressKey: Str
                 }
                 current == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 raster -> RasterReader(file, normalizedFormat, current, page, readingMode,
-                    onPage = { page = it }, onMenu = { controls = !controls }, onError = { error = it })
+                    onPage = { page = it }, onMenu = { controls = !controls })
                 else -> key(file, page) {
                     when (normalizedFormat) {
                         "epub" -> EpubChapter(current.archive!!, current.chapters[page], fontSize, night,
@@ -189,8 +189,8 @@ fun BookReaderScreen(file: File, format: String, title: String, progressKey: Str
 private fun <T> openPdf(file: File, block: (PdfRenderer) -> T): T = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor -> PdfRenderer(descriptor).use(block) }
 
 @Composable
-private fun RasterReader(file: File, format: String, book: ReaderBook, page: Int, mode: Int,
-    onPage: (Int) -> Unit, onMenu: () -> Unit, onError: (String) -> Unit) {
+private fun RasterReader(file: File?, format: String, book: ReaderBook, page: Int, mode: Int,
+    onPage: (Int) -> Unit, onMenu: () -> Unit) {
     val pager = rememberPagerState(initialPage = page, pageCount = { book.chapters.size })
     val zoomed = remember(file) { mutableStateMapOf<Int, Boolean>() }
     val latestPage by rememberUpdatedState(onPage)
@@ -198,25 +198,39 @@ private fun RasterReader(file: File, format: String, book: ReaderBook, page: Int
     LaunchedEffect(pager) {
         snapshotFlow { pager.settledPage }.collect { latestPage(it) }
     }
+    LaunchedEffect(book, pager.currentPage) {
+        val comic = book.comic ?: return@LaunchedEffect
+        val current = pager.currentPage
+        // 先确保当前页就绪；跳页会取消旧预取，下一次以新位置为中心。
+        for (index in listOf(current, current + 1, current + 2, current - 1)) {
+            if (index !in book.chapters.indices) continue
+            try { comic.bytes(index) }
+            catch (e: CancellationException) { throw e }
+            catch (_: IOException) { break } // 预取失败由实际翻到该页时重试并显示错误。
+        }
+    }
     val content: @Composable (Int) -> Unit = { index ->
-        RasterBookPage(file, format, book, index, onError, onMenu) { zoomed[index] = it }
+        RasterBookPage(file, format, book, index, onMenu) { zoomed[index] = it }
     }
     if (mode == 2) VerticalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = zoomed[pager.currentPage] != true) { content(it) }
     else HorizontalPager(pager, Modifier.fillMaxSize(), reverseLayout = mode == 1, userScrollEnabled = zoomed[pager.currentPage] != true) { content(it) }
 }
 
 @Composable
-private fun RasterBookPage(file: File, format: String, book: ReaderBook, page: Int, onError: (String) -> Unit, onMenu: () -> Unit, onZoom: (Boolean) -> Unit) {
-    var bitmap by remember(file, page) { mutableStateOf<Bitmap?>(null) }
+private fun RasterBookPage(file: File?, format: String, book: ReaderBook, page: Int, onMenu: () -> Unit, onZoom: (Boolean) -> Unit) {
+    var pageError by remember(book, page) { mutableStateOf<String?>(null) }
+    var retry by remember(book, page) { mutableIntStateOf(0) }
+    var bitmap by remember(book, page) { mutableStateOf<Bitmap?>(null) }
     DisposableEffect(bitmap) {
         val displayed = bitmap
         onDispose { displayed?.recycle() }
     }
-    LaunchedEffect(file, page) {
+    LaunchedEffect(book, page, retry) {
+        pageError = null
         var decoded: Bitmap? = null
         try {
             bitmap = withContext(Dispatchers.IO) {
-                (if (format == "pdf") openPdf(file) { pdf -> pdf.openPage(page).use { source ->
+                (if (format == "pdf") openPdf(requireNotNull(file)) { pdf -> pdf.openPage(page).use { source ->
                     val scale = 2048f / maxOf(source.width, source.height).coerceAtLeast(1)
                     Bitmap.createBitmap((source.width * scale).toInt().coerceAtLeast(1), (source.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888).also {
                         decoded = it
@@ -224,7 +238,7 @@ private fun RasterBookPage(file: File, format: String, book: ReaderBook, page: I
                         source.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                     }
                 } } else {
-                    val bytes = book.archive!!.bytes(book.chapters[page].path)
+                    val bytes = book.comic?.bytes(page) ?: book.archive!!.bytes(book.chapters[page].path)
                     val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
                     if (options.outWidth <= 0 || options.outHeight <= 0) throw IOException("漫画图片损坏")
@@ -235,7 +249,7 @@ private fun RasterBookPage(file: File, format: String, book: ReaderBook, page: I
                 }).also { decoded = it }
             }
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { onError(e.message ?: "页面读取失败") }
+        catch (e: Exception) { pageError = e.message ?: "页面读取失败" }
         finally { if (bitmap !== decoded) decoded?.recycle() }
     }
     var zoom by remember(file, page) { mutableFloatStateOf(1f) }
@@ -254,7 +268,13 @@ private fun RasterBookPage(file: File, format: String, book: ReaderBook, page: I
             scaleX = zoom; scaleY = zoom
             translationX = offset.x.coerceIn(-size.width * (zoom - 1) / 2, size.width * (zoom - 1) / 2)
             translationY = offset.y.coerceIn(-size.height * (zoom - 1) / 2, size.height * (zoom - 1) / 2)
-        }, contentScale = ContentScale.Fit) } ?: CircularProgressIndicator()
+        }, contentScale = ContentScale.Fit) } ?: run {
+            if (pageError == null) CircularProgressIndicator()
+            else Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(pageError.orEmpty(), color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = { retry++ }) { Text("重试本页") }
+            }
+        }
     }
 }
 
