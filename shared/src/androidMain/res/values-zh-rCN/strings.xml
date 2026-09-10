@@ -906,4 +906,12 @@
     <string name="person_works_sort_bitrate">比特率</string>
     <string name="person_works_sort_size">大小</string>
     <string name="person_works_empty">没有符合当前筛选条件的作品。</string>
+    <string name="server_private_title">私密保护</string>
+    <string name="server_private_description">切换到此服务器或重启应用时验证手机锁屏密码，不参与首页聚合和聚合搜索。</string>
+    <string name="server_private_verify">请验证手机锁屏密码后继续。</string>
+    <string name="server_private_no_lock">请先在手机系统设置中启用锁屏密码、PIN 码或图案。</string>
+    <string name="server_private_unavailable">无法启动系统验证，私密保护保持锁定。</string>
+    <string name="server_private_locked">解锁后才能访问此私密服务器。</string>
+    <string name="server_private_unlock">解锁</string>
+    <string name="server_private_use_public">访问 %1$s</string>
 </resources>

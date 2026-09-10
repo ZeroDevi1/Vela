@@ -59,8 +59,10 @@ class FederatedMediaRepository(context: Context) {
     private val networkPreferences = NetworkPreferences(appContext)
     private val catalogLookupGate = Semaphore(MAX_CONCURRENT_SERVERS)
 
-    fun availableServers(): List<FederatedServer> =
-        authenticatedServers().map { server ->
+    fun availableServers(
+        savedServers: List<AuthRepository.SavedServer> = authRepository.getActiveSessionSnapshot().savedServers
+    ): List<FederatedServer> =
+        authenticatedServers(savedServers).map { server ->
             FederatedServer(
                 id = server.id,
                 name = server.displayName()
@@ -188,10 +190,12 @@ class FederatedMediaRepository(context: Context) {
             .distinctBy { it.id }.map { match.copy(item = it) }
     }
 
-    private fun authenticatedServers(): List<AuthRepository.SavedServer> =
-        authRepository.getActiveSessionSnapshot().savedServers
+    private fun authenticatedServers(
+        savedServers: List<AuthRepository.SavedServer> = authRepository.getActiveSessionSnapshot().savedServers
+    ): List<AuthRepository.SavedServer> =
+        savedServers
             .filter { server ->
-                server.userId.isNotBlank() && secureSessionStore.hasToken(server.id)
+                !server.isPrivate && server.userId.isNotBlank() && secureSessionStore.hasToken(server.id)
             }
             .distinctBy { it.id }
 

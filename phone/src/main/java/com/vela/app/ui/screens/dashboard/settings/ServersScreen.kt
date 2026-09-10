@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -229,9 +230,10 @@ fun ServersScreen(
                     configuringServerId = null
                 }
             },
-            onSave = { note, preferStrmOriginalPath, host, https, port, path ->
+            onSave = { note, preferStrmOriginalPath, host, https, port, path, isPrivate ->
                 viewModel.saveServerConfig(
                     serverId = server.id,
+                    isPrivate = isPrivate,
                     note = note,
                     preferStrmOriginalPath = preferStrmOriginalPath,
                     host = host,
@@ -300,11 +302,16 @@ private fun ServerAccountRow(
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             contentAlignment = Alignment.Center
         ) {
-            ProfileImageLoader(
-                imageUrl = server.profileImageUrl,
-                serverTypeRaw = server.serverTypeRaw,
-                modifier = Modifier.size(48.dp)
-            )
+            if (server.isPrivate) {
+                Icon(Icons.Rounded.Lock, contentDescription = stringResource(R.string.server_private_title),
+                    tint = MaterialTheme.colorScheme.primary)
+            } else {
+                ProfileImageLoader(
+                    imageUrl = server.profileImageUrl,
+                    serverTypeRaw = server.serverTypeRaw,
+                    modifier = Modifier.size(48.dp)
+                )
+            }
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {

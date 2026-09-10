@@ -208,6 +208,7 @@ class ServersViewModel(application: Application) : AndroidViewModel(application)
 
     fun saveServerConfig(
         serverId: String,
+        isPrivate: Boolean,
         note: String,
         preferStrmOriginalPath: Boolean,
         host: String,
@@ -228,6 +229,7 @@ class ServersViewModel(application: Application) : AndroidViewModel(application)
             val result = try {
                 authRepository.updateSavedServerConfig(
                     serverId = serverId,
+                    isPrivate = isPrivate,
                     note = note,
                     preferStrmOriginalPath = preferStrmOriginalPath,
                     serverUrl = serverUrl

@@ -56,17 +56,22 @@ class FederatedSearchViewModel(application: Application) : AndroidViewModel(appl
 
     init {
         viewModelScope.launch {
-            authRepository.observeActiveSession().collect {
-                val servers = searchRepository.availableServers()
+            authRepository.observeActiveSession().collect { snapshot ->
+                val servers = searchRepository.availableServers(snapshot.savedServers)
+                val visibleIds = servers.map { it.id }.toSet()
+                val sourcesChanged = visibleIds != _uiState.value.servers.map { it.id }.toSet()
                 _uiState.update { current ->
                     current.copy(
                         servers = servers,
+                        items = current.items.filter { it.serverId in visibleIds },
+                        failures = current.failures.filter { it.serverId in visibleIds || it.serverId in setOf("tmdb", "douban") },
                         selectedSources = current.selectedSources.intersect(servers.map { it.id }.toSet() + setOf("tmdb", "douban")) +
                             if (current.servers.all { it.id in current.selectedSources }) servers.map { it.id }.toSet() else emptySet(),
                         selectedServerId = current.selectedServerId
                             ?.takeIf { selectedId -> servers.any { it.id == selectedId } }
                     )
                 }
+                if (sourcesChanged) scheduleSearch(immediate = true)
             }
         }
     }
@@ -188,9 +193,10 @@ class FederatedSearchViewModel(application: Application) : AndroidViewModel(appl
         ) return
         _uiState.update {
             it.copy(
-                servers = searchRepository.availableServers(),
-                items = response.items,
-                failures = response.failures,
+                items = response.items.filter { item -> it.servers.any { server -> server.id == item.serverId } },
+                failures = response.failures.filter { failure ->
+                    failure.serverId in setOf("tmdb", "douban") || it.servers.any { server -> server.id == failure.serverId }
+                },
                 isSearching = false
             )
         }

@@ -100,7 +100,9 @@ class VelaActivity : ComponentActivity() {
                     val shouldShowSplash by splashViewModel.shouldShowSplash.collectAsState()
 
                     Box(modifier = Modifier.fillMaxSize()) {
-                        AppNavigation(openMusic = openMusic, onMusicOpened = { openMusic = false })
+                        com.vela.app.ui.components.privacy.ServerPrivacyGate(this@VelaActivity) {
+                            AppNavigation(openMusic = openMusic, onMusicOpened = { openMusic = false })
+                        }
                         if (shouldShowSplash) {
                             SplashScreen(
                                 onSplashComplete = {

@@ -72,16 +72,12 @@ class FederatedHomeViewModel(application: Application) : AndroidViewModel(applic
         }
         viewModelScope.launch {
             authRepository.observeActiveSession()
-                .map { snapshot ->
-                    snapshot.savedServers.map { server ->
-                        "${server.id}|${server.serverUrl}|${server.activeLineId}|${server.lastUsedAt}"
-                    }
-                }
+                .map { snapshot -> snapshot.savedServers }
                 .distinctUntilChanged()
-                .collect {
+                .collect { servers ->
                     contentCache.clear()
                     _uiState.update { current ->
-                        current.copy(servers = repository.availableServers())
+                        current.copy(servers = repository.availableServers(servers))
                     }
                     loadSelected(force = true)
                 }
@@ -159,9 +155,13 @@ class FederatedHomeViewModel(application: Application) : AndroidViewModel(applic
                 excludedServerIds = _uiState.value.excludedServerIds
             )
             if (_uiState.value.selectedTab != tab) return@launch
-            val ready = FederatedContentUiState.Ready(response.items, response.failures)
+            val visibleIds = _uiState.value.servers.map { it.id }.toSet()
+            val ready = FederatedContentUiState.Ready(
+                response.items.filter { it.serverId in visibleIds },
+                response.failures.filter { it.serverId in visibleIds }
+            )
             contentCache[tab] = ready
-            _uiState.update { it.copy(content = ready, servers = repository.availableServers()) }
+            _uiState.update { it.copy(content = ready) }
         }
     }
 }

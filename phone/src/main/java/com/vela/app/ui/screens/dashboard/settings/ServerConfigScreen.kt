@@ -60,7 +60,8 @@ internal fun ServerConfigScreen(
         host: String,
         https: Boolean,
         port: String,
-        path: String
+        path: String,
+        isPrivate: Boolean
     ) -> Unit,
     onAddLine: (url: String, name: String) -> Unit,
     onSwitchLine: (String) -> Unit,
@@ -88,6 +89,10 @@ internal fun ServerConfigScreen(
     }
     var preferStrmOriginalPath by remember(server.id, server.preferStrmOriginalPath) {
         mutableStateOf(server.preferStrmOriginalPath)
+    }
+    var isPrivate by remember(server.id, server.isPrivate) { mutableStateOf(server.isPrivate) }
+    val verifyPrivacyChange = com.vela.app.ui.components.privacy.rememberDeviceCredentialConfirmation {
+        isPrivate = !isPrivate
     }
     var advancedExpanded by remember { mutableStateOf(server.preferStrmOriginalPath) }
 
@@ -145,7 +150,7 @@ internal fun ServerConfigScreen(
                     TextButton(
                         enabled = !isBusy && host.isNotBlank(),
                         onClick = {
-                            onSave(note, preferStrmOriginalPath, host, https, port, path)
+                            onSave(note, preferStrmOriginalPath, host, https, port, path, isPrivate)
                         }
                     ) {
                         Text(
@@ -215,6 +220,22 @@ internal fun ServerConfigScreen(
                     enabled = !isBusy,
                     colors = amoledAuthFieldColors()
                 )
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(stringResource(R.string.server_private_title), color = Color.White,
+                            style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(R.string.server_private_description),
+                            color = Color.White.copy(alpha = 0.55f),
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = isPrivate, enabled = !isBusy,
+                        onCheckedChange = { verifyPrivacyChange() })
+                }
                 Spacer(modifier = Modifier.height(20.dp))
                 ServerLinesSection(
                     server = server,

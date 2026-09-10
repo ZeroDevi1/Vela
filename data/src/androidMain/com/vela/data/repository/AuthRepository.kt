@@ -150,7 +150,9 @@ class AuthRepository(private val context: Context) {
         @SerialName("preferStrmOriginalPath")
         val preferStrmOriginalPath: Boolean = true,
         @SerialName("autoRouteEnabled")
-        val autoRouteEnabled: Boolean = true
+        val autoRouteEnabled: Boolean = true,
+        @SerialName("isPrivate")
+        val isPrivate: Boolean = false
     ) {
         fun resolvedLines(): List<ServerLine> {
             if (lines.isNotEmpty()) {
@@ -213,7 +215,9 @@ class AuthRepository(private val context: Context) {
         @SerialName("preferStrmOriginalPath")
         val preferStrmOriginalPath: Boolean = true,
         @SerialName("autoRouteEnabled")
-        val autoRouteEnabled: Boolean = true
+        val autoRouteEnabled: Boolean = true,
+        @SerialName("isPrivate")
+        val isPrivate: Boolean = false
     )
 
     data class ActiveSessionSnapshot(
@@ -342,7 +346,8 @@ class AuthRepository(private val context: Context) {
             serverInstanceId = existingSavedServer?.serverInstanceId,
             note = existingSavedServer?.note,
             preferStrmOriginalPath = existingSavedServer?.preferStrmOriginalPath ?: true,
-            autoRouteEnabled = existingSavedServer?.autoRouteEnabled != false
+            autoRouteEnabled = existingSavedServer?.autoRouteEnabled != false,
+            isPrivate = existingSavedServer?.isPrivate == true
         )
     }
 
@@ -734,11 +739,13 @@ class AuthRepository(private val context: Context) {
         }
     }
 
+    /** 保存本机服务器配置；isPrivate 为 null 时保留原值，手机端修改保护开关前需系统身份验证。 */
     suspend fun updateSavedServerConfig(
         serverId: String,
         note: String?,
         preferStrmOriginalPath: Boolean,
-        serverUrl: String? = null
+        serverUrl: String? = null,
+        isPrivate: Boolean? = null
     ): Result<SavedServer> {
         if (serverId.isBlank()) {
             return Result.failure(Exception(string(R.string.auth_error_invalid_server_id)))
@@ -795,6 +802,7 @@ class AuthRepository(private val context: Context) {
                 lines = nextLines,
                 activeLineId = nextActiveLineId,
                 note = trimmedNote,
+                isPrivate = isPrivate ?: target.isPrivate,
                 preferStrmOriginalPath = preferStrmOriginalPath,
                 lastUsedAt = System.currentTimeMillis()
             )
@@ -1207,7 +1215,8 @@ class AuthRepository(private val context: Context) {
             serverInstanceId = serverInstanceId,
             note = note,
             preferStrmOriginalPath = preferStrmOriginalPath,
-            autoRouteEnabled = autoRouteEnabled
+            autoRouteEnabled = autoRouteEnabled,
+            isPrivate = isPrivate
         )
     }
 
@@ -1269,7 +1278,8 @@ class AuthRepository(private val context: Context) {
             serverInstanceId = instanceId ?: matched?.serverInstanceId,
             note = note?.trim()?.takeIf { it.isNotBlank() } ?: matched?.note,
             preferStrmOriginalPath = matched?.preferStrmOriginalPath ?: true,
-            autoRouteEnabled = matched?.autoRouteEnabled != false
+            autoRouteEnabled = matched?.autoRouteEnabled != false,
+            isPrivate = matched?.isPrivate == true
         )
     }
 

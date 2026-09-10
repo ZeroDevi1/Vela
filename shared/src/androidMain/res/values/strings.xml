@@ -919,4 +919,12 @@
     <string name="person_works_sort_bitrate">Bitrate</string>
     <string name="person_works_sort_size">Size</string>
     <string name="person_works_empty">No titles match the current filters.</string>
+    <string name="server_private_title">Private server</string>
+    <string name="server_private_description">Verify your device screen lock when switching to this server or restarting the app. Excluded from aggregated home and search.</string>
+    <string name="server_private_verify">Verify your device screen lock to continue.</string>
+    <string name="server_private_no_lock">Set a device screen lock password, PIN or pattern first.</string>
+    <string name="server_private_unavailable">Device verification is unavailable. Private protection remains locked.</string>
+    <string name="server_private_locked">Unlock to access this private server.</string>
+    <string name="server_private_unlock">Unlock</string>
+    <string name="server_private_use_public">Use %1$s</string>
 </resources>
