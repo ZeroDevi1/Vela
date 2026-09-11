@@ -11,6 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.ConcurrentHashMap
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -32,6 +35,11 @@ class LibraryMediaSession internal constructor(
     private val deviceId: String,
     private val api: MediaServerApi
 ) {
+    /** 当前账户会话内的文件夹封面候选；空列表表示没有可用子项，随会话释放。 */
+    private val folderArtwork = ConcurrentHashMap<String, List<BaseItemDto>>()
+    /** 限制书架滚动时的补图请求，最多四个并发，避免挤占主列表查询。 */
+    private val artworkRequests = Semaphore(4)
+
     fun matchesToken(token: String?): Boolean = token == accessToken
 
     suspend fun items(query: MediaLibraryQuery): QueryResult<BaseItemDto> =
@@ -66,11 +74,54 @@ class LibraryMediaSession internal constructor(
         return response.requiredBody().lyrics
     }
 
+    /**
+     * 按服务器图片元数据选择封面，使用当前固定账户鉴权；不发起网络请求。
+     * @param item 书籍、音频或文件夹，允许没有图片元数据。
+     * @param width 请求图片的最大宽度，单位像素，必须大于零。
+     * @return 自身、专辑或继承封面的 URL；没有已知图片时返回 null，由界面显示占位。
+     * @throws IllegalArgumentException 宽度非正数时抛出。
+     */
     fun artworkUrl(item: BaseItemDto, width: Int = 512): String? {
-        val id = if (item.imageTags?.containsKey("Primary") == true) item.id else item.albumId ?: item.id
-        return id?.let {
-            url("Items/$it/Images/Primary", listOf("maxWidth" to width.toString(), "quality" to "90",
-                serverType.tokenQueryParameter to accessToken))
+        require(width > 0) { "封面宽度必须大于零" }
+        // 图片编号与 tag 必须来自同一个所有者，不能把歌曲 tag 用到专辑上。
+        val source = when {
+            !item.id.isNullOrBlank() && !item.imageTags?.get("Primary").isNullOrBlank() ->
+                Triple(item.id, "Primary", item.imageTags?.get("Primary"))
+            !item.albumId.isNullOrBlank() && !item.albumPrimaryImageTag.isNullOrBlank() ->
+                Triple(item.albumId, "Primary", item.albumPrimaryImageTag)
+            !item.parentPrimaryImageItemId.isNullOrBlank() && !item.parentPrimaryImageTag.isNullOrBlank() ->
+                Triple(item.parentPrimaryImageItemId, "Primary", item.parentPrimaryImageTag)
+            !item.id.isNullOrBlank() && !item.imageTags?.get("Thumb").isNullOrBlank() ->
+                Triple(item.id, "Thumb", item.imageTags?.get("Thumb"))
+            !item.parentThumbItemId.isNullOrBlank() && !item.parentThumbImageTag.isNullOrBlank() ->
+                Triple(item.parentThumbItemId, "Thumb", item.parentThumbImageTag)
+            !item.id.isNullOrBlank() && !item.backdropImageTags.isNullOrEmpty() ->
+                Triple(item.id, "Backdrop", item.backdropImageTags.first())
+            else -> return null
+        }
+        // tag 随服务器封面更新变化，避免旧图长期命中磁盘缓存。
+        return url("Items/${source.first}/Images/${source.second}", listOf(
+            "maxWidth" to width.toString(), "quality" to "90", "tag" to source.third.orEmpty(),
+            serverType.tokenQueryParameter to accessToken))
+    }
+
+    /**
+     * 选择自身或文件夹中的封面来源，供界面加载服务器图片或生成书籍首页缩略图。
+     * @param item 原始媒体条目；只有自身无图的文件夹会查询子项。
+     * @return 前 50 项中优先有服务器封面的子项，否则首个可生成首页的书籍；无候选返回原条目。网络失败向上传播。
+     */
+    suspend fun resolveArtworkItem(item: BaseItemDto): BaseItemDto {
+        if (artworkUrl(item) != null) return item
+        val id = item.id?.takeIf { it.isNotBlank() && item.isFolder == true } ?: return item
+        // 会话限定缓存防止跨账户复用授权 URL；进入并发许可后再次检查以减少重复查询。
+        return artworkRequests.withPermit {
+            folderArtwork[id]?.let { return@withPermit it.firstOrNull() ?: item }
+            val children = items(MediaLibraryQuery(parentId = id, recursive = true,
+                includeItemTypes = "Book,Audio,MusicAlbum,AudioBook", limit = 50, sortBy = "SortName"))
+            val selected = children.items.orEmpty().firstOrNull { artworkUrl(it) != null }
+                ?: children.items.orEmpty().firstOrNull { it.isBookItem() && it.bookFormat() in setOf("pdf", "cbz", "zip") }
+            folderArtwork[id] = listOfNotNull(selected)
+            selected ?: item
         }
     }
 
@@ -117,9 +168,13 @@ class LibraryMediaSession internal constructor(
         return File(directory, "${libraryCacheKey(id + ":" + item.etag.orEmpty() + ":" + item.dateCreated.orEmpty())}.${item.bookFormat()}")
     }
 
-    /** CBZ/ZIP 阅读器按目录和页面读取，沿用打开书库时的账户鉴权。 */
-    fun comicSource(item: BaseItemDto): BookRangeSource {
-        require(item.isBookItem() && item.bookFormat() in setOf("cbz", "zip"))
+    /**
+     * 创建固定账户的按需书籍数据源，不在此处下载文件。
+     * @param item 带编号的 PDF、CBZ 或 ZIP 书籍；其他类型抛 IllegalArgumentException。
+     * @return 校验响应范围和文件版本的数据源；不支持 Range 的服务器在读取时明确报错。
+     */
+    fun bookRangeSource(item: BaseItemDto): BookRangeSource {
+        require(item.isBookItem() && item.bookFormat() in setOf("cbz", "zip", "pdf"))
         val id = requireNotNull(item.id)
         return BookRangeSource(bookClient, Request.Builder().url(url("Items/$id/File"))
             .apply { requestHeaders.forEach { (name, value) -> header(name, value) } }.build())

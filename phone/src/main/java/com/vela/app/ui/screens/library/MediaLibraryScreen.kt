@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import coil3.compose.AsyncImage
 import com.vela.app.ui.screens.books.BookReaderScreen
+import com.vela.app.ui.screens.books.BookArtwork
 import com.vela.app.ui.screens.books.RemoteComicArchive
 import com.vela.data.repository.BookRangeUnsupportedException
 import com.vela.app.ui.screens.music.MusicMiniPlayer
@@ -363,11 +364,40 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
     } }) { Text("创建") } }, dismissButton = { TextButton(onClick = { playlistName = null }) { Text("取消") } }) }
 }
 
+/**
+ * 展示固定账户的媒体封面；无图保留类型图标，生成或加载失败时显示错误图标。
+ * @param session 当前媒体会话，未就绪时为 null，仅显示占位。
+ * @param item 用于选择封面及书籍、文件夹、音乐占位图标的条目。
+ * @param modifier 调用方指定的封面尺寸及布局约束。
+ * @return 无返回值；图片加载由 Coil 管理并随组合销毁取消。
+ */
 @Composable
 internal fun LibraryArtwork(session: LibraryMediaSession?, item: BaseItemDto, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var artwork by remember(session, item) { mutableStateOf<Any?>(session?.artworkUrl(item)) }
+    var failed by remember(session, item) { mutableStateOf(false) }
+    // 只为进入组合的可见封面补查子条目，离屏取消请求；失败显式展示错误图标。
+    LaunchedEffect(session, item) {
+        try { artwork = session?.let { BookArtwork.resolve(context, it, item) } }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) {
+            failed = true
+            // 保留可诊断原因，剔除异常中可能携带账户参数的 URL。
+            val reason = e.message.orEmpty().replace(Regex("https?://\\S+"), "[URL]")
+            android.util.Log.w("LibraryArtwork", "封面加载失败：${e.javaClass.simpleName}: $reason")
+        }
+    }
+    // 文件夹没有封面是合法状态，不能误显示音乐图标。
     Box(modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
-        Icon(if (item.isBookItem()) Icons.Default.MenuBook else Icons.Default.MusicNote, null, Modifier.size(30.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        AsyncImage(model = session?.artworkUrl(item), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Icon(when {
+            failed -> Icons.Default.BrokenImage
+            item.isFolder == true -> Icons.Default.Folder
+            item.isBookItem() -> Icons.Default.MenuBook
+            else -> Icons.Default.MusicNote
+        }, null, Modifier.size(30.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        AsyncImage(model = artwork, contentDescription = if (failed) "封面加载失败" else null,
+            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+            onError = { if (artwork != null) failed = true }, onSuccess = { failed = false })
     }
 }
 
@@ -457,7 +487,7 @@ internal fun BaseItemDto.librarySubtitle(): String = when {
         try {
             file = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { session.cachedBook(item, context.cacheDir) }
             if (file == null && item.bookFormat() in setOf("cbz", "zip")) {
-                try { comic = RemoteComicArchive.open(session.comicSource(item)::read) }
+                try { comic = RemoteComicArchive.open(session.bookRangeSource(item)::read) }
                 catch (_: BookRangeUnsupportedException) { fallback = true }
             }
             if (comic == null && file == null) file = session.cacheBook(item, context.cacheDir) { read, size -> received = read; length = size }

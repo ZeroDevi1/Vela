@@ -35,6 +35,15 @@ import com.vela.player.core.RemoteTrailerUrl
 import androidx.compose.ui.platform.LocalConfiguration
 import kotlinx.coroutines.*
 
+/**
+ * 在页面内播放预告片，首帧之前隐藏视频视图，离开组合时释放播放器。
+ * @param trailerUrl 可解析的预告片地址；空值字符串会停止播放。
+ * @param isVisible 是否允许播放；不可见时暂停。
+ * @param modifier 调用方指定的播放器布局。
+ * @param onPlaybackCompleted 播放结束回调。
+ * @param onError 解析或播放失败回调，供调用方展示错误。
+ * @return 无返回值；持有的播放器仅在当前组合生命周期内有效。
+ */
 @Composable
 fun InlineTrailerPlayer(
     trailerUrl: String,
@@ -185,7 +194,7 @@ fun InlineTrailerPlayer(
         AndroidView(
             factory = { ctx ->
                 TextureView(ctx).apply {
-                    setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    // TextureView 禁止设置背景 Drawable（透明色也会抛异常）；首帧前由 alpha 隐藏画面。
                     layoutParams = android.view.ViewGroup.LayoutParams(
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT

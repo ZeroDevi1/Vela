@@ -39,3 +39,17 @@
 - 阅读进度滑块在松手后跳页，避免拖动过程中连续解码图片。
 
 本轮 `:phone:compileDebugKotlin` 与 `git diff --check` 通过。设备检查：ADB 无已连接设备，SDK 没有可用 AVD。实际页面视觉、手势冲突、真实媒体阅读与播放仍需设备验收，不能以编译通过代替。
+
+## 2026-09-11 启动与封面修复
+
+- 首页预告片不再给 `TextureView` 设置背景 Drawable（透明色同样触发异常），首帧前仍通过 alpha 隐藏画面。连接手机上的原始崩溃为 `UnsupportedOperationException: TextureView doesn't support displaying a background drawable`。
+- 书籍和音乐优先使用自身封面，再使用专辑、父级主图、缩略图和背景图；请求携带对应所有者的图片 tag，避免封面更新后持续显示旧图。
+- 无封面的文件夹在前 50 个书籍/音乐子条目中选择封面来源，优先服务器已有图片，否则选择可生成首页的 PDF/CBZ/ZIP。查询结果按账户会话缓存，失败不缓存。
+- 没有服务器图片的 PDF/CBZ/ZIP 生成首页缩略图，保存在账户隔离的私有缓存。漫画沿用现有 Range 读取和 CRC 校验；PDF 使用 [Android 代理文件回调](https://developer.android.com/reference/android/os/ProxyFileDescriptorCallback) 提供随机读取，不为封面自动下载整本书。并发解码上限为 2，单次 PDF 封面最多读取 32 MB，分块内存缓存上限为 8 MB。
+- 不支持 Range、归档目录无效、加密 PDF 或解码错误均显示失败图标并保留诊断原因；不将无封面的正常条目误判为网络失败。EPUB/TXT 仍使用服务器图片，不在此轮生成正文封面。
+
+实机验收：使用原签名的 debug APK 覆盖安装到连接的 22081212C 手机，进入 Jellyfin 首页、书架、文件夹和音乐列表。PDF 首页、CBZ 子书籍封面以及阿衰 Online、爆笑校园、哆啦 A 梦、漫画派对等文件夹的补图已观察到；验收进程无新增崩溃。单独的“阿衰漫画”CBZ 仍返回“漫画没有有效的图片目录”，保留失败状态，未声称该文件已修复。
+
+验证包含 `:data:testAndroidHostTest`（16 项）和 `:phone:testDebugUnitTest --tests '*RemoteComicArchiveTest'`（4 项）、debug APK 构建及 `git diff --check`。
+
+随后执行 `:phone:assembleRelease` 成功，ARM64 APK 通过 `apksigner verify --verbose` 签名验证，覆盖安装后包标志不含 `DEBUGGABLE`。正式版实机进入 Jellyfin 首页、书架及音乐列表，并滚动到此前未展示的 PDF 验证首页封面生成；图片正常显示，验收进程无新增崩溃。当前手机已替换为 release 1.2.3（versionCode 8），保留原账户数据。
