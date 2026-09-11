@@ -531,8 +531,14 @@ class MediaRepository(private val context: Context) {
         return Result.success(mergedSegments)
     }
 
+    /**
+     * 查询同一电影或同一集的库内版本；媒体源由详情页独立选择，不转换成条目 ID。
+     * @param item 当前详情条目；仅支持有 ID 的 Movie/Episode。
+     * @return 当前条目及匹配的真实库条目；不支持的类型返回空列表，请求失败返回失败结果。
+     */
     suspend fun getLocalVersions(item: BaseItemDto): Result<List<BaseItemDto>> {
         return try {
+            // 先确认可查询的条目身份，无外部 ID 时只保留当前条目。
             val itemType = item.type?.takeIf { type ->
                 type.equals("Movie", ignoreCase = true) ||
                     type.equals("Episode", ignoreCase = true)
@@ -550,22 +556,15 @@ class MediaRepository(private val context: Context) {
                 recursive = true,
                 anyProviderIdEquals = providerLookup,
                 limit = 100,
-                fields = "MediaStreams,MediaSources,UserData"
+                fields = "MediaStreams,MediaSources,UserData,ProviderIds"
             )
 
             if (result.isFailure) {
                 return Result.failure(result.exceptionOrNull() ?: Exception("Failed to fetch local versions"))
             }
 
-            val versions = (item.localMediaVersions() + listOf(item) + result.getOrThrow().items.orEmpty())
-                .filter { candidate ->
-                    candidate.id != null &&
-                        candidate.type.equals(itemType, ignoreCase = true)
-                }
-                .distinctBy { version ->
-                    version.mediaSources.orEmpty().firstOrNull()?.path?.lowercase()
-                        ?: version.id.orEmpty()
-                }
+            // 服务端筛选结果仍需校验身份和季集；媒体源 ID 不能用于 getItemById。
+            val versions = matchingLocalVersions(item, result.getOrThrow().items.orEmpty())
 
             Result.success(versions)
         } catch (e: Exception) {
@@ -2626,26 +2625,6 @@ class MediaRepository(private val context: Context) {
         context.getString(resId, *formatArgs)
 
 }
-
-private fun BaseItemDto.localMediaVersions(): List<BaseItemDto> =
-    mediaSources
-        .orEmpty()
-        .mapNotNull { source ->
-            val sourceItemId = source.id
-                ?.removePrefix("mediasource_")
-                ?.takeIf { it.isNotBlank() }
-                ?: return@mapNotNull null
-            if (source.mediaStreams.orEmpty().none { it.type.equals("Video", ignoreCase = true) }) {
-                return@mapNotNull null
-            }
-
-            copy(
-                id = sourceItemId,
-                mediaSources = listOf(source),
-                mediaStreams = source.mediaStreams
-            )
-        }
-        .sortedByDescending { it.id == id }
 
 // Extension functions for BaseItemDto
 /**

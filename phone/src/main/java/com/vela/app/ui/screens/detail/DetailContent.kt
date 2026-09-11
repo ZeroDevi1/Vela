@@ -85,6 +85,31 @@ import java.util.Locale
 import kotlinx.coroutines.launch
 
 
+/**
+ * 展示电影或剧集详情并加载相关内容；版本选择分别传递真实条目 ID 和媒体源 ID。
+ * 网络状态通过页面状态呈现；调用方负责播放、导航与媒体源选择的后续处理。
+ * @param item 当前详情数据，库内操作需要有效条目 ID。
+ * @param isLoading 是否正在刷新详情。
+ * @param forceMergeVersions 是否强制查询库内版本。
+ * @param trackSelectionSyncVersion 轨道偏好变更序号，变化时重新读取选择。
+ * @param onBackPressed 返回上一页的回调。
+ * @param onPlayClick 使用音频、字幕索引播放；null 表示未指定索引。
+ * @param onPlayFromBeginning 使用可空音频、字幕索引从头播放。
+ * @param onPlayAtPosition 使用可空音频、字幕索引和毫秒位置播放。
+ * @param onRemoteTrailerClick 播放预告 URL，第二项为可空标题。
+ * @param onPreferredStreamIndexesChanged 通知可空音频和字幕索引变化。
+ * @param onPreferredMediaSourceIdChanged 通知源 ID 变化；null 表示没有媒体源。
+ * @param onSimilarItemClick 打开关联条目 ID。
+ * @param onVersionItemSelected 打开库内版本的真实条目 ID，不接受媒体源 ID。
+ * @param onPersonClick 打开人物 ID。
+ * @param onTagClick 打开选定标签。
+ * @param onCastButtonClick 打开投屏选择。
+ * @param onSeriesOverviewClick 打开所属剧集 ID。
+ * @param onSeasonClick 打开季详情，依次传递剧集 ID、季 ID、可空季名、背景和标志图片 URL。
+ * @param onItemDeleted 条目删除成功后的回调。
+ * @param onPlayPart 播放指定分段条目。
+ * @return 无返回值，通过 Compose 渲染页面并在操作时调用回调。
+ */
 @Composable
 fun DetailContent(
     item: BaseItemDto,
@@ -330,7 +355,10 @@ fun DetailContent(
     var moreFromSeasonEpisodes by remember(item.id, item.seriesId, item.seasonId) {
         mutableStateOf<List<BaseItemDto>>(emptyList())
     }
-    var localVersions by remember { mutableStateOf<List<BaseItemDto>>(emptyList()) }
+    // 版本候选只属于当前服务器和当前条目，不能随详情导航带入另一部电影或另一集。
+    var localVersions by remember(activeServerId, item.id, shouldMergeVersions) {
+        mutableStateOf<List<BaseItemDto>>(emptyList())
+    }
     val seerrRequestState = seerrRequestState(
         item = item,
         isSeerDetail = isSeerDetail,
@@ -575,7 +603,7 @@ fun DetailContent(
             .withUserDataRefresh(userDataRefreshEvent)
     }
 
-    LaunchedEffect(item.id, item.type, isSeerDetail, shouldMergeVersions) {
+    LaunchedEffect(activeServerId, item.id, item.type, isSeerDetail, shouldMergeVersions) {
         val supportsLocalVersions = item.type.equals("Movie", ignoreCase = true) ||
             item.type.equals("Episode", ignoreCase = true)
         if (
@@ -592,10 +620,8 @@ fun DetailContent(
             .getOrNull()
             ?.filter { version -> !version.id.isNullOrBlank() }
             ?.let { versions ->
-                val hasCurrentVersionList = localVersions.any { version -> version.id == item.id }
-                if (versions.size > 1 || !hasCurrentVersionList) {
-                    localVersions = versions
-                }
+                // 最新结果即使只剩当前条目，也必须替换旧列表，移除已被排除的候选。
+                localVersions = versions
             }
     }
 
@@ -627,8 +653,9 @@ fun DetailContent(
     }
     val mediaSourceVersionOptions = mediaSourceVersionEntries.map { (label, _) -> label }
     val videoOptions = when {
-        localVersionOptions.size > 1 -> localVersionOptions
+        // 原生媒体源选择与选中项显示使用相同优先级，避免选项和勾选来自两套列表。
         mediaSourceVersionOptions.size > 1 -> mediaSourceVersionOptions
+        localVersionOptions.size > 1 -> localVersionOptions
         else -> baseVideoOptions
     }
     val displayedSelectedVideo = when {
@@ -708,7 +735,9 @@ fun DetailContent(
     }
 
     val onVideoOptionSelected: (String) -> Unit = { option ->
-        val selectedVersion = localVersionEntries.firstOrNull { (label, _) -> label == option }?.second
+        // 只解析正在显示的选项类型，标签相同也不能把源切换误当成条目导航。
+        val selectedVersion = localVersionEntries.takeIf { mediaSourceVersionOptions.size <= 1 }
+            ?.firstOrNull { (label, _) -> label == option }?.second
         val selectedVersionId = selectedVersion?.id
         val selectedSource = mediaSourceVersionEntries.firstOrNull { (label, _) -> label == option }?.second
         if (selectedVersionId != null && selectedVersionId != item.id) {

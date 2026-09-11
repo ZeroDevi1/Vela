@@ -66,20 +66,28 @@ fun selectedVideoOption(
         ?: videoOptions.firstOrNull().orEmpty()
 }
 
+/**
+ * 生成一个媒体文件的大小和总码率说明，不混用其它源的轨道。
+ * @param mediaSources 当前可用媒体源；使用第一个源与详情默认选择保持一致。
+ * @param streams 无媒体源时使用的条目轨道；存在媒体源时仅使用源内轨道。
+ * @param smallFileSizeLabel 小于 1 MB 时的本地化说明。
+ * @return 已知参数用斜线连接；参数全缺失时返回 null，不推算其它文件的信息。
+ */
 fun buildInlineText(
     mediaSources: List<MediaSourceInfo>,
     streams: List<MediaStream>,
     smallFileSizeLabel: String
 ): String? {
-    val source = inlinePrimaryMediaSource(mediaSources)
+    // 大小和码率必须来自同一媒体源；空元数据不应导致跳到另一个文件。
+    val source = mediaSources.firstOrNull()
     val parts = mutableListOf<String>()
     formatFileSize(
         sizeBytes = source?.size,
         smallFileSizeLabel = smallFileSizeLabel
     )?.let(parts::add)
 
-    val fileBitrate = source?.bitrate?.toLong()
-        ?: streams
+    val fileBitrate = source?.bitrate?.toLong()?.takeIf { it > 0 }
+        ?: (if (source != null) source.mediaStreams.orEmpty() else streams)
             .sumOf { (it.bitRate ?: 0).toLong() }
             .takeIf { it > 0L }
     formatBitrate(fileBitrate)?.let(parts::add)
@@ -87,14 +95,20 @@ fun buildInlineText(
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" / ")
 }
 
+/**
+ * 为接收条目的默认媒体源生成版本标签，所有技术信息均来自同一个文件。
+ * @param videoFallbackLabel 未提供视频轨道标题时的本地化说明。
+ * @param smallFileSizeLabel 小于 1 MB 时的本地化说明。
+ * @return 视频标题与已知大小、码率组成的文本；缺失字段不借用其它媒体源。
+ */
 private fun BaseItemDto.localVersionVideoLabel(
     videoFallbackLabel: String,
     smallFileSizeLabel: String
 ): String {
     val activeSources = activeDetailMediaSources()
-    val streams = activeSources
-        .flatMap { source -> source.mediaStreams.orEmpty() }
-        .ifEmpty { mediaStreams.orEmpty() }
+    // 默认源与播放选择一致；只有没有媒体源时才采用条目级轨道。
+    val source = activeSources.firstOrNull()
+    val streams = if (source != null) source.mediaStreams.orEmpty() else mediaStreams.orEmpty()
     val videoTitle = videoOptionLabels(streams).firstOrNull() ?: videoFallbackLabel
     val inlineText = buildInlineText(
         mediaSources = activeSources,
@@ -122,16 +136,6 @@ private fun detailOptionLabels(options: List<String>): List<String> {
         counts[option] = seen
         if (seen == 1) option else "$option ($seen)"
     }
-}
-
-private fun inlinePrimaryMediaSource(sources: List<MediaSourceInfo>): MediaSourceInfo? {
-    return sources.firstOrNull { source ->
-        !source.name.isNullOrBlank() ||
-            !source.container.isNullOrBlank() ||
-            source.size != null ||
-            source.bitrate != null ||
-            source.mediaStreams.orEmpty().isNotEmpty()
-    } ?: sources.firstOrNull()
 }
 
 private fun formatFileSize(
