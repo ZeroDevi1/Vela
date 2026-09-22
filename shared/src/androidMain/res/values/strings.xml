@@ -302,6 +302,7 @@
 
     <!-- Player Transcoding Dialogs -->
     <string name="player_dialog_audio_title">Audio</string>
+    <string name="player_audio_mute">Mute</string>
     <string name="player_vr_chip_enable">VR · Flatten</string>
     <string name="player_vr_chip_on">VR Flat</string>
     <string name="player_vr_projection_title">VR projection</string>

@@ -59,6 +59,7 @@ fun VideoSurface(
     vrFlatEnabled: Boolean = false,
     vrLayout: VrLayout? = null,
     onSphericalTouchTarget: ((View?) -> Unit)? = null,
+    onScrubPreviewSurface: (View?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -122,6 +123,7 @@ fun VideoSurface(
                 vrFlatEnabled = vrFlatEnabled,
                 vrLayout = vrLayout,
                 onSphericalTouchTarget = onSphericalTouchTarget,
+                onScrubPreviewSurface = onScrubPreviewSurface,
                 modifier = surfaceModifier
             )
         }
@@ -139,17 +141,20 @@ private fun ExoPlayerView(
     vrFlatEnabled: Boolean,
     vrLayout: VrLayout?,
     onSphericalTouchTarget: ((View?) -> Unit)?,
+    onScrubPreviewSurface: (View?) -> Unit,
     modifier: Modifier
 ) {
     val context = LocalContext.current
     val playerPreferences = remember { PlayerPreferences(context) }
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
+    val currentScrubPreviewSurface by rememberUpdatedState(onScrubPreviewSurface)
 
     DisposableEffect(vrFlatEnabled) {
         onDispose {
             playerViewRef?.player = null
             playerViewRef = null
             onSphericalTouchTarget?.invoke(null)
+            currentScrubPreviewSurface(null)
         }
     }
 
@@ -180,6 +185,7 @@ private fun ExoPlayerView(
                 playerViewRef = playerView
                 playerView.player = player
                 playerView.resizeMode = resizeMode
+                onScrubPreviewSurface(playerView.videoSurfaceView)
                 playerView.applySubtitlePreferences(playerPreferences)
                 val spherical = playerView.videoSurfaceView as? SphericalGLSurfaceView
                 spherical?.setUseSensorRotation(false)

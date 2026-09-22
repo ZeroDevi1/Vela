@@ -75,7 +75,11 @@ fun AudioTrackSelectionDialog(
     ) {
         itemsIndexed(audioTracks, key = { _, t -> t.id }) { index, track ->
             val isSelected = track.id == currentAudioTrack?.id
-            val lines = TrackDetails.audioDialogLines(track)
+            val lines = if (TrackDetails.isMutedAudio(track)) {
+                Triple(stringResource(R.string.player_audio_mute), "", "")
+            } else {
+                TrackDetails.audioDialogLines(track)
+            }
             TvTrackItem(
                 title = lines.first.ifBlank { "Track ${index + 1}" },
                 subtitle = lines.second,

@@ -1320,9 +1320,13 @@ class PlayerPreferences(context: Context) {
     ) {
         setPreferredAudioStreamIndex(itemId, streamIndex)
         val seriesKey = seriesId?.takeIf { it.isNotBlank() } ?: return
-        val fingerprint = streams
-            .firstOrNull { it.type.equals("Audio", ignoreCase = true) && it.index == streamIndex }
-            ?.let(TrackDetails::audioFingerprint)
+        val fingerprint = when (streamIndex) {
+            null -> null
+            -1 -> TrackDetails.audioOffFingerprint()
+            else -> streams
+                .firstOrNull { it.type.equals("Audio", ignoreCase = true) && it.index == streamIndex }
+                ?.let(TrackDetails::audioFingerprint)
+        }
         setSeriesAudioFingerprint(seriesKey, fingerprint)
     }
 

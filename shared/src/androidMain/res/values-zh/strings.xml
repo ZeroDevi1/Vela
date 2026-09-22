@@ -301,6 +301,7 @@
 
     <!-- Player Transcoding Dialogs -->
     <string name="player_dialog_audio_title">音频</string>
+    <string name="player_audio_mute">静音</string>
     <string name="player_vr_chip_enable">VR · 转平面</string>
     <string name="player_vr_chip_on">VR 平面</string>
     <string name="player_vr_projection_title">VR 投影</string>

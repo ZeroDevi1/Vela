@@ -164,7 +164,7 @@ internal fun SourceTrackSection(
         if (showAudio) {
             SourceTrackRow(
                 icon = Icons.Rounded.MusicNote,
-                title = audioLabel.ifBlank { selectedVideo },
+                title = localizedTrackOption(audioLabel.ifBlank { selectedVideo }),
                 subtitle = null,
                 showChevron = audioOptions.size > 1,
                 onClick = {
@@ -314,7 +314,7 @@ private fun TrackOptionDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = option,
+                                text = localizedTrackOption(option),
                                 color = Color.White.copy(alpha = if (isSelected) 1f else 0.78f),
                                 fontSize = 14.sp,
                                 modifier = Modifier.weight(1f)

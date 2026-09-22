@@ -4,7 +4,13 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.view.PixelCopy
+import android.view.SurfaceView
+import android.view.TextureView
+import android.view.View
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -17,6 +23,8 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -40,6 +48,7 @@ import com.vela.player.audio.SpatializerHelper
 import com.vela.player.core.PlaybackMarkerUtils
 import com.vela.player.core.PlayerState
 import com.vela.player.core.PlayerTrack
+import com.vela.player.core.AudioTrackInfo
 import com.vela.player.core.PlayerUtils
 import com.vela.player.core.RemoteTrailerUrl
 import com.vela.player.core.TrackDetails
@@ -59,7 +68,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.lang.ref.WeakReference
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
+import kotlin.math.abs
 import com.vela.app.download.DownloadRepository
 import com.vela.app.download.DownloadRepositoryProvider
 import java.io.File
@@ -86,10 +101,12 @@ class PlayerViewModel @Inject constructor(
     )
 
     private data class ScrubPreviewRequest(
-        val source: ScrubPreviewSource,
+        val source: ScrubPreviewSource?,
         val positionMs: Long,
         val version: Long,
-        val useMpvFrame: Boolean
+        val useMpvFrame: Boolean,
+        /** 目标已在播放缓冲内，抓播放器画面而不是重新打开片源。 */
+        val captureFromPlayer: Boolean
     )
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -167,39 +184,48 @@ class PlayerViewModel @Inject constructor(
     private var scrubPreviewRetriever: MediaMetadataRetriever? = null
     private var scrubPreviewRetrieverSource: ScrubPreviewSource? = null
     private var scrubPreviewVersion = 0L
+    /** 当前 Exo 视频 Surface，用于把已缓冲位置的画面拷进进度预览。 */
+    private var scrubPreviewSurface: WeakReference<View>? = null
+    /** 拖动预览结束后挂上的空监听，避免把播放器监听留在已结束的请求上。 */
+    private val idleVideoFrameListener = VideoFrameMetadataListener { _, _, _, _ -> }
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
             for (request in scrubPreviewRequests) {
                 val frame = runCatching {
-                    if (request.useMpvFrame) {
-                        delay(MPV_SCRUB_PREVIEW_DELAY_MS)
-                        if (request.version != scrubPreviewVersion) {
-                            null
+                    if (request.captureFromPlayer) {
+                        if (request.useMpvFrame) {
+                            delay(MPV_SCRUB_PREVIEW_DELAY_MS)
+                            if (request.version != scrubPreviewVersion) {
+                                null
+                            } else {
+                                mpvPlayer?.grabThumbnail(SCRUB_PREVIEW_WIDTH_PX)
+                            }
                         } else {
-                            mpvPlayer?.grabThumbnail(SCRUB_PREVIEW_WIDTH_PX)
+                            captureExoScrubFrame(request.positionMs, request.version)
                         }
                     } else {
+                        val source = request.source ?: return@runCatching null
                         synchronized(scrubPreviewRetrieverLock) {
-                            if (request.source !== scrubPreviewSource) {
+                            if (source !== scrubPreviewSource) {
                                 return@synchronized null
                             }
                             val retriever = scrubPreviewRetriever
-                                ?.takeIf { scrubPreviewRetrieverSource === request.source }
+                                ?.takeIf { scrubPreviewRetrieverSource === source }
                                 ?: MediaMetadataRetriever().also { newRetriever ->
-                                    when (request.source.uri.scheme?.lowercase(Locale.ROOT)) {
+                                    when (source.uri.scheme?.lowercase(Locale.ROOT)) {
                                         "http", "https" -> newRetriever.setDataSource(
-                                            request.source.uri.toString(),
-                                            request.source.requestHeaders
+                                            source.uri.toString(),
+                                            source.requestHeaders
                                         )
                                         else -> newRetriever.setDataSource(
-                                            request.source.context,
-                                            request.source.uri
+                                            source.context,
+                                            source.uri
                                         )
                                     }
                                     scrubPreviewRetriever?.release()
                                     scrubPreviewRetriever = newRetriever
-                                    scrubPreviewRetrieverSource = request.source
+                                    scrubPreviewRetrieverSource = source
                                 }
                             retriever.getScaledFrameAtTime(
                                 request.positionMs.coerceAtLeast(0L) * 1_000L,
@@ -214,7 +240,8 @@ class PlayerViewModel @Inject constructor(
                 withContext(Dispatchers.Main.immediate) {
                     if (
                         request.version == scrubPreviewVersion &&
-                        request.source === scrubPreviewSource
+                        (request.captureFromPlayer || request.source === scrubPreviewSource) &&
+                        (frame != null || !request.captureFromPlayer)
                     ) {
                         scrubPreviewFrame = frame
                     }
@@ -1025,9 +1052,20 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun seekTo(position: Long, exact: Boolean = true) {
-        exoPlayer?.seekTo(position)
-        mpvPlayer?.seekTo(position, exact)
-        _playerState.value = _playerState.value.copy(currentPosition = position)
+        val target = position.coerceAtLeast(0L)
+        exoPlayer?.let { player ->
+            // 已缓冲位置用精确 seek，拖动预览才能对上那一帧；未缓冲保持默认容差，避免为了精确帧去补关键帧。
+            player.setSeekParameters(
+                when {
+                    exact && isPositionBuffered(target) -> SeekParameters.EXACT
+                    exact -> SeekParameters.DEFAULT
+                    else -> SeekParameters.CLOSEST_SYNC
+                }
+            )
+            player.seekTo(target)
+        }
+        mpvPlayer?.seekTo(target, exact)
+        _playerState.value = _playerState.value.copy(currentPosition = target)
         if (_playerState.value.playWhenReady) {
             mpvPlayer?.play()
             exoPlayer?.play()
@@ -1452,17 +1490,145 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 请求进度条拖动预览帧。
+     *
+     * 目标落在已缓冲区间时，从当前播放器画面取样；否则才回退到片源抽帧。
+     *
+     * @param positionMs 预览位置，单位毫秒
+     */
     fun requestScrubPreview(positionMs: Long) {
-        val source = scrubPreviewSource ?: return
+        val captureFromPlayer = isPositionBuffered(positionMs)
+        val source = scrubPreviewSource
+        if (!captureFromPlayer && (source == null || isMpvPlayback())) {
+            scrubPreviewVersion++
+            scrubPreviewFrame = null
+            return
+        }
         val version = ++scrubPreviewVersion
         scrubPreviewRequests.trySend(
             ScrubPreviewRequest(
                 source = source,
                 positionMs = positionMs,
                 version = version,
-                useMpvFrame = isMpvPlayback()
+                useMpvFrame = isMpvPlayback(),
+                captureFromPlayer = captureFromPlayer
             )
         )
+    }
+
+    /**
+     * 登记用于进度预览的视频 Surface。
+     *
+     * @param view Exo 的视频 SurfaceView 或 TextureView；离开画面时传 null
+     */
+    fun setScrubPreviewSurface(view: View?) {
+        scrubPreviewSurface = view?.let { WeakReference(it) }
+    }
+
+    /**
+     * 判断时间点是否落在当前已缓冲区间内。
+     *
+     * @param positionMs 目标位置，单位毫秒
+     * @return 不超过缓冲末端（含进度条同等容差）时为 true
+     */
+    private fun isPositionBuffered(positionMs: Long): Boolean {
+        val duration = getDuration()
+        val toleranceMs = if (duration > 0L) {
+            (duration * 0.0005f).toLong().coerceAtLeast(400L)
+        } else {
+            400L
+        }
+        return positionMs <= getBufferedPosition() + toleranceMs
+    }
+
+    /**
+     * 等 Exo 渲染出接近目标时间的帧，再从视频 Surface 拷贝预览图。
+     *
+     * @param positionMs 拖动目标，单位毫秒
+     * @param version 发起预览时的版本；过期请求返回 null
+     * @return 预览位图；Surface 不可用或请求已过期时为 null
+     */
+    private suspend fun captureExoScrubFrame(positionMs: Long, version: Long): Bitmap? {
+        val player = exoPlayer ?: return null
+        try {
+            withContext(Dispatchers.Main.immediate) {
+                withTimeoutOrNull(EXO_SCRUB_PREVIEW_FRAME_TIMEOUT_MS) {
+                    suspendCancellableCoroutine { continuation ->
+                        val delivered = AtomicBoolean(false)
+                        val listener = VideoFrameMetadataListener { presentationTimeUs, _, _, _ ->
+                            val frameMs = presentationTimeUs / 1000L
+                            if (abs(frameMs - positionMs) > EXO_SCRUB_PREVIEW_FRAME_TOLERANCE_MS) {
+                                return@VideoFrameMetadataListener
+                            }
+                            if (delivered.compareAndSet(false, true)) {
+                                continuation.resume(Unit) { _ -> }
+                            }
+                        }
+                        player.setVideoFrameMetadataListener(listener)
+                    }
+                }
+            }
+        } finally {
+            withContext(Dispatchers.Main.immediate) {
+                exoPlayer?.setVideoFrameMetadataListener(idleVideoFrameListener)
+            }
+        }
+        if (version != scrubPreviewVersion) return null
+        delay(16L)
+        if (version != scrubPreviewVersion) return null
+        return withContext(Dispatchers.Main.immediate) { copyPreviewSurface() }
+    }
+
+    /**
+     * 把当前视频 Surface 缩放到进度预览尺寸。
+     *
+     * @return 预览位图；Surface 尚未就绪或拷贝失败时为 null
+     */
+    private suspend fun copyPreviewSurface(): Bitmap? {
+        val view = scrubPreviewSurface?.get() ?: return null
+        if (!view.isAttachedToWindow || view.width <= 0 || view.height <= 0) return null
+        return when (view) {
+            is TextureView -> view.getBitmap(SCRUB_PREVIEW_WIDTH_PX, SCRUB_PREVIEW_HEIGHT_PX)
+            is SurfaceView -> copySurfaceViewFrame(view)
+            else -> null
+        }
+    }
+
+    /**
+     * 从 SurfaceView 拷贝一帧并缩放到预览尺寸。
+     *
+     * @param surfaceView 播放器视频 Surface
+     * @return 拷贝成功时的位图，失败时为 null
+     */
+    private suspend fun copySurfaceViewFrame(surfaceView: SurfaceView): Bitmap? {
+        if (!surfaceView.holder.surface.isValid) return null
+        val bitmap = Bitmap.createBitmap(
+            SCRUB_PREVIEW_WIDTH_PX,
+            SCRUB_PREVIEW_HEIGHT_PX,
+            Bitmap.Config.ARGB_8888
+        )
+        return suspendCancellableCoroutine { continuation ->
+            try {
+                PixelCopy.request(
+                    surfaceView,
+                    bitmap,
+                    { result ->
+                        if (!continuation.isActive) return@request
+                        if (result == PixelCopy.SUCCESS) {
+                            continuation.resume(bitmap)
+                        } else {
+                            bitmap.recycle()
+                            continuation.resume(null)
+                        }
+                    },
+                    Handler(Looper.getMainLooper())
+                )
+            } catch (error: IllegalArgumentException) {
+                bitmap.recycle()
+                if (continuation.isActive) continuation.resume(null)
+            }
+        }
     }
 
     fun clearScrubPreview() {
@@ -1472,6 +1638,7 @@ class PlayerViewModel @Inject constructor(
 
     private fun releaseScrubPreview() {
         clearScrubPreview()
+        scrubPreviewSurface = null
         synchronized(scrubPreviewRetrieverLock) {
             scrubPreviewSource = null
             scrubPreviewRetriever?.release()
@@ -1698,9 +1865,18 @@ class PlayerViewModel @Inject constructor(
     /**
      * Select audio track by ID
      */
+    /**
+     * 按音轨 id 切换音频；id 为静音项时关闭音频输出并记住选择。
+     *
+     * @param trackId 音轨 id，静音项为 [TrackDetails.AUDIO_OFF_ID]
+     */
     fun selectAudioTrack(trackId: String) {
         if (trackId == _playerState.value.currentAudioTrack?.id) return
         val selectedTrack = _playerState.value.availableAudioTracks.firstOrNull { it.id == trackId } ?: return
+        if (TrackDetails.isMutedAudio(selectedTrack)) {
+            applyMutedAudio(selectedTrack)
+            return
+        }
         if (isMpvPlayback()) {
             val streamIndex = MPVPlayer.selectAudioTrack(mpvPlayer, selectedTrack) ?: return
             persistAudioPreference(streamIndex)
@@ -1723,6 +1899,26 @@ class PlayerViewModel @Inject constructor(
                 delay(500)
                 updateTrackInformation()
             }
+        }
+    }
+
+    /**
+     * 关闭当前音频输出并记住静音选择。
+     *
+     * @param selectedTrack 静音音轨项，用于刷新当前选中状态
+     */
+    private fun applyMutedAudio(selectedTrack: AudioTrackInfo) {
+        if (isMpvPlayback()) {
+            mpvPlayer?.selectAudioTrack("no")
+            persistAudioPreference(-1)
+            _playerState.value = _playerState.value.copy(currentAudioTrack = selectedTrack)
+            return
+        }
+        exoPlayer?.let { player ->
+            trackSelectionCoordinator.markManualTrackSelection()
+            PlayerUtils.selectAudioTrack(player, TrackDetails.AUDIO_OFF_ID)
+            persistAudioPreference(-1)
+            _playerState.value = _playerState.value.copy(currentAudioTrack = selectedTrack)
         }
     }
 
@@ -2157,4 +2353,8 @@ class PlayerViewModel @Inject constructor(
 
 private const val SCRUB_PREVIEW_WIDTH_PX = 320
 private const val SCRUB_PREVIEW_HEIGHT_PX = 180
-private const val MPV_SCRUB_PREVIEW_DELAY_MS = 80L
+private const val MPV_SCRUB_PREVIEW_DELAY_MS = 120L
+/** 等待精确 seek 后的新帧，超时后仍尝试拷贝当前画面。单位毫秒。 */
+private const val EXO_SCRUB_PREVIEW_FRAME_TIMEOUT_MS = 280L
+/** 呈现时间与拖动目标的允许偏差。单位毫秒。 */
+private const val EXO_SCRUB_PREVIEW_FRAME_TOLERANCE_MS = 400L

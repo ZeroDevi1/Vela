@@ -205,10 +205,11 @@ internal object PlaybackUrlBuilder {
         return try {
             val mediaSource = playbackInfo.selectedMediaSource(options.mediaSourceId)
                 ?: return Result.failure(Exception(context.getString(R.string.data_error_no_media_source_available)))
+            val normalizedAudioStreamIndex = options.audioStreamIndex?.takeIf { it >= 0 }
             val normalizedSubtitleStreamIndex = normalizeSubtitleStreamIndex(options.subtitleStreamIndex)
             val selectedAudioStream = getSelectedAudioStream(
                 mediaSource = mediaSource,
-                requestedAudioStreamIndex = options.audioStreamIndex
+                requestedAudioStreamIndex = normalizedAudioStreamIndex
             )
             val hasQualityCap = (options.maxStreamingBitrate ?: 0) > 0 || (options.maxStreamingHeight ?: 0) > 0
             val needsAudioTranscoding = needsAudioTranscode(
@@ -233,7 +234,7 @@ internal object PlaybackUrlBuilder {
                     } else {
                         applyTranscodingSelectionOverrides(
                             streamingUrl = resolvedTranscodingUrl,
-                            audioStreamIndex = options.audioStreamIndex,
+                            audioStreamIndex = normalizedAudioStreamIndex,
                             audioTranscodeMode = options.audioTranscodeMode,
                             sourceVideoBitrate = mediaSource.bitrate,
                             preserveOriginalVideo = !hasQualityCap && needsAudioTranscoding
@@ -254,7 +255,7 @@ internal object PlaybackUrlBuilder {
             streamQueryParams.add("mediaSourceId" to mediaSource.id)
             if (!useStaticStream) {
                 // static=true 必须返回原容器，由本地播放器选轨；服务端选轨参数可能剥离内嵌 ASS。
-                options.audioStreamIndex?.let { streamQueryParams.add("audioStreamIndex" to it.toString()) }
+                normalizedAudioStreamIndex?.let { streamQueryParams.add("audioStreamIndex" to it.toString()) }
                 normalizeSubtitleStreamIndex(options.subtitleStreamIndex)?.let {
                     streamQueryParams.add("subtitleStreamIndex" to it.toString())
                 }

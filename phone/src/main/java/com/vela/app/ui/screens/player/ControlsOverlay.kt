@@ -883,8 +883,7 @@ private fun SeekBar(
                         scrubProgress = newProgress
                         lastLiveSeekAt = SystemClock.uptimeMillis()
                         onScrubProgressChange(scrubProgress)
-                        // 向前 live seek 会落到更早的关键帧，点选目标位置会被带回去。
-                        // 只在向后或已缓冲范围内预览；最终位置一律在 UP 时 exact seek。
+                        // 只在已缓冲区间跟手预览画面；超出缓冲不 live seek，避免为了预览重新拉流。
                         if (canLiveSeek(newProgress, progress, bufferedProgress)) {
                             onLiveSeek(scrubProgress)
                         }

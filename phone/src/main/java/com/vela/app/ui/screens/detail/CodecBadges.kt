@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vela.data.model.MediaStream
 import com.vela.detail.CodecCapabilityManager
+import com.vela.player.core.TrackDetails
 
 data class CodecBadgeState(
     val has4K: Boolean = false,
@@ -200,6 +201,9 @@ private fun resolveSelectedStream(
     type: String,
     selectedOption: String
 ): MediaStream? {
+    if (type.equals("Audio", ignoreCase = true) && selectedOption == TrackDetails.AUDIO_MUTE_OPTION) {
+        return null
+    }
     val typedStreams = streams.filter { it.type == type }
     if (typedStreams.isEmpty()) return null
     if (selectedOption.isBlank()) return typedStreams.firstOrNull()

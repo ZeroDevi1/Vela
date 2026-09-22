@@ -63,7 +63,7 @@ internal class PlayerTrackSelection {
             defaultSubtitleStreamIndex = null
         )
 
-        var audioHandled = preferredAudioIndex == null || isTranscoding
+        var audioHandled = preferredAudioIndex == null || (isTranscoding && preferredAudioIndex != -1)
         var subtitleHandled = preferredSubtitleIndex == null
         var appliedAnySelection = false
 

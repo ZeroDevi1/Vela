@@ -36,8 +36,15 @@ object PlayerTrack {
         val audioStreams = indexedStreams(mediaStreams, streamType = "Audio")
         val subtitleStreams = indexedStreams(mediaStreams, streamType = "Subtitle")
 
-        val apiNamedAudioTracks = liveAudioTracks.mapIndexed { index, track ->
-            TrackDetails.applyStreamDetails(track, audioStreams.getOrNull(index))
+        var liveAudioOrdinal = 0
+        val apiNamedAudioTracks = liveAudioTracks.map { track ->
+            if (TrackDetails.isMutedAudio(track)) {
+                TrackDetails.mutedAudioTrack()
+            } else {
+                val named = TrackDetails.applyStreamDetails(track, audioStreams.getOrNull(liveAudioOrdinal))
+                liveAudioOrdinal += 1
+                named
+            }
         }
         val apiNamedCurrentAudioTrack = currentLiveAudioTrack?.let { selected ->
             apiNamedAudioTracks.firstOrNull { it.id == selected.id }
@@ -76,7 +83,7 @@ object PlayerTrack {
                 ?: selected.copy(streamIndex = if (selected.id == "off") -1 else null)
         }
 
-        val apiAudioTracks = audioStreams.mapNotNull { stream ->
+        val apiAudioTracks = listOf(TrackDetails.mutedAudioTrack()) + audioStreams.mapNotNull { stream ->
             val streamIndex = stream.index ?: return@mapNotNull null
             TrackDetails.applyStreamDetails(
                 AudioTrackInfo(
@@ -132,9 +139,12 @@ object PlayerTrack {
         }
         val currentAudioTrack = if (useApiAudioTracks) {
             val targetStreamIndex = selectedAudioStreamIndex ?: defaultAudioStreamIndex
-            targetStreamIndex?.let { target ->
-                availableAudioTracks.firstOrNull { it.streamIndex == target }
-            } ?: availableAudioTracks.firstOrNull()
+            when (targetStreamIndex) {
+                -1 -> availableAudioTracks.firstOrNull { TrackDetails.isMutedAudio(it) }
+                else -> targetStreamIndex?.let { target ->
+                    availableAudioTracks.firstOrNull { it.streamIndex == target }
+                } ?: availableAudioTracks.firstOrNull { !TrackDetails.isMutedAudio(it) }
+            }
         } else {
             apiNamedCurrentAudioTrack
         }

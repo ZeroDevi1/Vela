@@ -35,10 +35,12 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vela.shared.R
 import com.vela.data.model.MediaStream
 import com.vela.player.core.TrackDetails
 import com.vela.player.core.mediaStreamDisplayTitles
@@ -121,9 +123,9 @@ internal fun TrackField(
         )
     } else {
         val value = if (!inlineMetaText.isNullOrBlank()) {
-            "${options.first()} / $inlineMetaText"
+            "${localizedTrackOption(options.first())} / $inlineMetaText"
         } else {
-            options.first()
+            localizedTrackOption(options.first())
         }
         Row(
             modifier = modifier,
@@ -206,7 +208,7 @@ internal fun OptionSelectorRow(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val displayText = buildString {
-                        append(selectedOption.ifBlank { options.firstOrNull().orEmpty() })
+                        append(localizedTrackOption(selectedOption.ifBlank { options.firstOrNull().orEmpty() }))
                         if (!inlineMetaText.isNullOrBlank()) {
                             append(" / ")
                             append(inlineMetaText)
@@ -237,7 +239,7 @@ internal fun OptionSelectorRow(
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = option,
+                                text = localizedTrackOption(option),
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -258,12 +260,27 @@ internal fun buildVideoOptions(streams: List<MediaStream>): List<String> {
 }
 
 internal fun buildAudioOptions(streams: List<MediaStream>): List<String> {
-    return OptionLabels(
+    val trackOptions = OptionLabels(
         streams
             .filter { it.type == "Audio" }
             .sortedBy { it.index ?: Int.MAX_VALUE }
             .map(TrackDetails::audioOptionLabel)
     )
+    return listOf(TrackDetails.AUDIO_MUTE_OPTION) + trackOptions
+}
+
+/** 默认音轨选项，跳过静音项。 */
+internal fun defaultAudioOption(streams: List<MediaStream>): String {
+    return buildAudioOptions(streams).firstOrNull { it != TrackDetails.AUDIO_MUTE_OPTION }.orEmpty()
+}
+
+@Composable
+private fun localizedTrackOption(option: String): String {
+    return if (option == TrackDetails.AUDIO_MUTE_OPTION) {
+        stringResource(R.string.player_audio_mute)
+    } else {
+        option
+    }
 }
 
 internal fun buildSubtitleOptions(streams: List<MediaStream>): List<String> {
@@ -297,12 +314,13 @@ internal fun AudioStreamIndex(
     streams: List<MediaStream>,
     selectedOption: String
 ): Int? {
+    if (selectedOption == TrackDetails.AUDIO_MUTE_OPTION) return -1
     val audioStreams = streams
         .filter { it.type == "Audio" }
         .sortedBy { it.index ?: Int.MAX_VALUE }
     if (audioStreams.isEmpty()) return null
     if (selectedOption.isBlank()) return audioStreams.firstOrNull()?.index
-    val audioOptions = buildAudioOptions(streams)
+    val audioOptions = buildAudioOptions(streams).filter { it != TrackDetails.AUDIO_MUTE_OPTION }
     val optionOrdinal = audioOptions.indexOf(selectedOption)
     if (optionOrdinal < 0 || optionOrdinal >= audioStreams.size) return null
     return audioStreams[optionOrdinal].index
@@ -330,13 +348,16 @@ internal fun AudioStreamIndex(
     streamIndex: Int?
 ): String? {
     if (streamIndex == null) return null
+    if (streamIndex == -1) return TrackDetails.AUDIO_MUTE_OPTION
 
     val audioStreams = streams
         .filter { it.type == "Audio" }
         .sortedBy { it.index ?: Int.MAX_VALUE }
     val streamOrdinal = audioStreams.indexOfFirst { it.index == streamIndex }
     if (streamOrdinal < 0) return null
-    return buildAudioOptions(streams).getOrNull(streamOrdinal)
+    return buildAudioOptions(streams)
+        .filter { it != TrackDetails.AUDIO_MUTE_OPTION }
+        .getOrNull(streamOrdinal)
 }
 
 internal fun SubtitleStreamIndex(

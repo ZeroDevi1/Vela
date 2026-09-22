@@ -832,9 +832,23 @@ class PlayerViewModel @Inject constructor(
     /**
      * Select audio track by ID
      */
+    /**
+     * 按音轨 id 切换音频；id 为静音项时关闭音频输出并记住选择。
+     *
+     * @param trackId 音轨 id，静音项为 [TrackDetails.AUDIO_OFF_ID]
+     */
     fun selectAudioTrack(trackId: String) {
         if (trackId == _playerState.value.currentAudioTrack?.id) return
         val selectedTrack = _playerState.value.availableAudioTracks.firstOrNull { it.id == trackId } ?: return
+        if (TrackDetails.isMutedAudio(selectedTrack)) {
+            exoPlayer?.let { player ->
+                trackSelectionCoordinator.markManualTrackSelection()
+                PlayerUtils.selectAudioTrack(player, TrackDetails.AUDIO_OFF_ID)
+                persistAudioPreference(-1)
+                _playerState.value = _playerState.value.copy(currentAudioTrack = selectedTrack)
+            }
+            return
+        }
         if (selectedTrack.requiresPlaybackRestart) {
             playbackTrackSelection(
                 audioStreamIndex = selectedTrack.streamIndex,

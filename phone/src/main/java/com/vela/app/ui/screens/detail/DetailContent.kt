@@ -232,7 +232,7 @@ fun DetailContent(
         buildVideoOptions(effectiveMediaStreams).firstOrNull().orEmpty()
     }
     val initialAudioOption = remember(item.id, effectiveMediaStreams, savedAudioOption) {
-        savedAudioOption ?: buildAudioOptions(effectiveMediaStreams).firstOrNull().orEmpty()
+        savedAudioOption ?: defaultAudioOption(effectiveMediaStreams)
     }
     val initialSubtitleOption = remember(item.id, effectiveMediaStreams, savedSubtitleOption) {
         savedSubtitleOption ?: buildDefaultSubtitleOption(effectiveMediaStreams)
@@ -747,7 +747,7 @@ fun DetailContent(
             selectedVideo = option
             val sourceStreams = selectedSource.mediaStreams.orEmpty()
                 .ifEmpty { item.mediaStreams.orEmpty() }
-            selectedAudio = buildAudioOptions(sourceStreams).firstOrNull().orEmpty()
+            selectedAudio = defaultAudioOption(sourceStreams)
             selectedSubtitle = buildDefaultSubtitleOption(sourceStreams)
             onPreferredMediaSourceIdChanged(selectedSource.id)
             persistTrackSelection(
@@ -776,7 +776,7 @@ fun DetailContent(
     LaunchedEffect(displayedSelectedVideo, audioOptions, subtitleOptions, defaultSubtitleOption) {
         if (selectedVideo != displayedSelectedVideo) selectedVideo = displayedSelectedVideo
         if (selectedAudio !in audioOptions) {
-            selectedAudio = audioOptions.firstOrNull().orEmpty()
+            selectedAudio = defaultAudioOption(effectiveMediaStreams)
         }
     }
 

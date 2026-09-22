@@ -51,7 +51,7 @@ object MPVPlayer {
     ): PlayerTrackState {
         val audioStreams = streams(mediaStreams, "Audio")
         val subtitleStreams = streams(mediaStreams, "Subtitle")
-        val audioTracks = audioStreams.mapNotNull { stream ->
+        val audioTracks = listOf(TrackDetails.mutedAudioTrack()) + audioStreams.mapNotNull { stream ->
             val streamIndex = stream.index ?: return@mapNotNull null
             TrackDetails.applyStreamDetails(
                 AudioTrackInfo(
@@ -92,11 +92,14 @@ object MPVPlayer {
             )
         }
 
+        val selectedAudioIndex = selectedAudioStreamIndex ?: defaultAudioStreamIndex
         return PlayerTrackState(
             availableAudioTracks = audioTracks,
-            currentAudioTrack = audioTracks.firstOrNull {
-                it.streamIndex == (selectedAudioStreamIndex ?: defaultAudioStreamIndex)
-            } ?: audioTracks.firstOrNull(),
+            currentAudioTrack = when (selectedAudioIndex) {
+                -1 -> audioTracks.firstOrNull { TrackDetails.isMutedAudio(it) }
+                else -> audioTracks.firstOrNull { it.streamIndex == selectedAudioIndex }
+                    ?: audioTracks.firstOrNull { !TrackDetails.isMutedAudio(it) }
+            },
             availableSubtitleTracks = subtitleTracks,
             currentSubtitleTrack = subtitleTracks.firstOrNull {
                 it.streamIndex == (selectedSubtitleStreamIndex ?: defaultSubtitleStreamIndex ?: -1)
@@ -106,6 +109,7 @@ object MPVPlayer {
     }
 
     fun audioTrackId(mediaStreams: List<MediaStream>?, streamIndex: Int?): String? {
+        if (streamIndex != null && streamIndex < 0) return "no"
         if (streamIndex == null) return null
         return trackId(streams(mediaStreams, "Audio"), streamIndex)
     }
@@ -119,6 +123,11 @@ object MPVPlayer {
         controller: MpvPlayerController?,
         track: AudioTrackInfo
     ): Int? {
+        if (TrackDetails.isMutedAudio(track)) {
+            val player = controller ?: return null
+            player.selectAudioTrack("no")
+            return -1
+        }
         val streamIndex = track.streamIndex ?: return null
         val player = controller ?: return null
         player.selectAudioTrack(track.playerTrackId ?: return null)

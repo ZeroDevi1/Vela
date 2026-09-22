@@ -1825,6 +1825,7 @@ class MediaRepository(private val context: Context) {
             val api = session.api
             val userId = session.userId
             val serverUrl = session.baseUrl
+            val normalizedAudioStreamIndex = audioStreamIndex?.takeIf { it >= 0 }
             val normalizedSubtitleStreamIndex = normalizeSubtitleStreamIndex(subtitleStreamIndex)
             // 最大码率只是服务端决策的上限，不能因此无条件关闭直播放能力。
             // 否则所有配置过码率上限的媒体都会变成 HLS，内嵌字幕轨和容器 PTS 随之丢失。
@@ -1840,7 +1841,7 @@ class MediaRepository(private val context: Context) {
                 userId = userId,
                 mediaSourceId = mediaSourceId,
                 maxStreamingBitrate = maxStreamingBitrate?.toLong(),
-                audioStreamIndex = audioStreamIndex,
+                audioStreamIndex = normalizedAudioStreamIndex,
                 subtitleStreamIndex = normalizedSubtitleStreamIndex,
                 enableDirectPlay = enableDirectPlay,
                 enableDirectStream = enableDirectStream,
@@ -1865,7 +1866,7 @@ class MediaRepository(private val context: Context) {
                 itemId = itemId,
                 userId = userId,
                 maxStreamingBitrate = maxStreamingBitrate,
-                audioStreamIndex = audioStreamIndex,
+                audioStreamIndex = normalizedAudioStreamIndex,
                 subtitleStreamIndex = normalizedSubtitleStreamIndex,
                 enableDirectPlay = enableDirectPlay,
                 enableDirectStream = enableDirectStream,

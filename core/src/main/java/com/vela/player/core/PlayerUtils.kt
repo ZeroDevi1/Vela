@@ -350,7 +350,7 @@ object PlayerUtils {
      */
     @UnstableApi
     fun getAvailableAudioTracks(exoPlayer: ExoPlayer): List<AudioTrackInfo> {
-        val tracks = mutableListOf<AudioTrackInfo>()
+        val tracks = mutableListOf(TrackDetails.mutedAudioTrack())
         val currentTracks = exoPlayer.currentTracks
 
         currentTracks.groups.forEachIndexed { groupIndex, group ->
@@ -477,10 +477,23 @@ object PlayerUtils {
     }
 
     /**
+     * 音频输出是否被手动关闭。
+     *
+     * @param exoPlayer 当前播放器
+     * @return 音轨类型被禁用时为 true
+     */
+    @UnstableApi
+    private fun isAudioMuted(exoPlayer: ExoPlayer): Boolean {
+        val selector = exoPlayer.trackSelector as? DefaultTrackSelector ?: return false
+        return C.TRACK_TYPE_AUDIO in selector.parameters.disabledTrackTypes
+    }
+
+    /**
      * Get currently selected audio track
      */
     @UnstableApi
     fun getCurrentAudioTrack(exoPlayer: ExoPlayer): AudioTrackInfo? {
+        if (isAudioMuted(exoPlayer)) return TrackDetails.mutedAudioTrack()
         val currentTracks = exoPlayer.currentTracks
 
         currentTracks.groups.forEachIndexed { groupIndex, group ->
@@ -606,6 +619,16 @@ object PlayerUtils {
     fun selectAudioTrack(exoPlayer: ExoPlayer, trackId: String) {
         try {
             val trackSelector = exoPlayer.trackSelector as? DefaultTrackSelector ?: return
+            if (trackId == TrackDetails.AUDIO_OFF_ID) {
+                val mutedParams = trackSelector.parameters
+                    .buildUpon()
+                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+                    .build()
+                trackSelector.setParameters(mutedParams)
+                Log.d("PlayerUtils", "Muted audio")
+                return
+            }
             val currentTracks = exoPlayer.currentTracks
 
             currentTracks.groups.forEachIndexed { groupIndex, group ->

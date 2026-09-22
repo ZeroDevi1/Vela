@@ -83,6 +83,11 @@ class TrackDetailsTest {
     }
 
     @Test
+    fun audioOffFingerprintResolvesToMutedIndex() {
+        assertEquals(-1, TrackDetails.matchAudioIndex(emptyList(), TrackDetails.audioOffFingerprint()))
+    }
+
+    @Test
     fun fingerprintRoundTripPreservesOffAndTitle() {
         val off = TrackFingerprint(off = true)
         assertEquals(off, TrackFingerprint.parse(off.serialize()))

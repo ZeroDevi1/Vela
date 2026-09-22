@@ -141,7 +141,7 @@ fun DetailContent(
         buildVideoOptions(effectiveMediaStreams).firstOrNull().orEmpty()
     }
     val initialAudioOption = remember(item.id, effectiveMediaStreams, savedAudioOption) {
-        savedAudioOption ?: buildAudioOptions(effectiveMediaStreams).firstOrNull().orEmpty()
+        savedAudioOption ?: defaultAudioOption(effectiveMediaStreams)
     }
     val initialSubtitleOption = remember(item.id, effectiveMediaStreams, savedSubtitleOption) {
         savedSubtitleOption ?: buildDefaultSubtitleOption(effectiveMediaStreams)
@@ -449,7 +449,7 @@ fun DetailContent(
     LaunchedEffect(displayedSelectedVideo, audioOptions, subtitleOptions, defaultSubtitleOption) {
         if (selectedVideo != displayedSelectedVideo) selectedVideo = displayedSelectedVideo
         if (selectedAudio !in audioOptions) {
-            selectedAudio = audioOptions.firstOrNull().orEmpty()
+            selectedAudio = defaultAudioOption(effectiveMediaStreams)
         }
     }
 

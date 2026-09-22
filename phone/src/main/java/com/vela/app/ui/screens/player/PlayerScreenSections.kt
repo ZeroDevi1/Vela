@@ -481,7 +481,7 @@ internal fun BoxScope.PlayerOverlayHost(
             },
             onLiveSeek = { progress ->
                 resetAutoHideTimer()
-                viewModel.seekToProgress(progress, exact = false)
+                viewModel.seekToProgress(progress, exact = true)
                 onPositionChanged(viewModel.getCurrentPosition())
             },
             onScrubStateChange = { scrubbing ->

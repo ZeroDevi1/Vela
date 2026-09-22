@@ -46,6 +46,40 @@ data class TrackFingerprint(
 }
 
 object TrackDetails {
+    /** 详情页和播放器共用的静音选项标识，不是展示文案。 */
+    const val AUDIO_MUTE_OPTION = "\u0000audio-off"
+
+    /** 播放器音轨 id，表示关闭音频输出。 */
+    const val AUDIO_OFF_ID = "off"
+
+    /**
+     * 构造静音音轨。
+     *
+     * 返回的轨道不触发重新开播，streamIndex 为 -1，供选择列表和偏好持久化使用。
+     */
+    fun mutedAudioTrack(): AudioTrackInfo {
+        return AudioTrackInfo(
+            id = AUDIO_OFF_ID,
+            label = "",
+            language = null,
+            channelCount = 0,
+            codec = null,
+            playerTrackId = AUDIO_OFF_ID,
+            streamIndex = -1,
+            requiresPlaybackRestart = false
+        )
+    }
+
+    /**
+     * 判断音轨是不是静音项。
+     *
+     * @param track 待判断的音轨
+     * @return 该轨表示关闭音频时为 true
+     */
+    fun isMutedAudio(track: AudioTrackInfo): Boolean {
+        return track.id == AUDIO_OFF_ID || track.playerTrackId == AUDIO_OFF_ID
+    }
+
     fun seriesPreferenceId(itemType: String?, seriesId: String?): String? {
         if (!itemType.equals("Episode", ignoreCase = true)) return null
         return seriesId?.takeIf { it.isNotBlank() }
@@ -120,11 +154,14 @@ object TrackDetails {
 
     fun subtitleOffFingerprint(): TrackFingerprint = TrackFingerprint(off = true)
 
+    /** 静音偏好指纹，跨集匹配时解析为关闭音频。 */
+    fun audioOffFingerprint(): TrackFingerprint = TrackFingerprint(off = true)
+
     fun matchAudioIndex(
         streams: List<MediaStream>,
         fingerprint: TrackFingerprint
     ): Int? {
-        if (fingerprint.off) return null
+        if (fingerprint.off) return -1
         val audioStreams = typedStreams(streams, "Audio")
         return matchStream(audioStreams, fingerprint, audio = true)?.index
     }

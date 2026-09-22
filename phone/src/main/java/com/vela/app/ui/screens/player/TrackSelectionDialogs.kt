@@ -73,6 +73,7 @@ fun AudioTrackSelectionDialog(
 ) {
     if (!isVisible) return
 
+    val muteLabel = stringResource(R.string.player_audio_mute)
     TrackSelectionDialog(
         title = stringResource(R.string.player_dialog_audio_title),
         helperText = stringResource(R.string.player_dialog_audio_summary),
@@ -85,13 +86,21 @@ fun AudioTrackSelectionDialog(
         onDismiss = onDismiss,
         trackKey = { track -> track.id },
         isTrackSelected = { track, selected -> track.id == selected?.id },
-                        trackDisplayInfo = { track ->
-            val lines = TrackDetails.audioDialogLines(track)
-            TrackDisplayInfo(
-                title = lines.first,
-                subtitle = lines.second,
-                description = lines.third
-            )
+        trackDisplayInfo = { track ->
+            if (TrackDetails.isMutedAudio(track)) {
+                TrackDisplayInfo(
+                    title = muteLabel,
+                    subtitle = "",
+                    description = ""
+                )
+            } else {
+                val lines = TrackDetails.audioDialogLines(track)
+                TrackDisplayInfo(
+                    title = lines.first,
+                    subtitle = lines.second,
+                    description = lines.third
+                )
+            }
         }
     )
 }
