@@ -246,5 +246,12 @@ data class ChapterInfo(
     val imageDateModified: String? = null,
     
     @SerialName("ImageTag")
-    val imageTag: String? = null
+    val imageTag: String? = null,
+
+    /**
+     * 服务器章节标记类型。
+     * Jellyfin / Emby 用 IntroStart、IntroEnd、CreditsStart 表示片头和片尾。
+     */
+    @SerialName("MarkerType")
+    val markerType: String? = null
 )

@@ -590,7 +590,6 @@ fun PlayerScreen(
             vrFlatEnabled = playerState.vrFlatEnabled,
             vrLayout = playerState.vrProjectionId?.let(VrLayoutParser::layoutForId),
             onSphericalTouchTarget = { vrSphericalView = it },
-            onScrubPreviewSurface = viewModel::setScrubPreviewSurface,
             modifier = Modifier.fillMaxSize()
         )
         }

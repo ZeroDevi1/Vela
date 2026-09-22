@@ -49,22 +49,28 @@ internal fun PlayerGlass(
     content: @Composable BoxScope.() -> Unit
 ) {
     Box(
-        modifier = modifier
-            .clip(shape)
-            .border(0.6.dp, GlassBorder, shape),
+        modifier = modifier,
         contentAlignment = contentAlignment
     ) {
         Box(
             Modifier
                 .matchParentSize()
-                // 静态高光保留玻璃层次，同时避免每个控件逐帧执行独立 blur 离屏渲染。
-                .background(GlassSheen)
-        )
-        Box(
-            Modifier
-                .matchParentSize()
-                .background(GlassFill)
-        )
+                .clip(shape)
+                .border(0.6.dp, GlassBorder, shape)
+        ) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    // 静态高光保留玻璃层次，同时避免每个控件逐帧执行独立 blur 离屏渲染。
+                    .background(GlassSheen)
+            )
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(GlassFill)
+            )
+        }
+        // 进度预览会画出玻璃条之外，不能跟背景一起裁切。
         content()
     }
 }

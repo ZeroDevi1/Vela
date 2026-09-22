@@ -15,6 +15,7 @@ import com.vela.data.model.BaseItemDto
 import com.vela.data.model.HomeLibrarySectionData
 import com.vela.data.model.MediaExtra
 import com.vela.data.model.PlaybackSegments
+import com.vela.data.model.parseMediaSegments
 import com.vela.data.model.PlaybackAuthContext
 import com.vela.data.model.PlaybackUrlBuilder
 import com.vela.data.model.PlaybackRequest
@@ -142,6 +143,14 @@ class MediaRepository(private val context: Context) {
     private var cachedSessionConfig: SessionConfig? = null
 
     private val imageAuthCacheTtlMs = 1500L
+
+    /** 剧集按季、集序号排列，用来确定上一集和下一集。 */
+    private val episodeOrder = compareBy<BaseItemDto>(
+        { it.parentIndexNumber ?: Int.MAX_VALUE },
+        { it.indexNumber ?: Int.MAX_VALUE },
+        { it.name.orEmpty() },
+        { it.id.orEmpty() }
+    )
 
     @Volatile
     private var cachedImageAuthState: ImageAuthState? = null
@@ -1700,7 +1709,8 @@ class MediaRepository(private val context: Context) {
         seriesId: String,
         seasonId: String? = null,
         limit: Int? = null,
-        startIndex: Int? = null
+        startIndex: Int? = null,
+        adjacentTo: String? = null
     ): Result<List<BaseItemDto>> {
         return try {
             val api = getApi() ?: return Result.failure(Exception(string(R.string.data_error_api_not_available)))
@@ -1712,7 +1722,8 @@ class MediaRepository(private val context: Context) {
                 seasonId = seasonId,
                 fields = "Overview,MediaStreams,SeriesName,SeriesId,SeasonName,SeasonId,UserData,RunTimeTicks,IndexNumber,ParentIndexNumber,PremiereDate",
                 limit = limit,
-                startIndex = startIndex
+                startIndex = startIndex,
+                adjacentTo = adjacentTo
             )
 
             if (response.isSuccessful && response.body() != null) {
@@ -1726,41 +1737,124 @@ class MediaRepository(private val context: Context) {
         }
     }
 
+    /**
+     * 读取 Jellyfin / Emby 的媒体片段，用于跳过片头和片尾。
+     *
+     * 先按当前服务器的路径请求，404 时再试另一条兼容路径。
+     *
+     * @param itemId 媒体条目 Id
+     * @return 服务器给出的片段；未登录或两边都没有该接口时为 null
+     */
+    suspend fun getServerPlaybackSegments(itemId: String): PlaybackSegments? {
+        if (itemId.isBlank()) return null
+        val config = getSessionConfig() ?: return null
+        val endpoints = if (config.serverType == com.vela.data.network.ServerType.EMBY) {
+            listOf("Items/$itemId/MediaSegments", "MediaSegments/$itemId")
+        } else {
+            listOf("MediaSegments/$itemId", "Items/$itemId/MediaSegments")
+        }
+        for (endpoint in endpoints) {
+            val body = authorizedGetText(config, endpoint) ?: continue
+            return parseMediaSegments(body)
+        }
+        return null
+    }
+
+    /**
+     * 找出当前集的上一集和下一集。
+     *
+     * 优先用两边都支持的 AdjacentTo，只取相邻几集。旧服务器忽略该参数时，再按季集序号分页查找。
+     *
+     * @param currentItemId 正在播放的条目 Id
+     * @return 相邻集 Id；不是剧集或服务器没有相邻集时为空
+     */
     suspend fun getEpisodeNavigationIds(currentItemId: String): EpisodeNavigationIds {
         val currentItem = getItemById(currentItemId).getOrNull()
             ?: return EpisodeNavigationIds()
         if (!currentItem.type.equals("Episode", ignoreCase = true)) return EpisodeNavigationIds()
 
         val seriesId = currentItem.seriesId ?: return EpisodeNavigationIds()
-        val orderedEpisodes = getEpisodes(seriesId = seriesId)
+        val adjacent = getEpisodes(seriesId = seriesId, adjacentTo = currentItemId, limit = 3)
             .getOrNull()
-            ?.sortedWith(
-                compareBy<BaseItemDto>(
-                    { it.parentIndexNumber ?: Int.MAX_VALUE },
-                    { it.indexNumber ?: Int.MAX_VALUE },
-                    { it.name.orEmpty() },
-                    { it.id.orEmpty() }
-                )
-            )
             .orEmpty()
+            .sortedWith(episodeOrder)
+        if (adjacent.any { it.id == currentItemId }) {
+            return navigationAround(currentItemId, adjacent)
+        }
 
+        val orderedEpisodes = loadEpisodePages(seriesId)
         if (orderedEpisodes.isEmpty()) return EpisodeNavigationIds()
-        val currentIndex = orderedEpisodes.indexOfFirst { it.id == currentItemId }
+        return navigationAround(currentItemId, orderedEpisodes)
+    }
+
+    private suspend fun loadEpisodePages(seriesId: String): List<BaseItemDto> {
+        val pageSize = 200
+        val episodes = mutableListOf<BaseItemDto>()
+        var startIndex = 0
+        while (startIndex <= 5_000) {
+            val page = getEpisodes(
+                seriesId = seriesId,
+                limit = pageSize,
+                startIndex = startIndex
+            ).getOrNull().orEmpty()
+            if (page.isEmpty()) break
+            episodes += page
+            if (page.size < pageSize) break
+            startIndex += page.size
+        }
+        return episodes.sortedWith(episodeOrder)
+    }
+
+    private fun navigationAround(currentItemId: String, episodes: List<BaseItemDto>): EpisodeNavigationIds {
+        val currentIndex = episodes.indexOfFirst { it.id == currentItemId }
         if (currentIndex < 0) return EpisodeNavigationIds()
-
-        val previousEpisodeId = orderedEpisodes
-            .getOrNull(currentIndex - 1)
-            ?.id
-            ?.takeIf { it.isNotBlank() && it != currentItemId }
-        val nextEpisodeId = orderedEpisodes
-            .getOrNull(currentIndex + 1)
-            ?.id
-            ?.takeIf { it.isNotBlank() && it != currentItemId }
-
         return EpisodeNavigationIds(
-            previousEpisodeId = previousEpisodeId,
-            nextEpisodeId = nextEpisodeId
+            previousEpisodeId = episodes.getOrNull(currentIndex - 1)?.id
+                ?.takeIf { it.isNotBlank() && it != currentItemId },
+            nextEpisodeId = episodes.getOrNull(currentIndex + 1)?.id
+                ?.takeIf { it.isNotBlank() && it != currentItemId }
         )
+    }
+
+    private suspend fun authorizedGetText(
+        config: SessionConfig,
+        encodedPath: String
+    ): String? {
+        return authorizedGetBytes(config, encodedPath)?.let { bytes ->
+            runCatching { bytes.toString(Charsets.UTF_8) }.getOrNull()?.takeIf { it.isNotBlank() }
+        }
+    }
+
+    private suspend fun authorizedGetBytes(
+        config: SessionConfig,
+        encodedPath: String
+    ): ByteArray? {
+        val url = buildServerUrl(baseUrl = config.serverUrl, encodedPath = encodedPath)
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", STRM_PLAYBACK_USER_AGENT)
+                    .apply {
+                        config.accessToken?.takeIf { it.isNotBlank() }?.let { token ->
+                            header(
+                                "Authorization",
+                                com.vela.data.model.AuthHeaderDto.fromServerType(
+                                    serverType = config.serverType,
+                                    deviceId = NetworkModule.getClientDeviceId(),
+                                    version = DataModuleConfig.CLIENT_VERSION,
+                                    accessToken = token
+                                ).asHeaderValue()
+                            )
+                        }
+                    }
+                    .build()
+                strmPeekClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@runCatching null
+                    response.body?.bytes()?.takeIf { it.isNotEmpty() }
+                }
+            }.getOrNull()
+        }
     }
 
     suspend fun getNextEpisodeId(currentItemId: String): String? {

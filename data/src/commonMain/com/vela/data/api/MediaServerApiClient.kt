@@ -413,7 +413,8 @@ internal class MediaServerApiClient(
         seasonId: String?,
         fields: String?,
         limit: Int?,
-        startIndex: Int?
+        startIndex: Int?,
+        adjacentTo: String?
     ): ApiResponse<QueryResult<BaseItemDto>> = get(
         endpoint = "Shows/$seriesId/Episodes",
         queryParameters = listOf(
@@ -421,7 +422,8 @@ internal class MediaServerApiClient(
             "seasonId" to seasonId,
             "fields" to fields,
             "limit" to limit,
-            "startIndex" to startIndex
+            "startIndex" to startIndex,
+            "AdjacentTo" to adjacentTo
         )
     )
 

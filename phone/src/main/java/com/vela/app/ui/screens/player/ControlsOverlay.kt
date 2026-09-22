@@ -2,7 +2,6 @@ package com.vela.app.ui.screens.player
 
 import android.content.res.Configuration
 import android.graphics.Bitmap
-import android.os.SystemClock
 import android.view.MotionEvent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -24,6 +23,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -106,7 +106,6 @@ fun ControlsOverlay(
     onScrubStateChange: (Boolean) -> Unit = {},
     scrubPreviewFrame: Bitmap? = null,
     onScrubPreviewPositionChange: (Long?) -> Unit = {},
-    onLiveSeek: (Float) -> Unit = {},
     onEnterPip: () -> Unit = {},
     onToggleHardwareDecoding: () -> Unit = {},
     onShowChapters: () -> Unit = {},
@@ -174,7 +173,6 @@ fun ControlsOverlay(
             onBackClick = onBackClick,
             onPlayPause = onPlayPause,
             onSeek = onSeek,
-            onLiveSeek = onLiveSeek,
             onScrubProgressChange = { progress ->
                 scrubPreviewProgress = progress
                 onScrubStateChange(progress != null)
@@ -242,7 +240,6 @@ private fun PortraitPlayerOverlay(
     onBackClick: () -> Unit,
     onPlayPause: () -> Unit,
     onSeek: (Float) -> Unit,
-    onLiveSeek: (Float) -> Unit,
     onScrubProgressChange: (Float?) -> Unit,
     onScrubPreviewProgressChange: (Float?) -> Unit,
     onToggleLock: () -> Unit,
@@ -451,14 +448,30 @@ private fun PortraitPlayerOverlay(
         }
 
         if (isScrubbing && duration > 0L) {
-            SeekTimeHud(
-                positionMs = displayedPosition,
-                durationMs = duration,
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
                     .padding(top = 64.dp)
-            )
+            ) {
+                scrubPreviewFrame?.let { frame ->
+                    Image(
+                        bitmap = frame.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .width(ScrubPreviewWidth)
+                            .height(ScrubPreviewHeight)
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                SeekTimeHud(
+                    positionMs = displayedPosition,
+                    durationMs = duration
+                )
+            }
         }
 
         if (isLocked) {
@@ -639,7 +652,6 @@ private fun PortraitPlayerOverlay(
                             chapterMarkers = chapterMarkers,
                             previewFrame = scrubPreviewFrame,
                             onSeek = onSeek,
-                            onLiveSeek = onLiveSeek,
                             onScrubProgressChange = onScrubProgressChange,
                             onScrubPreviewProgressChange = onScrubPreviewProgressChange,
                             modifier = Modifier
@@ -677,7 +689,6 @@ private fun PortraitPlayerOverlay(
                                 chapterMarkers = chapterMarkers,
                                 previewFrame = scrubPreviewFrame,
                                 onSeek = onSeek,
-                                onLiveSeek = onLiveSeek,
                                 onScrubProgressChange = onScrubProgressChange,
                                 onScrubPreviewProgressChange = onScrubPreviewProgressChange,
                                 modifier = Modifier.weight(1f)
@@ -839,7 +850,6 @@ private fun SeekBar(
     chapterMarkers: List<ChapterMarker>,
     previewFrame: Bitmap?,
     onSeek: (Float) -> Unit,
-    onLiveSeek: (Float) -> Unit = {},
     onScrubProgressChange: (Float?) -> Unit,
     onScrubPreviewProgressChange: (Float?) -> Unit,
     bufferedProgress: Float = 0f,
@@ -848,7 +858,8 @@ private fun SeekBar(
     var scrubProgress by remember { mutableFloatStateOf(progress.coerceIn(0f, 1f)) }
     var dragActive by remember { mutableStateOf(false) }
     var widthPx by remember { mutableIntStateOf(0) }
-    var lastLiveSeekAt by remember { mutableLongStateOf(0L) }
+    /** 按下时的播放进度，用来计算小窗上的偏移。拖动期间主画面不跟着跳。 */
+    var anchorProgress by remember { mutableFloatStateOf(progress.coerceIn(0f, 1f)) }
     val density = LocalDensity.current
     val trackHeightFraction by animateFloatAsState(
         targetValue = if (dragActive) 0.95f else 0.55f,
@@ -880,27 +891,15 @@ private fun SeekBar(
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         dragActive = true
+                        anchorProgress = progress.coerceIn(0f, 1f)
                         scrubProgress = newProgress
-                        lastLiveSeekAt = SystemClock.uptimeMillis()
                         onScrubProgressChange(scrubProgress)
-                        // 只在已缓冲区间跟手预览画面；超出缓冲不 live seek，避免为了预览重新拉流。
-                        if (canLiveSeek(newProgress, progress, bufferedProgress)) {
-                            onLiveSeek(scrubProgress)
-                        }
                         onScrubPreviewProgressChange(scrubProgress)
                         true
                     }
                     MotionEvent.ACTION_MOVE -> {
                         scrubProgress = newProgress
                         onScrubProgressChange(scrubProgress)
-                        val now = SystemClock.uptimeMillis()
-                        if (
-                            canLiveSeek(newProgress, progress, bufferedProgress) &&
-                            now - lastLiveSeekAt >= 80L
-                        ) {
-                            lastLiveSeekAt = now
-                            onLiveSeek(scrubProgress)
-                        }
                         onScrubPreviewProgressChange(scrubProgress)
                         true
                     }
@@ -1039,26 +1038,41 @@ private fun SeekBar(
                                 .height(ScrubPreviewHeight)
                         )
                     }
-                    Text(
-                        text = formatTime((duration * renderedProgress).toLong()),
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
+                    val targetMs = (duration * renderedProgress).toLong()
+                    val deltaMs = targetMs - (duration * anchorProgress.coerceIn(0f, 1f)).toLong()
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = formatTime(targetMs),
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = formatSignedOffset(deltaMs),
+                            color = Color.White.copy(alpha = 0.72f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-private fun canLiveSeek(
-    targetProgress: Float,
-    currentProgress: Float,
-    bufferedProgress: Float
-): Boolean {
-    return targetProgress <= currentProgress + 0.0005f ||
-        targetProgress <= bufferedProgress + 0.0005f
+/**
+ * 把拖动偏移格式化成带符号的时间。
+ *
+ * @param deltaMs 相对按下位置的偏移，单位毫秒。负数表示往回拖
+ * @return 例如 `+01:12` 或 `-00:05`
+ */
+private fun formatSignedOffset(deltaMs: Long): String {
+    val sign = if (deltaMs < 0) "-" else "+"
+    return sign + formatTime(abs(deltaMs))
 }
 
 private fun formatTime(timeMs: Long): String {

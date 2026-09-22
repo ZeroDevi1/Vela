@@ -22,6 +22,7 @@ import com.vela.data.repository.MediaRepository
 import com.vela.detail.CodecCapabilityManager
 import com.vela.player.audio.SpatializerHelper
 import com.vela.player.core.PlaybackMarkerUtils
+import com.vela.player.core.applyingPlaybackSegments
 import com.vela.player.core.PlayerState
 import com.vela.player.core.PlayerTrack
 import com.vela.player.core.PlayerUtils
@@ -226,8 +227,8 @@ class PlayerViewModel @Inject constructor(
                     }
                 }
                 val chapterMarkers = PlaybackMarkerUtils.buildChapterMarkers(itemDetails?.chapters)
+                val markerSegments = PlaybackMarkerUtils.extractMarkerSegments(itemDetails?.chapters)
                 val resolvedStartPositionMs = initialSeekPositionMs ?: storedResumePositionMs
-                val introSegment = PlaybackMarkerUtils.extractIntroWindow(itemDetails?.chapters)
 
                 var primaryMediaSource: MediaSource? = null
                 var sessionPlaySessionId: String? = null
@@ -400,8 +401,14 @@ class PlayerViewModel @Inject constructor(
                     mediaLogoUrl = mediaLogoUrl,
                     seasonEpisodeLabel = seasonEpisodeLabel,
                     chapterMarkers = chapterMarkers,
-                    introStartMs = introSegment?.startMs,
-                    introEndMs = introSegment?.endMs,
+                    recapStartMs = markerSegments.recap?.startMs,
+                    recapEndMs = markerSegments.recap?.endMs,
+                    introStartMs = markerSegments.intro?.startMs,
+                    introEndMs = markerSegments.intro?.endMs,
+                    creditsStartMs = markerSegments.credits?.startMs,
+                    creditsEndMs = markerSegments.credits?.endMs,
+                    previewStartMs = markerSegments.preview?.startMs,
+                    previewEndMs = markerSegments.preview?.endMs,
                     isVideoTranscodingAllowed = isVideoTranscodingAllowed,
                     isAudioTranscodingAllowed = isAudioTranscodingAllowed,
                     currentAudioTranscodeMode = audioTranscodeMode,
@@ -425,24 +432,22 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun applyCommunityPlaybackSegments(mediaId: String, itemDetails: BaseItemDto) {
-        if (!itemDetails.type.equals("Episode", ignoreCase = true)) return
-
         communityPlaybackSegmentsJob?.cancel()
         communityPlaybackSegmentsJob = viewModelScope.launch {
+            val serverSegments = mediaRepository.getServerPlaybackSegments(mediaId)
+            if (playbackSession.mediaId == mediaId && serverSegments != null && serverSegments.hasAnySegments()) {
+                _playerState.value = _playerState.value.applyingPlaybackSegments(
+                    segments = serverSegments,
+                    overrideExisting = true
+                )
+            }
+            if (!itemDetails.type.equals("Episode", ignoreCase = true)) return@launch
             val playbackSegments = mediaRepository.getCommunityPlaybackSegments(itemDetails).getOrNull()
                 ?: return@launch
             if (playbackSession.mediaId != mediaId) return@launch
-
-            val currentState = _playerState.value
-            _playerState.value = currentState.copy(
-                recapStartMs = currentState.recapStartMs ?: playbackSegments.recap?.startMs,
-                recapEndMs = currentState.recapEndMs ?: playbackSegments.recap?.endMs,
-                introStartMs = currentState.introStartMs ?: playbackSegments.intro?.startMs,
-                introEndMs = currentState.introEndMs ?: playbackSegments.intro?.endMs,
-                creditsStartMs = currentState.creditsStartMs ?: playbackSegments.credits?.startMs,
-                creditsEndMs = currentState.creditsEndMs ?: playbackSegments.credits?.endMs,
-                previewStartMs = currentState.previewStartMs ?: playbackSegments.preview?.startMs,
-                previewEndMs = currentState.previewEndMs ?: playbackSegments.preview?.endMs
+            _playerState.value = _playerState.value.applyingPlaybackSegments(
+                segments = playbackSegments,
+                overrideExisting = false
             )
         }
     }

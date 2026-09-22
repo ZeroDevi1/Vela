@@ -212,7 +212,8 @@ interface MediaServerApi {
         seasonId: String? = null,
         fields: String? = "Overview,MediaStreams,SeriesName,SeriesId,SeasonName,SeasonId",
         limit: Int? = null,
-        startIndex: Int? = null
+        startIndex: Int? = null,
+        adjacentTo: String? = null
     ): ApiResponse<QueryResult<BaseItemDto>>
 
     suspend fun getPlaybackInfoGet(
