@@ -15,6 +15,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.MergingMediaSource
@@ -566,7 +567,8 @@ class PlayerViewModel @Inject constructor(
                     context = context,
                     uri = mediaItem.localConfiguration?.uri,
                     requestHeaders = playbackRequest?.requestHeaders.orEmpty(),
-                    warmPositionMs = playerStartPositionMs ?: 0L
+                    warmPositionMs = playerStartPositionMs ?: 0L,
+                    cacheKey = mediaItem.localConfiguration?.customCacheKey
                 )
 
                 playbackSession = PlaybackSessionContext(
@@ -1430,26 +1432,35 @@ class PlayerViewModel @Inject constructor(
      *
      * 换片时丢掉上一份抽帧器和关键帧缓存。拖动期间不 seek 主播放器。
      *
-     * @param context 用于 MediaMetadataRetriever 打开本地地址
+     * @param context 用于打开本地地址和播放器缓存
      * @param uri 当前播放地址；没有可独立打开的地址时为空
      * @param requestHeaders 打开直链时附带的请求头
      * @param warmPositionMs 预热时抽取的位置，单位毫秒，一般是起播点
+     * @param cacheKey 主播放器对这条直链使用的缓存键，抽帧读取沿用它命中同一份缓存
      */
     private fun configureScrubPreviewSource(
         context: Context,
         uri: Uri?,
         requestHeaders: Map<String, String>,
-        warmPositionMs: Long
+        warmPositionMs: Long,
+        cacheKey: String? = null
     ) {
         scrubWarmJob?.cancel()
         scrubPreviewVersion++
         scrubPreviewFrame = null
         clearScrubFrames()
         val source = uri?.let {
+            val remote = it.scheme?.lowercase(Locale.ROOT) in setOf("http", "https")
             ScrubPreviewSource(
                 context = context.applicationContext,
                 uri = it,
-                requestHeaders = requestHeaders
+                requestHeaders = requestHeaders,
+                cacheKey = cacheKey,
+                dataSourceFactory = if (remote) {
+                    PlayerUtils.createCachedDataSourceFactory(context.applicationContext, requestHeaders)
+                } else {
+                    null
+                }
             )
         }
         synchronized(scrubGrabberLock) {
@@ -2367,9 +2378,14 @@ private const val SCRUB_PREVIEW_WIDTH_PX = 320
  * @param context 用于打开本地地址，只使用 applicationContext
  * @param uri 当前播放地址
  * @param requestHeaders 打开直链时附带的请求头
+ * @param cacheKey 主播放器对这条直链使用的缓存键；没有时为 null
+ * @param dataSourceFactory 读穿播放器磁盘缓存的数据源工厂；本地文件时为 null
  */
+@UnstableApi
 internal data class ScrubPreviewSource(
     val context: Context,
     val uri: Uri,
-    val requestHeaders: Map<String, String>
+    val requestHeaders: Map<String, String>,
+    val cacheKey: String? = null,
+    val dataSourceFactory: DataSource.Factory? = null
 )

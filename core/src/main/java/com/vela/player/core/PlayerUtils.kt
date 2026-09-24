@@ -12,6 +12,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -191,6 +192,29 @@ object PlayerUtils {
         return DefaultMediaSourceFactory(dataSourceFactory)
             .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(MIN_LOADABLE_RETRY_COUNT))
             .createMediaSource(mediaItem)
+    }
+
+    /**
+     * 提供与主播放器共用磁盘缓存的数据源工厂。
+     *
+     * 进度预览抽帧等旁路读取用它打开同一条直链：已经播过、缓冲过的区间直接命中本地缓存，
+     * 新拉下来的字节也会写回缓存供主播放器复用。
+     *
+     * @param context 任意上下文，内部只保留 applicationContext
+     * @param requestHeaders 打开直链时附带的请求头
+     * @return 读穿播放器缓存的数据源工厂
+     */
+    @UnstableApi
+    fun createCachedDataSourceFactory(
+        context: Context,
+        requestHeaders: Map<String, String> = emptyMap()
+    ): DataSource.Factory {
+        val cacheSizeMb = PlayerPreferences(context).getPlayerCacheSizeMb()
+        return PlayerCacheManager.createDataSourceFactory(
+            context = context,
+            cacheSizeMb = cacheSizeMb,
+            defaultRequestHeaders = requestHeaders
+        )
     }
 
     @UnstableApi

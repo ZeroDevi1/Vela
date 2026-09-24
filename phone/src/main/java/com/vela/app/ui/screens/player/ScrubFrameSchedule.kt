@@ -49,3 +49,21 @@ internal fun nearestScrubFrameBucket(buckets: Set<Long>, positionMs: Long): Long
 internal fun shouldReuseScrubSync(lastSyncUs: Long, syncUs: Long): Boolean {
     return syncUs >= 0L && syncUs == lastSyncUs
 }
+
+/**
+ * 按长边上限算出预览尺寸，保持画面比例并考虑容器里的旋转。
+ *
+ * @param width 画面宽度，单位像素
+ * @param height 画面高度，单位像素
+ * @param rotationDegrees 顺时针旋转，90 和 270 会交换宽高
+ * @param maxEdgePx 长边上限，单位像素
+ * @return 预览宽高；输入非法时为 null
+ */
+internal fun scrubPreviewSize(width: Int, height: Int, rotationDegrees: Int, maxEdgePx: Int): Pair<Int, Int>? {
+    if (width <= 0 || height <= 0 || maxEdgePx <= 0) return null
+    val quarterTurn = rotationDegrees == 90 || rotationDegrees == 270
+    val orientedW = if (quarterTurn) height else width
+    val orientedH = if (quarterTurn) width else height
+    val scale = minOf(maxEdgePx.toFloat() / orientedW, maxEdgePx.toFloat() / orientedH)
+    return (orientedW * scale).toInt().coerceAtLeast(1) to (orientedH * scale).toInt().coerceAtLeast(1)
+}

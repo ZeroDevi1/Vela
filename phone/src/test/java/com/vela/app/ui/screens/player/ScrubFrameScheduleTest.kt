@@ -24,6 +24,14 @@ class ScrubFrameScheduleTest {
     }
 
     @Test
+    fun previewSizeKeepsAspectAndHonoursRotation() {
+        assertEquals(320 to 180, scrubPreviewSize(3840, 2160, 0, 320))
+        assertEquals(180 to 320, scrubPreviewSize(3840, 2160, 90, 320))
+        assertEquals(320 to 134, scrubPreviewSize(1920, 804, 180, 320))
+        assertNull(scrubPreviewSize(0, 1080, 0, 320))
+    }
+
+    @Test
     fun sameKeyframeSkipsAnotherDecode() {
         assertTrue(shouldReuseScrubSync(lastSyncUs = 2_000_000L, syncUs = 2_000_000L))
         assertFalse(shouldReuseScrubSync(lastSyncUs = 2_000_000L, syncUs = 5_000_000L))
