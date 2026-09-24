@@ -45,6 +45,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import com.vela.app.ui.components.common.amoledAuthFieldColors
+import com.vela.app.ui.components.privacy.PrivateServerSession
+import com.vela.app.ui.components.privacy.rememberDeviceCredentialConfirmation
 import com.vela.data.repository.AuthRepository
 import com.vela.shared.R
 
@@ -91,8 +93,11 @@ internal fun ServerConfigScreen(
         mutableStateOf(server.preferStrmOriginalPath)
     }
     var isPrivate by remember(server.id, server.isPrivate) { mutableStateOf(server.isPrivate) }
-    val verifyPrivacyChange = com.vela.app.ui.components.privacy.rememberDeviceCredentialConfirmation {
-        isPrivate = !isPrivate
+    val verifyPrivacyChange = rememberDeviceCredentialConfirmation {
+        // 打开保护时，这次系统验证同时记为本进程解锁，保存后不再进入锁屏页。
+        val enabling = !isPrivate
+        isPrivate = enabling
+        if (enabling) PrivateServerSession.unlock(server.id)
     }
     var advancedExpanded by remember { mutableStateOf(server.preferStrmOriginalPath) }
 

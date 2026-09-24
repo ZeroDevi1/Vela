@@ -21,8 +21,37 @@ import com.vela.app.ui.screens.dashboard.home.CachedData
 import com.vela.data.repository.AuthRepositoryProvider
 import com.vela.data.repository.MediaRepositoryProvider
 import com.vela.shared.R
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+
+/**
+ * 本进程内已通过系统锁屏验证的私密服务器。
+ * 只放内存，不落盘；进程退出后自然清空，下次进入应用需要重新验证。
+ */
+internal object PrivateServerSession {
+    /** 已解锁的服务器 id。进程被系统回收或用户划掉应用后失效。 */
+    private val unlockedServerIds = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * 当前进程里该私密服务器是否已经解锁。
+     *
+     * @param serverId 已保存服务器 id。
+     * @return 本进程内验证成功过则为 true。
+     */
+    fun isUnlocked(serverId: String): Boolean {
+        return serverId.isNotBlank() && serverId in unlockedServerIds
+    }
+
+    /**
+     * 记录本进程内的解锁，直到应用进程结束。
+     *
+     * @param serverId 刚通过系统锁屏验证的服务器 id。
+     */
+    fun unlock(serverId: String) {
+        if (serverId.isNotBlank()) unlockedServerIds.add(serverId)
+    }
+}
 
 /** 只接受系统返回的验证成功；取消、未设置锁屏或无法启动验证都保持关闭。 */
 @Composable
@@ -59,7 +88,10 @@ internal fun rememberDeviceCredentialConfirmation(onConfirmed: () -> Unit): () -
     }
 }
 
-/** 私密会话解锁前不创建导航内容，避免冷启动恢复页面或展示缓存。授权不落盘。 */
+/**
+ * 私密会话解锁前不创建导航内容，避免冷启动恢复页面或展示缓存。
+ * 解锁只记在进程内存：应用未退出时再次进入同一服务器不再验证，退出重进后需要重新验证。
+ */
 @Composable
 internal fun ServerPrivacyGate(activity: Activity, content: @Composable () -> Unit) {
     val context = LocalContext.current
@@ -67,17 +99,23 @@ internal fun ServerPrivacyGate(activity: Activity, content: @Composable () -> Un
     val sessions = remember(repository) { repository.observeActiveSession() }
     val snapshot by sessions.collectAsState(initial = null)
     val active = snapshot?.let { session -> session.savedServers.firstOrNull { it.id == session.activeServerId } }
-    var unlocked by remember(active?.id, active?.isPrivate) { mutableStateOf(false) }
+    var unlocked by remember(active?.id, active?.isPrivate) {
+        mutableStateOf(
+            active?.let { server -> server.isPrivate && PrivateServerSession.isUnlocked(server.id) } == true
+        )
+    }
     var unlocking by remember(active?.id) { mutableStateOf(false) }
     var error by remember(active?.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val mediaRepository = remember { MediaRepositoryProvider.getInstance(context) }
     val confirm = rememberDeviceCredentialConfirmation {
+        val serverId = active?.id.orEmpty()
         scope.launch {
             unlocking = true
             try {
                 mediaRepository.clearPersistedHomeSnapshot()
                 CachedData.clearAllCache()
+                PrivateServerSession.unlock(serverId)
                 unlocked = true
             } catch (cancelled: CancellationException) {
                 throw cancelled
