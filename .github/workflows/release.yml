@@ -51,6 +51,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # 默认会安装已从 SDK 仓库下架的 legacy `tools` 包，导致 sdkmanager 退出 1；
+          # 只装 platform-tools，其余 SDK 组件由 Gradle 按 compileSdk 自动下载。
+          packages: platform-tools
 
       - name: Check signing secrets
         env:
