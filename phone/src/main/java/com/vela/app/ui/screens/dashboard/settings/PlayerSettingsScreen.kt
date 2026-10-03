@@ -1,5 +1,7 @@
 package com.vela.app.ui.screens.dashboard.settings
 
+import com.vela.shared.ui.components.common.bottomContentPadding
+import com.vela.shared.ui.components.common.excludeBottom
 import android.os.Build
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -116,10 +118,10 @@ fun PlayerSettingsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(paddingValues.excludeBottom())
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 96.dp)
+            contentPadding = paddingValues.bottomContentPadding()
         ) {
             item { SectionLabel(stringResource(R.string.player_settings_section_player)) }
             item {
@@ -769,10 +771,10 @@ fun SubtitleSettingsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(paddingValues.excludeBottom())
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 96.dp)
+            contentPadding = paddingValues.bottomContentPadding()
         ) {
             item { SectionLabel(stringResource(R.string.subtitle_settings_section_style)) }
             item {

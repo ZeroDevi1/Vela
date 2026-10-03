@@ -1,5 +1,7 @@
 package com.vela.app.ui.screens.dashboard.settings
 
+import com.vela.shared.ui.components.common.bottomContentPadding
+import com.vela.shared.ui.components.common.excludeBottom
 import android.os.Build
 import android.content.Context
 import android.content.Intent
@@ -112,9 +114,9 @@ fun Settings(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding.excludeBottom()),
             state = listState,
-            contentPadding = PaddingValues(bottom = 24.dp)
+            contentPadding = innerPadding.bottomContentPadding()
         ) {
             item { SectionLabel(stringResource(R.string.settings_general)) }
             item {
@@ -401,130 +403,6 @@ private fun openAppLanguageSettings(context: Context) {
         else -> return
     }
     context.startActivity(intentToLaunch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-}
-
-@Composable
-private fun SeerrRequestLimitsRow(
-    requestLimits: com.vela.data.model.SeerrUserRequestLimits,
-    onLimitClick: (String) -> Unit
-) {
-    Column(
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Link,
-                contentDescription = null,
-                tint = Color(0xFF10B981),
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = stringResource(R.string.settings_seerr_request_limits),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            SeerrLimitStat(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.LocalMovies,
-                accentColor = Color(0xFFF59E0B),
-                label = stringResource(R.string.settings_seerr_movie_limit),
-                value = formatSeerrLimit(
-                    limit = requestLimits.movieQuotaLimit,
-                    days = requestLimits.movieQuotaDays
-                ),
-                onClick = { onLimitClick("movie") }
-            )
-            SeerrLimitStat(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.LiveTv,
-                accentColor = Color(0xFF06B6D4),
-                label = stringResource(R.string.settings_seerr_tv_limit),
-                value = formatSeerrLimit(
-                    limit = requestLimits.tvQuotaLimit,
-                    days = requestLimits.tvQuotaDays
-                ),
-                onClick = { onLimitClick("tv") }
-            )
-        }
-    }
-}
-
-@Composable
-private fun SeerrLimitStat(
-    modifier: Modifier = Modifier,
-    icon: ImageVector,
-    accentColor: Color,
-    label: String,
-    value: String,
-    onClick: () -> Unit
-) {
-    Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        color = accentColor.copy(alpha = 0.1f),
-        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.18f))
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            horizontalAlignment = Alignment.Start
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Start,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = accentColor,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
-                )
-            }
-            Text(
-                text = value,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-}
-
-@Composable
-private fun formatSeerrLimit(limit: Int?, days: Int?): String {
-    if (limit == null || limit <= 0) {
-        return stringResource(R.string.settings_seerr_unlimited)
-    }
-
-    val requestCount = pluralStringResource(
-        R.plurals.settings_seerr_requests_count,
-        limit,
-        limit
-    )
-
-    return if (days != null && days > 0) {
-        stringResource(R.string.settings_seerr_limit_every_days, requestCount, days)
-    } else {
-        requestCount
-    }
 }
 
 private fun SeerrRequestedItem.toBaseItem(): BaseItemDto {

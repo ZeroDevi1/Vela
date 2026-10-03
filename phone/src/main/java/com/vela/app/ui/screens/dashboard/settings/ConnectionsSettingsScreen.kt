@@ -1,5 +1,7 @@
 package com.vela.app.ui.screens.dashboard.settings
 
+import com.vela.shared.ui.components.common.bottomContentPadding
+import com.vela.shared.ui.components.common.excludeBottom
 import android.content.Intent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -88,10 +90,10 @@ fun ConnectionsSettingsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(innerPadding.excludeBottom())
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 32.dp)
+            contentPadding = innerPadding.bottomContentPadding()
         ) {
             item { com.vela.app.ui.screens.catalog.MoviePilotConnectionCard() }
             item { com.vela.app.ui.screens.catalog.TraktConnectionCard(onNavigateToRequestedItem) }

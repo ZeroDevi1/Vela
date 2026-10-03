@@ -23,21 +23,29 @@ Vela is a dark-first personal media client. The interface should feel cinematic 
 ## Layout and navigation
 
 - Use `Scaffold` as the owner of system insets and bottom navigation padding. Nested screens must not reserve guessed bottom-bar heights.
-- Compact windows use `NavigationBar`; larger layouts may move to adaptive navigation when the existing navigation stack is migrated.
+- Compact windows use the M3 Expressive `ShortNavigationBar` (64 dp, pill indicator, default item colors); larger layouts may move to adaptive navigation when the existing navigation stack is migrated.
 - Keep page content edge-to-edge only when imagery benefits from it. Text and controls use a 16 dp horizontal baseline and 8 dp spacing rhythm.
 - Back behavior and navigation history remain platform-standard.
 
 ## Motion and accessibility
 
 - Runtime source: `shared/src/androidMain/com/vela/shared/ui/theme/Motion.kt`.
-- Use fast/default effects specs for alpha and color; use spatial spring specs for position, scale, and bounds. Pages must not introduce a second set of timing constants.
-- State transitions should be 150–300 ms unless media controls require an explicit timing contract.
+- Motion follows M3 Expressive springs (`VelaMotionScheme`): effects specs (alpha, color) are critically damped; spatial specs (position, scale, bounds) allow a slight overshoot. Pages must not introduce a second set of timing constants.
+- Material3 1.4.0 keeps `MotionScheme` internal, so M3 components still use library motion; switch `VelaMotionScheme` to implement `MotionScheme` once it is public.
 - Phone navigation uses a restrained fade-through with a slight scale; TV navigation keeps focus motion dominant and avoids large page slides.
 - Decorative brand motion plays once on entry. Infinite animation is reserved for active loading or playback status.
 - Do not rely on color alone for selection, connectivity, loading, or errors.
 - Icons need localized content descriptions unless adjacent text already supplies the accessible name.
 - Keep body text contrast at least 4.5:1 and preserve visible pressed, focused, disabled, loading, and selected states.
 - Media playback overlays are exempt from light-surface styling, but still use theme semantic roles and 48 dp touch targets.
+
+## Player overlay
+
+- Readability comes from top and bottom gradient scrims, not per-control glass containers. Only the center transport buttons and gesture pills carry a translucent black fill.
+- Keep device telemetry (battery, clock, raw network speed) out of the chrome; network rate appears only while buffering. Low-frequency toggles (hardware decoding, VR) live in the overflow menu.
+- The seek bar uses the Expressive slider shape: vertical handle, gaps around the handle, track split at chapter marks.
+- Single-choice panels (tracks, quality, projection) slide in from the end edge in landscape and rise from the bottom in portrait; selection is a `secondaryContainer` row plus a check, never a per-type accent color.
+- Every search field submits through the IME Search action; single-line fields declare `ImeAction.Next` until the last field of a form.
 
 ## Review checklist
 

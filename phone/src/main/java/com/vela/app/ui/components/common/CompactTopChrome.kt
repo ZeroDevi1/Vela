@@ -1,5 +1,6 @@
 package com.vela.app.ui.components.common
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -339,4 +340,36 @@ fun AwardsCompactHeader(
             trailing()
         }
     }
+}
+/**
+ * 沉浸式页面顶部的渐显遮罩：内容滚到状态栏与悬浮按钮下方时，用主题背景色由上至下渐隐，
+ * 保证状态栏图标和悬浮按钮的可读性；页面处于顶部（大图区）时完全透明，不遮挡画面。
+ *
+ * 放在滚动内容之上、悬浮按钮之下。
+ *
+ * @param progress 0 表示在顶部、1 表示已滚过大图；通常来自 [rememberCompactProgress]
+ * @param chromeHeight 状态栏下方悬浮按钮区的高度
+ */
+@Composable
+fun BoxScope.TopChromeScrim(
+    progress: () -> Float,
+    chromeHeight: Dp = 64.dp
+) {
+    val background = androidx.compose.material3.MaterialTheme.colorScheme.background
+    val brush = remember(background) {
+        androidx.compose.ui.graphics.Brush.verticalGradient(
+            0f to background.copy(alpha = 0.96f),
+            0.6f to background.copy(alpha = 0.82f),
+            1f to Color.Transparent
+        )
+    }
+    Box(
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .fillMaxWidth()
+            .graphicsLayer { alpha = progress() }
+            .background(brush)
+            .statusBarsPadding()
+            .height(chromeHeight + 20.dp)
+    )
 }

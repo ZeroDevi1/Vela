@@ -139,7 +139,8 @@ private fun NavController.openViewAll(
     parentId: String?,
     title: String,
     searchTerm: String? = null,
-    tag: String? = null
+    tag: String? = null,
+    initialSort: String? = null
 ) {
     if (contentType in setOf("MUSIC", "BOOKS")) {
         navigate("media_library/$contentType?libraryId=${android.net.Uri.encode(parentId.orEmpty())}")
@@ -158,6 +159,7 @@ private fun NavController.openViewAll(
         tag?.takeIf { it.isNotBlank() }?.let {
             add("tag=${java.net.URLEncoder.encode(it, "UTF-8")}")
         }
+        initialSort?.let { add("initialSort=$it") }
     }
     navigate("viewall/$contentType?${params.joinToString("&")}")
 }
@@ -410,6 +412,9 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                     onNavigateToViewAll = { contentType, parentId, title ->
                         navController.openViewAll(contentType, parentId, title)
                     },
+                    onNavigateToRecentlyAdded = { contentType, parentId, title ->
+                        navController.openViewAll(contentType, parentId, title, initialSort = "DateCreated")
+                    },
                     onNavigateToSearchCategory = { contentType, searchTerm, title ->
                         navController.openViewAll(
                             contentType = contentType,
@@ -597,7 +602,7 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
 
             scene(
                 navController,
-                "viewall/{contentType}?parentId={parentId}&title={title}&genreId={genreId}&searchTerm={searchTerm}&tag={tag}",
+                "viewall/{contentType}?parentId={parentId}&title={title}&genreId={genreId}&searchTerm={searchTerm}&tag={tag}&initialSort={initialSort}",
                 arguments = listOf(
                     navArgument("contentType") { type = NavType.StringType },
                     navArgument("parentId") {
@@ -620,6 +625,11 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                         defaultValue = null
                     },
                     navArgument("tag") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument("initialSort") {
                         type = NavType.StringType
                         nullable = true
                         defaultValue = null
@@ -660,6 +670,7 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                     searchTerm = searchTerm,
                     tag = tag,
                     title = title,
+                    initialSort = backStackEntry.arguments?.getString("initialSort"),
                     onBackPressed = { navController.popBackStack() },
                     onItemClick = { item ->
                         item.id?.let { itemId ->

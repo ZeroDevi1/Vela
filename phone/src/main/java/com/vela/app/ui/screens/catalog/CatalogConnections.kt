@@ -10,6 +10,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.vela.data.model.BaseItemDto
 import com.vela.data.repository.*
@@ -36,9 +38,9 @@ fun MoviePilotConnectionCard() {
         Row { Text(stringResource(R.string.catalog_mp_enabled), Modifier.weight(1f)); Switch(enabled, { enabled = it; repo.enabled = it }, enabled = !busy) }
         Text(if (loggedIn) stringResource(R.string.catalog_logged_in, repo.username) else stringResource(R.string.catalog_disconnected))
         Text(stringResource(if (connectionChecked) R.string.catalog_connection_ok else R.string.catalog_connection_unchecked))
-        OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth(), enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.catalog_mp_url)) })
-        OutlinedTextField(username, { username = it }, Modifier.fillMaxWidth(), enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.catalog_username)) })
-        OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.catalog_password)) }, visualTransformation = PasswordVisualTransformation())
+        OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth(), enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.catalog_mp_url)) }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
+        OutlinedTextField(username, { username = it }, Modifier.fillMaxWidth(), enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.catalog_username)) }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
+        OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.catalog_password)) }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next), visualTransformation = PasswordVisualTransformation())
         OutlinedTextField(otp, { otp = it }, Modifier.fillMaxWidth(), enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.catalog_otp)) }, visualTransformation = PasswordVisualTransformation())
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -69,7 +71,7 @@ fun TraktConnectionCard(onLibrary: (BaseItemDto) -> Unit) {
         Text(if (state.loggedIn) stringResource(R.string.catalog_connected, state.username) else stringResource(R.string.catalog_disconnected))
         if (!state.loggedIn) {
             Text(stringResource(R.string.catalog_trakt_setup), style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(state.clientId, vm::setClientId, Modifier.fillMaxWidth(), enabled = !state.busy, singleLine = true, label = { Text(stringResource(R.string.catalog_client_id)) })
+            OutlinedTextField(state.clientId, vm::setClientId, Modifier.fillMaxWidth(), enabled = !state.busy, singleLine = true, label = { Text(stringResource(R.string.catalog_client_id)) }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
             OutlinedTextField(state.secret, vm::setSecret, Modifier.fillMaxWidth(), enabled = !state.busy, singleLine = true, label = { Text(stringResource(R.string.catalog_client_secret)) }, visualTransformation = PasswordVisualTransformation())
             Button(onClick = vm::authorize, enabled = !state.busy && state.clientId.isNotBlank() && state.secret.isNotBlank()) { Text(stringResource(R.string.catalog_authorize)) }
         }

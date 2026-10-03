@@ -4,14 +4,18 @@ import android.app.Application
 import android.text.format.DateUtils
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -105,7 +109,12 @@ fun CalendarScreen(onLibrary: (BaseItemDto) -> Unit, onCatalog: (CatalogTitle) -
                 }
             }
             if (tab != 1) {
-                item { OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.sub_title_filter)) }) }
+                item {
+                    // 过滤随输入实时生效，IME 搜索键只需收起键盘。
+                    val focusManager = LocalFocusManager.current
+                    OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.sub_title_filter)) },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }))
+                }
                 item { LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(listOf(R.string.feed_any, R.string.feed_movies, R.string.feed_series).withIndex().toList()) { (i, label) -> FilterChip(type == i, { type = i }, label = { Text(stringResource(label)) }) }
                     items(listOf(R.string.feed_any, R.string.sub_available, R.string.sub_no_match).withIndex().toList()) { (i, label) -> if (i > 0) FilterChip(availability == i, { availability = if (availability == i) 0 else i }, label = { Text(stringResource(label)) }) }
@@ -269,20 +278,26 @@ private fun SubscriptionSearchDialog(dismiss: () -> Unit, open: (CatalogTitle) -
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val canSearch = !loading && query.isNotBlank()
+    // 按钮与 IME 搜索键共用同一入口，避免键盘上的搜索键只收起键盘不发请求。
+    val search = {
+        if (canSearch) {
+            loading = true; error = null
+            scope.launch { catalogResult { CatalogRepository().search(query.trim()) }.fold(onSuccess = { results = it }, onFailure = { error = it.message }); loading = false }
+        }
+    }
     AlertDialog(onDismissRequest = dismiss, title = { Text(stringResource(R.string.sub_add)) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.sub_search_hint))
-            OutlinedTextField(query, { query = it }, singleLine = true, label = { Text(stringResource(R.string.sub_search)) }, enabled = !loading)
+            OutlinedTextField(query, { query = it }, singleLine = true, label = { Text(stringResource(R.string.sub_search)) }, enabled = !loading,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { search() }))
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             LazyColumn(Modifier.heightIn(max = 280.dp)) { items(results, key = { it.key }) { title ->
                 TextButton(onClick = { open(title) }) { Text("${title.displayTitle} · ${title.date.take(4)} · ${stringResource(if (title.mediaType == "movie") R.string.feed_movies else R.string.feed_series)}") }
             } }
         }
-    }, confirmButton = { TextButton(onClick = {
-        loading = true; error = null
-        scope.launch { catalogResult { CatalogRepository().search(query.trim()) }.fold(onSuccess = { results = it }, onFailure = { error = it.message }); loading = false }
-    }, enabled = !loading && query.isNotBlank()) { Text(stringResource(R.string.sub_search)) } }, dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.catalog_back)) } })
+    }, confirmButton = { TextButton(onClick = { search() }, enabled = canSearch) { Text(stringResource(R.string.sub_search)) } }, dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.catalog_back)) } })
 }
 
 @Composable

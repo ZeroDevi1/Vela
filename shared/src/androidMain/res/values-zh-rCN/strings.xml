@@ -115,7 +115,7 @@
     <string name="search_empty_default">输入关键词，搜索电影、剧集和分集</string>
     <string name="search_no_results">未找到任何结果</string>
     <string name="search_results_shows">剧集</string>
-    <string name="search_results_episodes">剧集</string>
+    <string name="search_results_episodes">单集</string>
     <string name="search_result_unknown_title">未知标题</string>
     <string name="search_result_unknown_episode">未知剧集</string>
     <string name="federated_search_title">聚合视界</string>
@@ -213,6 +213,8 @@
     <string name="player_info_duration_ms_compact">%1$d分%2$d秒</string>
     <string name="player_speed_decrease">减慢倍速</string>
     <string name="player_speed_increase">加快倍速</string>
+    <string name="player_ends_at">%1$s 结束</string>
+    <string name="player_playback_speed">播放速度</string>
     <string name="player_cd_seek_backward">快退 %d 秒</string>
     <string name="player_cd_seek_forward">快进 %d 秒</string>
     <string name="player_settings_mpv_hardware_decoding">MPV 硬件解码器</string>

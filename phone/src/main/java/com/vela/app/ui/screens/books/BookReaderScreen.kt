@@ -255,7 +255,7 @@ private fun RasterBookPage(file: File?, format: String, book: ReaderBook, page: 
     var zoom by remember(file, page) { mutableFloatStateOf(1f) }
     var offset by remember(file, page) { mutableStateOf(Offset.Zero) }
     LaunchedEffect(zoom) { onZoom(zoom > 1f) }
-    val transform = rememberTransformableState { change, pan, _ ->
+    val transform = rememberTransformableState { _, change, pan, _ ->
         zoom = (zoom * change).coerceIn(1f, 5f)
         offset = if (zoom == 1f) Offset.Zero else offset + pan
     }

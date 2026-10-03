@@ -1,8 +1,6 @@
 package com.vela.app.ui.screens.dashboard.search
 
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,18 +11,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,17 +34,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -228,7 +219,7 @@ fun SearchContainer(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         if (isSearchActive) {
             Box(
@@ -327,25 +318,22 @@ private fun SearchTypeChips(
     ) {
         SearchMediaType.entries.forEach { type ->
             val selected = type in selectedTypes
-            Card(
-                modifier = Modifier.clickable { onToggle(type) },
-                colors = CardDefaults.cardColors(
-                    containerColor = if (selected) {
-                        Color.White
-                    } else {
-                        Color.White.copy(alpha = 0.12f)
+            FilterChip(
+                selected = selected,
+                onClick = { onToggle(type) },
+                label = { Text(type.label()) },
+                leadingIcon = if (selected) {
+                    {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(FilterChipDefaults.IconSize)
+                        )
                     }
-                ),
-                shape = RoundedCornerShape(18.dp)
-            ) {
-                Text(
-                    text = type.label(),
-                    color = if (selected) Color.Black else Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                )
-            }
+                } else {
+                    null
+                }
+            )
         }
     }
 }
@@ -385,91 +373,49 @@ private fun SearchBar(
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Card(
-            modifier = Modifier.weight(1f),
-            colors = CardDefaults.cardColors(
-                containerColor = Color.White.copy(alpha = 0.1f)
-            ),
-            shape = RoundedCornerShape(25.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+        // M3 InputField 固定单行并把 IME 动作声明为 Search；多行 BasicTextField 会让输入法显示“回车”并插入换行。
+        SearchBarDefaults.InputField(
+            query = query,
+            onQueryChange = onQueryChange,
+            onSearch = {
+                keyboardController?.hide()
+                onSearch()
+            },
+            expanded = false,
+            onExpandedChange = {},
+            placeholder = { Text(stringResource(R.string.search_hint)) },
+            leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.Search,
-                    contentDescription = stringResource(R.string.search),
-                    tint = Color.Gray,
-                    modifier = Modifier.size(20.dp)
+                    contentDescription = null
                 )
-                
-                Spacer(modifier = Modifier.width(12.dp))
-                
-                Box(
-                    modifier = Modifier.weight(1f)
-                ) {
-                    BasicTextField(
-                        value = query,
-                        onValueChange = onQueryChange,
-                        textStyle = TextStyle(
-                            color = Color.White,
-                            fontSize = 16.sp
-                        ),
-                        cursorBrush = SolidColor(Color.White),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(
-                            onSearch = {
-                                keyboardController?.hide()
-                                onSearch()
-                            }
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(focusRequester)
-                    )
-                    
-                    if (query.isEmpty()) {
-                        Text(
-                            text = stringResource(R.string.search_hint),
-                            color = Color.Gray,
-                            fontSize = 16.sp
-                        )
-                    }
-                }
-                
-                if (query.isNotEmpty()) {
-                    IconButton(
-                        onClick = { onQueryChange("") },
-                        modifier = Modifier.size(24.dp)
-                    ) {
+            },
+            trailingIcon = if (query.isNotEmpty()) {
+                {
+                    IconButton(onClick = { onQueryChange("") }) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = stringResource(R.string.clear_search),
-                            tint = Color.Gray,
-                            modifier = Modifier.size(18.dp)
+                            contentDescription = stringResource(R.string.clear_search)
                         )
                     }
                 }
-            }
-        }
-        
-        Spacer(modifier = Modifier.width(16.dp))
-        
-        TextButton(
-            onClick = onCancel,
-            colors = ButtonDefaults.textButtonColors(
-                contentColor = Color.White
-            )
-        ) {
-            Text(
-                text = stringResource(R.string.cancel),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
-            )
+            } else {
+                null
+            },
+            colors = SearchBarDefaults.inputFieldColors(
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            ),
+            modifier = Modifier
+                .weight(1f)
+                .focusRequester(focusRequester)
+        )
+
+        TextButton(onClick = onCancel) {
+            Text(text = stringResource(R.string.cancel))
         }
     }
 }

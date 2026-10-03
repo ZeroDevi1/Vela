@@ -1,5 +1,7 @@
 package com.vela.app.ui.screens.dashboard.settings
 
+import com.vela.shared.ui.components.common.bottomContentPadding
+import com.vela.shared.ui.components.common.excludeBottom
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -21,10 +23,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.MergeType
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Business
-import androidx.compose.material.icons.rounded.MergeType
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Tv
@@ -146,10 +148,10 @@ fun InterfaceSettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
-                .padding(paddingValues)
+                .padding(paddingValues.excludeBottom())
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(bottom = 96.dp)
+            contentPadding = paddingValues.bottomContentPadding()
         ) {
             item {
                 InterfaceSection {
@@ -206,7 +208,7 @@ fun InterfaceSettingsScreen(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                     )
                     InterfaceSwitchItem(
-                        icon = Icons.Rounded.MergeType,
+                        icon = Icons.AutoMirrored.Rounded.MergeType,
                         title = stringResource(R.string.interface_merge_versions),
                         subtitle = stringResource(R.string.interface_merge_versions_subtitle),
                         checked = mergeVersionsEnabled,

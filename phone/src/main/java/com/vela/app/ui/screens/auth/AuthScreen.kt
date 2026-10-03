@@ -59,6 +59,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -500,6 +504,13 @@ private fun ConnectionForm(
                     },
                 enabled = !isLoading,
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Go
+                ),
+                keyboardActions = KeyboardActions(
+                    onGo = { if (serverUrl.isNotBlank()) onConnect() }
+                ),
                 shape = RoundedCornerShape(14.dp),
                 colors = amoledAuthFieldColors()
             )
@@ -592,6 +603,7 @@ private fun LoginForm(
                     },
                 enabled = !isBusy,
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 shape = RoundedCornerShape(14.dp),
                 colors = amoledAuthFieldColors(hasLeadingIcon = true)
             )
@@ -637,6 +649,13 @@ private fun LoginForm(
                     },
                 enabled = !isBusy,
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Go
+                ),
+                keyboardActions = KeyboardActions(
+                    onGo = { if (!isBusy && username.isNotBlank()) onLogin() }
+                ),
                 shape = RoundedCornerShape(14.dp),
                 colors = amoledAuthFieldColors(hasLeadingIcon = true)
             )

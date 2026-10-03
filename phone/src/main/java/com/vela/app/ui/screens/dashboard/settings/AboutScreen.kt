@@ -1,5 +1,7 @@
 package com.vela.app.ui.screens.dashboard.settings
 
+import com.vela.shared.ui.components.common.bottomContentPadding
+import com.vela.shared.ui.components.common.excludeBottom
 import android.app.Application
 import android.content.Context
 import android.content.Intent
@@ -126,10 +128,10 @@ fun AboutScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(paddingValues.excludeBottom())
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(bottom = 96.dp)
+            contentPadding = paddingValues.bottomContentPadding()
         ) {
             item {
                 AboutHeader(

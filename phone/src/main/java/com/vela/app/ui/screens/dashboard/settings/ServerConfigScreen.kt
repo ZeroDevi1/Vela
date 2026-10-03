@@ -43,6 +43,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import com.vela.app.ui.components.common.amoledAuthFieldColors
 import com.vela.app.ui.components.privacy.PrivateServerSession
@@ -282,6 +283,8 @@ internal fun ServerAddressFields(
         modifier = Modifier.fillMaxWidth(),
         label = { Text(stringResource(R.string.settings_server_host)) },
         singleLine = true,
+        // 地址字段按顺序填写，IME 的“下一项”直接跳到下一个输入框。
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
         enabled = enabled,
         colors = amoledAuthFieldColors()
     )
@@ -293,6 +296,7 @@ internal fun ServerAddressFields(
         label = { Text(stringResource(R.string.settings_server_path)) },
         placeholder = { Text(stringResource(R.string.settings_server_path_hint)) },
         singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
         enabled = enabled,
         colors = amoledAuthFieldColors()
     )
@@ -304,7 +308,7 @@ internal fun ServerAddressFields(
         label = { Text(stringResource(R.string.settings_server_port)) },
         singleLine = true,
         enabled = enabled,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
         colors = amoledAuthFieldColors()
     )
     Spacer(modifier = Modifier.height(8.dp))

@@ -123,8 +123,8 @@ object CastController {
         override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) = publishAvailableRoutes()
         override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) = publishAvailableRoutes()
         override fun onRouteChanged(router: MediaRouter, route: MediaRouter.RouteInfo) = publishAvailableRoutes()
-        override fun onRouteSelected(router: MediaRouter, route: MediaRouter.RouteInfo) = publishAvailableRoutes()
-        override fun onRouteUnselected(router: MediaRouter, route: MediaRouter.RouteInfo) = publishAvailableRoutes()
+        override fun onRouteSelected(router: MediaRouter, selectedRoute: MediaRouter.RouteInfo, reason: Int, requestedRoute: MediaRouter.RouteInfo) = publishAvailableRoutes()
+        override fun onRouteUnselected(router: MediaRouter, route: MediaRouter.RouteInfo, reason: Int) = publishAvailableRoutes()
     }
 
     fun ensureInitialized(context: Context) {
@@ -510,7 +510,7 @@ object CastController {
                     name = route.name?.toString().orEmpty(),
                     description = route.description?.toString(),
                     isSelected = route.isSelected,
-                    isConnecting = route.isConnecting || route.connectionState == MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTING,
+                    isConnecting = route.connectionState == MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTING,
                     isEnabled = route.isEnabled
                 )
             }

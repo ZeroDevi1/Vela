@@ -5,6 +5,7 @@ import android.content.res.Resources
 import android.media.AudioManager
 import android.os.SystemClock
 import android.view.GestureDetector
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
@@ -74,23 +75,34 @@ class GestureHelper(
         object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
 
+            // 中央区域没有双击跳转，单击立即显隐控制层，不必等双击超时（约 300ms）。
+            override fun onSingleTapUp(e: MotionEvent): Boolean {
+                if (tapZone(e.x) == 0) onShowControls()
+                return true
+            }
+
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                onShowControls()
+                // 两侧区域要等确认不是双击跳转后才显隐控制层；中央已在 onSingleTapUp 处理。
+                if (tapZone(e.x) != 0) onShowControls()
                 return true
             }
 
             override fun onDoubleTap(e: MotionEvent): Boolean {
+                val zone = tapZone(e.x)
+                if (zone == 0) {
+                    // 中央双击：播放/暂停（第一次单击已唤出控制层，可直接看到状态变化）。
+                    onTogglePlayPause()
+                    touchView.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                    return true
+                }
                 if (!playerPreferences.arePlayerGesturesEnabled() ||
                     !playerPreferences.isProgressSeekGestureEnabled()
                 ) {
                     onShowControls()
                     return true
                 }
-                when (tapZone(e.x)) {
-                    -1 -> onSeek(-seekBackwardDeltaMs())
-                    1 -> onSeek(seekForwardDeltaMs())
-                    else -> onShowControls()
-                }
+                onSeek(if (zone < 0) -seekBackwardDeltaMs() else seekForwardDeltaMs())
+                touchView.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
                 return true
             }
 
@@ -98,6 +110,7 @@ class GestureHelper(
                 if (!playerPreferences.arePlayerGesturesEnabled()) return
                 if (swipeGestureProgressOpen || swipeGestureVolumeOpen || swipeGestureBrightnessOpen) return
                 speedHoldActive = true
+                touchView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                 onHoldSpeed(true)
             }
         }

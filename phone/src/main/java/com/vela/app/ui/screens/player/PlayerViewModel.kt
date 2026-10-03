@@ -1,7 +1,9 @@
 package com.vela.app.ui.screens.player
 
+import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.util.Log
 import androidx.compose.runtime.getValue
@@ -179,6 +181,10 @@ class PlayerViewModel @Inject constructor(
     @Volatile
     private var scrubPreviewQueued = false
     private var scrubWarmJob: Job? = null
+    /** 后台由粗到细预生成整片缩略图网格的任务；换片或释放时取消。 */
+    private var scrubSweepJob: Job? = null
+    /** 预览帧缓存上限；低内存设备收紧，见 [configureScrubPreviewSource]。 */
+    private var scrubFrameCapacity = SCRUB_FRAME_CACHE_CAPACITY
     /** 保护关键帧缓存。拖动线程和抽帧线程都会读写。 */
     private val scrubFrameLock = Any()
     /**
@@ -760,6 +766,8 @@ class PlayerViewModel @Inject constructor(
                     mediaTitle = mediaTitle,
                     mediaLogoUrl = mediaLogoUrl,
                     seasonEpisodeLabel = seasonEpisodeLabel,
+                    seriesName = itemDetails?.seriesName
+                        ?.takeIf { seasonEpisodeLabel != null && it.isNotBlank() },
                     chapterMarkers = chapterMarkers,
                     recapStartMs = markerSegments.recap?.startMs,
                     recapEndMs = markerSegments.recap?.endMs,
@@ -1487,9 +1495,12 @@ class PlayerViewModel @Inject constructor(
         cacheKey: String? = null
     ) {
         scrubWarmJob?.cancel()
+        scrubSweepJob?.cancel()
         scrubPreviewVersion++
         scrubPreviewFrame = null
         clearScrubFrames()
+        val lowRam = context.getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
+        scrubFrameCapacity = if (lowRam) SCRUB_FRAME_CACHE_CAPACITY_LOW_RAM else SCRUB_FRAME_CACHE_CAPACITY
         val source = uri?.let {
             val remote = it.scheme?.lowercase(Locale.ROOT) in setOf("http", "https")
             ScrubPreviewSource(
@@ -1510,13 +1521,14 @@ class PlayerViewModel @Inject constructor(
         }
         if (source != null && supportsKeyframeScrub(source.uri)) {
             warmScrubFrames(source, warmPositionMs)
+            if (!lowRam) sweepScrubFrames(source)
         }
     }
 
     /**
      * 请求进度条拖动预览帧。
      *
-     * 同一秒内的关键帧直接复用。没有精确缓存时先显示 8 秒内的邻近帧，再在后台抽新的关键帧。
+     * 同一秒内的关键帧直接复用。没有精确缓存时先显示邻近帧（含后台预生成的网格帧），再在后台抽新的关键帧。
      * 不移动主播放器。
      *
      * @param positionMs 预览位置，单位毫秒
@@ -1570,10 +1582,54 @@ class PlayerViewModel @Inject constructor(
     }
 
     /**
+     * 起播稳定后在后台由粗到细预生成整片缩略图网格（见 [scrubSweepPositions]），
+     * 让拖到任意位置都能立即显示一张邻近帧，而不必等现场解码。
+     *
+     * 让位规则：用户拖动请求排队时、主播放器缓冲时都暂停；直链只在非计费网络下进行，
+     * 避免在流量网络上为预览额外下载关键帧。连续失败多次（片源不支持解复用或解码）即停止。
+     *
+     * @param source 当前片源
+     */
+    private fun sweepScrubFrames(source: ScrubPreviewSource) {
+        scrubSweepJob = viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                val state = _playerState.value
+                if (state.hasStartedPlayback && !state.isLoading && state.duration > 0L) break
+                delay(SCRUB_SWEEP_POLL_MS)
+            }
+            delay(SCRUB_SWEEP_START_DELAY_MS)
+            val remote = source.uri.scheme?.lowercase(Locale.ROOT) in setOf("http", "https")
+            val connectivity = source.context.getSystemService(ConnectivityManager::class.java)
+            if (remote && connectivity?.isActiveNetworkMetered != false) return@launch
+            var consecutiveFailures = 0
+            for (positionMs in scrubSweepPositions(_playerState.value.duration)) {
+                while (scrubPreviewQueued || _playerState.value.isLoading) delay(SCRUB_SWEEP_POLL_MS)
+                if (scrubPreviewSource !== source) return@launch
+                if (cachedScrubFrame(positionMs, exact = true) != null) continue
+                val frame = loadKeyframeFrame(source, positionMs)
+                if (frame == null) {
+                    if (++consecutiveFailures >= SCRUB_SWEEP_MAX_FAILURES) return@launch
+                    continue
+                }
+                consecutiveFailures = 0
+                try {
+                    ensureActive()
+                } catch (cancelled: CancellationException) {
+                    if (!frame.isRecycled) frame.recycle()
+                    throw cancelled
+                }
+                rememberScrubFrame(positionMs, frame)
+                // 每张之间让出一下抽帧锁和网络，保证拖动请求随时能插队。
+                delay(SCRUB_SWEEP_GAP_MS)
+            }
+        }
+    }
+
+    /**
      * 读取缓存帧。
      *
      * @param positionMs 目标位置，单位毫秒
-     * @param exact 为 true 时只返回同一秒的帧；为 false 时允许 8 秒内的邻近帧
+     * @param exact 为 true 时只返回同一秒的帧；为 false 时允许 [scrubNearDistanceMs] 内的邻近帧
      * @return 可显示的位图；没有缓存时为 null
      */
     private fun cachedScrubFrame(positionMs: Long, exact: Boolean): Bitmap? {
@@ -1584,7 +1640,11 @@ class PlayerViewModel @Inject constructor(
                     scrubFrames[bucket]?.isRecycled == false
                 }
             } else {
-                nearestScrubFrameBucket(scrubFrames.keys.toSet(), positionMs)
+                nearestScrubFrameBucket(
+                    scrubFrames.keys.toSet(),
+                    positionMs,
+                    scrubNearDistanceMs(_playerState.value.duration)
+                )
             }
             return bucket?.let { scrubFrames[it] }?.takeIf { !it.isRecycled }
         }
@@ -1603,7 +1663,7 @@ class PlayerViewModel @Inject constructor(
             if (previous != null && previous !== frame && previous !== scrubPreviewFrame && !previous.isRecycled) {
                 previous.recycle()
             }
-            while (scrubFrames.size > SCRUB_FRAME_CACHE_CAPACITY) {
+            while (scrubFrames.size > scrubFrameCapacity) {
                 val eldest = scrubFrames.entries.firstOrNull() ?: break
                 scrubFrames.remove(eldest.key)
                 val bitmap = eldest.value
@@ -1696,6 +1756,8 @@ class PlayerViewModel @Inject constructor(
     private fun releaseScrubPreview() {
         scrubWarmJob?.cancel()
         scrubWarmJob = null
+        scrubSweepJob?.cancel()
+        scrubSweepJob = null
         scrubPreviewQueued = false
         clearScrubPreview()
         clearScrubFrames()
@@ -2413,6 +2475,14 @@ class PlayerViewModel @Inject constructor(
 
 /** 关键帧预览长边上限，单位像素。 */
 private const val SCRUB_PREVIEW_WIDTH_PX = 320
+/** 等待起播稳定、拖动让位时的轮询间隔，单位毫秒。 */
+private const val SCRUB_SWEEP_POLL_MS = 500L
+/** 起播稳定后再等一会儿开始预生成，让首段缓冲先占满带宽。单位毫秒。 */
+private const val SCRUB_SWEEP_START_DELAY_MS = 3_000L
+/** 预生成相邻两帧之间的让出间隔，单位毫秒。 */
+private const val SCRUB_SWEEP_GAP_MS = 40L
+/** 连续失败这么多次就放弃预生成，避免对不支持的片源反复尝试。 */
+private const val SCRUB_SWEEP_MAX_FAILURES = 4
 
 /**
  * 进度预览要打开的片源。

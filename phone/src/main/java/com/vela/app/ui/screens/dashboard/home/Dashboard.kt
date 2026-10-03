@@ -17,8 +17,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.rounded.ExitToApp
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.*
@@ -65,6 +65,8 @@ import com.vela.app.ui.screens.auth.ProfileImageLoader
 import com.vela.app.ui.screens.auth.rememberServerSwitchDialogsState
 import com.vela.app.ui.screens.dashboard.settings.DownloadsScreen
 import com.vela.app.ui.screens.dashboard.settings.ServerLineSwitchButton
+import com.vela.app.ui.components.common.TopChromeScrim
+import com.vela.app.ui.components.common.rememberCompactProgress
 import com.vela.player.preferences.PlayerPreferences
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -1133,6 +1135,8 @@ fun Dashboard(
     onLogout: () -> Unit = {},
     onNavigateToDetail: (BaseItemDto) -> Unit = {},
     onNavigateToViewAll: (String, String?, String) -> Unit = { _, _, _ -> },
+    /** “最近添加”行的查看全部：与 [onNavigateToViewAll] 相同，但本次固定按添加日期倒序。 */
+    onNavigateToRecentlyAdded: (String, String?, String) -> Unit = onNavigateToViewAll,
     onNavigateToPlayer: (String) -> Unit = {},
     onAddServer: () -> Unit = {},
     onNavigateToServers: () -> Unit = {},
@@ -1962,7 +1966,7 @@ fun Dashboard(
                                 mediaRepository = mediaRepository,
                                 disablePosterEnhancers = disablePosterEnhancers,
                                 onItemClick = onNavigateToDetail,
-                                onNavigateToViewAll = onNavigateToViewAll
+                                onNavigateToViewAll = onNavigateToRecentlyAdded
                             )
 
                             if (index < libraries.lastIndex) {
@@ -1999,6 +2003,11 @@ fun Dashboard(
                         }
                     }
                 }
+            }
+            // 首页顶栏随列表滚走；滚动后给状态栏补一层渐显遮罩，避免时间、电量图标压在海报上。
+            val statusBarScrimProgress = rememberCompactProgress(lazyColumnState, 96.dp)
+            Box(modifier = Modifier.fillMaxSize()) {
+                TopChromeScrim(progress = { statusBarScrimProgress.value }, chromeHeight = 0.dp)
             }
         }
     }
@@ -2396,7 +2405,7 @@ internal fun AccountOverview(
             )
 
             AccountActionRow(
-                icon = Icons.Rounded.ExitToApp,
+                icon = Icons.AutoMirrored.Rounded.ExitToApp,
                 label = stringResource(R.string.logout),
                 tint = Color(0xFFFF6B6B),
                 onClick = onLogout

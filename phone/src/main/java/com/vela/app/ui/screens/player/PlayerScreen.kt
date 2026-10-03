@@ -111,7 +111,7 @@ fun PlayerScreen(
     var uiState by remember { mutableStateOf(PlayerUiState()) }
     var lifecycle by remember { mutableStateOf(Lifecycle.Event.ON_CREATE) }
     var autoHideKey by remember { mutableStateOf(0) }
-    var isScrubbing by remember { mutableStateOf(false) }
+    var autoHideHeld by remember { mutableStateOf(false) }
     var dismissedCreditsPrompt by remember(mediaId) { mutableStateOf(false) }
 
     val hideSystemBars: () -> Unit = {
@@ -263,7 +263,7 @@ fun PlayerScreen(
         showMediaInfo = showMediaInfo,
         showVrProjectionDialog = showVrProjectionDialog,
         autoHideKey = autoHideKey,
-        isScrubbing = isScrubbing,
+        autoHideHeld = autoHideHeld,
         hideSystemBars = hideSystemBars,
         uiStateProvider = { uiState },
         onUiStateChange = { uiState = it },
@@ -697,7 +697,6 @@ fun PlayerScreen(
                     !showVideoWidthSheet
             ),
             playerState = playerState,
-            currentStreamingQuality = currentStreamingQuality,
             hasPlaybackSettings = hasPlaybackSettings,
             chapterMarkersEnabled = chapterMarkersEnabled,
             seekBackwardSeconds = seekBackwardSeconds,
@@ -710,7 +709,7 @@ fun PlayerScreen(
             viewModel = viewModel,
             onBackPressed = onBackPressed,
             resetAutoHideTimer = resetAutoHideTimer,
-            onScrubbingChange = { isScrubbing = it },
+            onAutoHideHoldChange = { autoHideHeld = it },
             onWatchCredits = {
                 dismissedCreditsPrompt = true
                 uiState = uiState.copy(controlsVisible = false)
@@ -733,17 +732,6 @@ fun PlayerScreen(
             },
             onShowAudioTrackDialog = { showAudioTrackDialog = true },
             onShowSubtitleTrackDialog = { showSubtitleTrackDialog = true },
-            onAddLocalSubtitle = {
-                localSubtitlePicker.launch(arrayOf("*/*"))
-            },
-            onShowSubtitleStyle = {
-                showSubtitleStyleSheet = true
-                uiState = uiState.copy(controlsVisible = false)
-            },
-            onShowSubtitleDelay = {
-                showSubtitleDelaySheet = true
-                uiState = uiState.copy(controlsVisible = false)
-            },
             onAdjustVideoSize = {
                 showVideoWidthSheet = true
                 uiState = uiState.copy(controlsVisible = false)
@@ -767,9 +755,6 @@ fun PlayerScreen(
             },
             onShowChapters = { showChaptersSheet = true },
             onShowVrProjection = { showVrProjectionDialog = true },
-            onBackgroundClick = {
-                uiState = uiState.copy(controlsVisible = false)
-            },
             onSeekFeedback = { label, side ->
                 // 事件序号保证连续点击同一方向时也会重新开始提示的淡出计时。
                 uiState = uiState.copy(
@@ -846,7 +831,21 @@ fun PlayerScreen(
                 viewModel.selectVrProjection(id)
                 showVrProjectionDialog = false
             },
-            onDismissVrProjectionDialog = { showVrProjectionDialog = false }
+            onDismissVrProjectionDialog = { showVrProjectionDialog = false },
+            onAddLocalSubtitle = {
+                showSubtitleTrackDialog = false
+                localSubtitlePicker.launch(arrayOf("*/*"))
+            },
+            onShowSubtitleStyle = {
+                showSubtitleTrackDialog = false
+                showSubtitleStyleSheet = true
+                uiState = uiState.copy(controlsVisible = false)
+            },
+            onShowSubtitleDelay = {
+                showSubtitleTrackDialog = false
+                showSubtitleDelaySheet = true
+                uiState = uiState.copy(controlsVisible = false)
+            }
         )
 
         if (showSubtitleStyleSheet) {
@@ -912,239 +911,4 @@ private fun readCurrentDeviceBrightness(context: Context): Float {
             .div(255f)
             .coerceIn(0.01f, 1f)
     }.getOrDefault(PlayerPreferences(context).getPlayerBrightness())
-}
-
-@Composable
-fun SpatialAudioInfoDialog(
-    spatialInfo: String,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Spatial Audio Status",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-        },
-        text = {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Text(
-                    text = spatialInfo,
-                    modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onDismiss
-            ) {
-                Text(stringResource(R.string.ok))
-            }
-        },
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(16.dp)
-    )
-}
-
-@Composable
-fun HdrFormatInfoDialog(
-    hdrInfo: String,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "HDR Format & Fallback Status",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.settings_close),
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-        },
-        text = {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Text(
-                    text = hdrInfo,
-                    modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onDismiss
-            ) {
-                Text(stringResource(R.string.ok))
-            }
-        },
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(16.dp)
-    )
-}
-
-@Preview(
-    name = "Player Screen - Controls Visible",
-    showBackground = true,
-    widthDp = 800,
-    heightDp = 450
-)
-@Composable
-fun PlayerScreenPreview() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
-        // Mock video surface
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black),
-            contentAlignment = Alignment.Center
-        ) {
-            androidx.compose.material3.Text(
-                text = "Video Content",
-                color = Color.White.copy(alpha = 0.3f),
-                style = androidx.compose.material3.MaterialTheme.typography.headlineMedium
-            )
-        }
-
-        // Show controls overlay
-        ControlsOverlay(
-            title = "Sample Movie Title",
-            chapterMarkers = emptyList(),
-            isPlaying = true,
-            currentPosition = 45000L, // 45 seconds
-            duration = 7200000L, // 2 hours
-            onBackClick = { },
-            onPlayPause = { },
-            onSeek = { },
-            isLocked = false,
-            onToggleLock = { },
-            onShowAudioTrackSelection = { },
-            onShowSubtitleTrackSelection = { },
-            onCycleAspectRatio = { },
-            onSeekBackward = { },
-            onSeekForward = { },
-            modifier = Modifier.fillMaxSize()
-        )
-    }
-}
-
-@Preview(
-    name = "Player Screen - Gesture Indicators",
-    showBackground = true,
-    widthDp = 800,
-    heightDp = 450
-)
-@Composable
-fun PlayerScreenGesturePreview() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
-        // Mock video surface
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Gray),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "Video Surface",
-                color = Color.White,
-                fontSize = 24.sp
-            )
-        }
-
-        // Gesture indicators preview
-        GestureIndicators(
-            volumeLevel = 0.7f, // 70% volume
-            brightnessLevel = 0.5f, // 50% brightness
-            seekPosition = "+10s"
-        )
-
-        // Loading indicator preview
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.3f)),
-            contentAlignment = Alignment.Center
-        ) {
-            CircularProgressIndicator(
-                color = Color.White,
-                strokeWidth = 3.dp,
-                modifier = Modifier.size(48.dp)
-            )
-        }
-    }
-}
-
-@Preview(
-    name = "Player Screen - Controls Hidden",
-    showBackground = true,
-    widthDp = 800,
-    heightDp = 450
-)
-@Composable
-fun PlayerScreenPreviewHidden() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black),
-            contentAlignment = Alignment.Center
-        ) {
-            androidx.compose.material3.Text(
-                text = "Video Content",
-                color = Color.White.copy(alpha = 0.3f),
-                style = androidx.compose.material3.MaterialTheme.typography.headlineMedium
-            )
-        }
-    }
 }

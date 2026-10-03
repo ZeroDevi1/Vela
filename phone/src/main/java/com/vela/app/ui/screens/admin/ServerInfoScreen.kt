@@ -1,5 +1,10 @@
 package com.vela.app.ui.screens.admin
 
+import com.vela.shared.ui.components.common.bottomContentPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import com.vela.shared.ui.components.common.excludeBottom
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -109,7 +114,7 @@ fun ServerInfoScreen(onBackPressed: () -> Unit = {}) {
         }
     ) { paddingValues ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(paddingValues)
+            modifier = Modifier.fillMaxSize().padding(paddingValues.excludeBottom())
         ) {
             Row(
                 modifier = Modifier
@@ -171,7 +176,7 @@ private fun ServerTab(viewModel: AdminPanelViewModel) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp)
+        contentPadding = WindowInsets.navigationBars.asPaddingValues().bottomContentPadding(top = 8.dp)
     ) {
         item { ServerHeader(info) }
 
@@ -223,7 +228,7 @@ private fun ActivityLogTab(viewModel: AdminPanelViewModel) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp)
+        contentPadding = WindowInsets.navigationBars.asPaddingValues().bottomContentPadding(top = 8.dp)
     ) {
         items(uiState.entries) { entry ->
             ActivityLogCard(entry)

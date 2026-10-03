@@ -20,13 +20,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.LockOpen
-import androidx.compose.material.icons.outlined.PlaylistAdd
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.outlined.Search
@@ -237,7 +237,7 @@ fun ItemOverflowSheet(
                 onClick = { picker = OverflowPicker.Collection }
             )
             OverflowAction(
-                icon = Icons.Outlined.PlaylistAdd,
+                icon = Icons.AutoMirrored.Outlined.PlaylistAdd,
                 label = stringResource(R.string.item_action_add_playlist),
                 enabled = !busy,
                 onClick = { picker = OverflowPicker.Playlist }

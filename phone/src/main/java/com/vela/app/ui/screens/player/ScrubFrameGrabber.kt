@@ -21,7 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 为进度预览保持一条独立的硬解抽帧管线。
  *
  * 抽帧器打开一次后就留着。拖动落在同一张关键帧上时只做一次定位并复用上一张图；
- * 跨关键帧才硬解这一帧。解码器输出直接渲染到 [ScrubFrameRenderer] 的 Surface，
+ * 跨关键帧才解这一帧。解码器按“原 MIME 硬解 → 杜比视界退回 HEVC/AVC 基础层 → 软解”
+ * 依次回退，保证没有对应硬解时仍能出图。解码器输出直接渲染到 [ScrubFrameRenderer] 的 Surface，
  * 在 GPU 上缩到预览尺寸，不把整帧映射回 CPU。直链通过播放器的缓存数据源读取，
  * 已缓冲的区间不再走网络。
  */
@@ -49,8 +50,10 @@ internal class ScrubFrameGrabber {
     /** 上一张已经解出的同步样本时间，单位微秒。未解出时为负。 */
     private var lastSyncUs = NO_SYNC
     private var lastBitmap: Bitmap? = null
-    /** 硬解建不起来时，这一路片源不再重复尝试。 */
-    private var hardwareUnavailable = false
+    /** 所有候选解码器都建不起来时，这一路片源不再重复尝试。 */
+    private var decoderUnavailable = false
+    /** 当前解码器是否为软解；软解单帧更慢，需要更长的出图预算。 */
+    private var softwareDecoder = false
     /** GPU 缩图器。首次解码时建立，跨片源复用，只在 [release] 时销毁。 */
     private var renderer: ScrubFrameRenderer? = null
     /** EGL 建不起来时不再重试。 */
@@ -106,10 +109,11 @@ internal class ScrubFrameGrabber {
         if (shouldReuseScrubSync(lastSyncUs, syncUs)) {
             return lastBitmap?.takeIf { !it.isRecycled }?.safeCopy()
         }
-        if (hardwareUnavailable) return null
+        if (decoderUnavailable) return null
         val renderer = ensureRenderer() ?: return null
         val codec = ensureCodec(extractor, renderer) ?: return null
-        val bitmap = decodeKeyframe(extractor, codec, renderer, maxEdgePx) ?: run {
+        val budgetNs = if (softwareDecoder) SOFTWARE_DECODE_BUDGET_NS else DECODE_BUDGET_NS
+        val bitmap = decodeKeyframe(extractor, codec, renderer, maxEdgePx, budgetNs) ?: run {
             releaseCodec()
             return null
         }
@@ -159,7 +163,7 @@ internal class ScrubFrameGrabber {
         dataSource = cached
         videoTrack = track
         sourceKey = key
-        hardwareUnavailable = false
+        decoderUnavailable = false
         return true
     }
 
@@ -191,35 +195,39 @@ internal class ScrubFrameGrabber {
      * @return 可复用的解码器；这一轨没有硬解时为 null
      */
     private fun ensureCodec(extractor: MediaExtractor, renderer: ScrubFrameRenderer): MediaCodec? {
-        val format = extractor.getTrackFormat(videoTrack.takeIf { it >= 0 } ?: return null)
-        val mime = format.getString(MediaFormat.KEY_MIME) ?: return null
+        val trackFormat = extractor.getTrackFormat(videoTrack.takeIf { it >= 0 } ?: return null)
+        val mime = trackFormat.getString(MediaFormat.KEY_MIME) ?: return null
         codec?.takeIf { codecMime == mime }?.let { return it }
         releaseCodec()
-        val created = createHardwareDecoder(mime) ?: run {
-            hardwareUnavailable = true
-            return null
+        for (candidateMime in decodeMimeCandidates(mime)) {
+            // 每次重新取轨道格式：configure 失败后格式里可能被写入解码器私有键。
+            val format = extractor.getTrackFormat(videoTrack).apply {
+                setString(MediaFormat.KEY_MIME, candidateMime)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) setInteger(MediaFormat.KEY_PRIORITY, 0)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            }
+            for (info in decoderCandidates(candidateMime)) {
+                val created = runCatching { MediaCodec.createByCodecName(info.name) }.getOrNull() ?: continue
+                try {
+                    created.configure(format, renderer.surface, null, 0)
+                    created.start()
+                } catch (error: Exception) {
+                    Log.w(TAG, "scrub decoder ${info.name} configure failed: ${error.javaClass.simpleName}")
+                    created.release()
+                    continue
+                }
+                frameWidth = format.getInteger(MediaFormat.KEY_WIDTH)
+                frameHeight = format.getInteger(MediaFormat.KEY_HEIGHT)
+                rotationDegrees = format.rotationDegrees()
+                softwareDecoder = !info.isHardwareDecoder()
+                codec = created
+                codecMime = mime
+                return created
+            }
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            format.setInteger(MediaFormat.KEY_PRIORITY, 0)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
-        }
-        return try {
-            created.configure(format, renderer.surface, null, 0)
-            created.start()
-            frameWidth = format.getInteger(MediaFormat.KEY_WIDTH)
-            frameHeight = format.getInteger(MediaFormat.KEY_HEIGHT)
-            rotationDegrees = format.rotationDegrees()
-            codec = created
-            codecMime = mime
-            created
-        } catch (error: Exception) {
-            Log.w(TAG, "scrub decoder configure failed: ${error.javaClass.simpleName}")
-            created.release()
-            hardwareUnavailable = true
-            null
-        }
+        Log.w(TAG, "scrub decoder unavailable for $mime")
+        decoderUnavailable = true
+        return null
     }
 
     /**
@@ -231,19 +239,21 @@ internal class ScrubFrameGrabber {
      * @param codec 已启动的解码器
      * @param renderer 接收解码输出的缩图器
      * @param maxEdgePx 预览长边上限，单位像素
+     * @param budgetNs 等待出图的上限，单位纳秒
      * @return 预览位图；超时时为 null
      */
     private fun decodeKeyframe(
         extractor: MediaExtractor,
         codec: MediaCodec,
         renderer: ScrubFrameRenderer,
-        maxEdgePx: Int
+        maxEdgePx: Int,
+        budgetNs: Long
     ): Bitmap? {
         val (dstW, dstH) = scrubPreviewSize(frameWidth, frameHeight, rotationDegrees, maxEdgePx) ?: return null
         codec.flush()
         if (!queueSample(extractor, codec, endOfStream = false)) return null
         if (!queueSample(extractor, codec, endOfStream = true)) return null
-        val deadline = System.nanoTime() + DECODE_BUDGET_NS
+        val deadline = System.nanoTime() + budgetNs
         val info = MediaCodec.BufferInfo()
         while (System.nanoTime() < deadline) {
             val output = codec.dequeueOutputBuffer(info, OUTPUT_WAIT_US)
@@ -306,7 +316,8 @@ internal class ScrubFrameGrabber {
         lastSyncUs = NO_SYNC
         lastBitmap?.takeIf { !it.isRecycled }?.recycle()
         lastBitmap = null
-        hardwareUnavailable = false
+        decoderUnavailable = false
+        softwareDecoder = false
         rotationDegrees = 0
         frameWidth = 0
         frameHeight = 0
@@ -327,9 +338,11 @@ internal class ScrubFrameGrabber {
         /** 尚未解出过同步样本。 */
         private const val NO_SYNC = -1L
         /** 等抽帧线程返回的上限，避免解码器卡死时拖死预览。单位毫秒。 */
-        private const val GRAB_WAIT_MS = 1_500L
+        private const val GRAB_WAIT_MS = 2_500L
         /** 单次硬解出图的时间预算，包含等 Surface 收到帧。单位纳秒。 */
         private const val DECODE_BUDGET_NS = 400_000_000L
+        /** 软解单帧的出图预算，4K HEVC 关键帧软解通常需要数百毫秒。单位纳秒。 */
+        private const val SOFTWARE_DECODE_BUDGET_NS = 1_500_000_000L
         /** 等输入缓冲区的时间。单位微秒。 */
         private const val INPUT_WAIT_US = 8_000L
         /** 等一帧输出的时间。单位微秒。 */
@@ -352,20 +365,31 @@ internal class ScrubFrameGrabber {
         }
 
         /**
-         * 找一个非安全的硬解码器。
+         * 解码时依次尝试的 MIME。
+         *
+         * 杜比视界轨的基础层是 HEVC（profile 5/7/8）或 AVC（profile 9）；设备没有可用的
+         * 非安全杜比视界解码器时，退回基础层解码。profile 5 的基础层颜色不正确，但预览图只
+         * 用于定位，仍比没有图好。
+         */
+        private fun decodeMimeCandidates(mime: String): List<String> = when (mime) {
+            MediaFormat.MIMETYPE_VIDEO_DOLBY_VISION -> listOf(
+                mime,
+                MediaFormat.MIMETYPE_VIDEO_HEVC,
+                MediaFormat.MIMETYPE_VIDEO_AVC
+            )
+            else -> listOf(mime)
+        }
+
+        /**
+         * 支持该 MIME 的非安全解码器，硬解在前、软解在后。
          *
          * @param mime 视频 MIME
-         * @return 硬解码器；系统只有软解时为 null
+         * @return 候选解码器；没有任何解码器时为空
          */
-        private fun createHardwareDecoder(mime: String): MediaCodec? {
-            val candidates = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
-            for (info in candidates) {
-                if (info.isEncoder || info.isSecureDecoder() || !info.supports(mime) || !info.isHardwareDecoder()) {
-                    continue
-                }
-                return runCatching { MediaCodec.createByCodecName(info.name) }.getOrNull()
-            }
-            return null
+        private fun decoderCandidates(mime: String): List<MediaCodecInfo> {
+            return MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+                .filter { !it.isEncoder && !it.isSecureDecoder() && it.supports(mime) }
+                .sortedBy { if (it.isHardwareDecoder()) 0 else 1 }
         }
 
         /** 这个解码器是不是硬解。API 29 以下用名字排除系统软解。 */
@@ -393,8 +417,12 @@ internal class ScrubFrameGrabber {
     }
 }
 
-/** 复制一张互不影响回收的预览图。原图已回收时为 null。 */
+/**
+ * 复制一张互不影响回收的预览图。原图已回收时为 null。
+ *
+ * 预览图不透明，用 RGB_565 让缓存占用减半，便于后台预生成整片的缩略图网格。
+ */
 private fun Bitmap.safeCopy(): Bitmap? {
     if (isRecycled) return null
-    return copy(Bitmap.Config.ARGB_8888, false)
+    return copy(Bitmap.Config.RGB_565, false)
 }

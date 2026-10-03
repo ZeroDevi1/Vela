@@ -1,5 +1,6 @@
 package com.vela.app.ui.screens.dashboard.settings
 
+import com.vela.shared.ui.components.common.excludeBottom
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +61,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,7 +82,6 @@ private val OnlineDotColor = Color(0xFF4FD06B)
 fun ServersScreen(
     onServerSwitched: () -> Unit = {},
     onAddUser: (serverUrl: String, serverName: String?) -> Unit = { _, _ -> },
-    reserveHomeNavigationSpace: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -116,8 +117,7 @@ fun ServersScreen(
             FloatingActionButton(
                 onClick = { showAddDialog = true },
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.padding(bottom = if (reserveHomeNavigationSpace) 76.dp else 0.dp)
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Add,
@@ -144,12 +144,13 @@ fun ServersScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
+                    .padding(innerPadding.excludeBottom()),
+                // 底部 = 小白条 inset + FAB（56dp）与其外边距，最后一张卡片不会被 FAB 遮住。
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
                     top = 8.dp,
-                    bottom = if (reserveHomeNavigationSpace) 112.dp else 96.dp
+                    bottom = innerPadding.calculateBottomPadding() + 88.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -451,6 +452,7 @@ private fun AddServerDialog(
                 label = { Text(stringResource(R.string.settings_server_note)) },
                 placeholder = { Text(stringResource(R.string.settings_server_note_placeholder)) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 enabled = !isConnecting,
                 colors = amoledAuthFieldColors()
             )
@@ -486,6 +488,7 @@ private fun AddServerDialog(
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(stringResource(R.string.username)) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 enabled = !isConnecting,
                 colors = amoledAuthFieldColors()
             )
@@ -496,6 +499,7 @@ private fun AddServerDialog(
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(stringResource(R.string.password)) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                 enabled = !isConnecting,
                 visualTransformation = PasswordVisualTransformation(),
                 colors = amoledAuthFieldColors()

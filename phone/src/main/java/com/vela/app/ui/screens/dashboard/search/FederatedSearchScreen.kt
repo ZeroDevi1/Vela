@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.*
@@ -12,7 +14,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -44,11 +48,18 @@ fun FederatedSearchScreen(
     var candidates by remember { mutableStateOf<List<CatalogTitle>>(emptyList()) }
     var showSources by remember { mutableStateOf(false) }
     val sources = state.servers.map { it.id to it.name } + listOf("tmdb" to "TMDB", "douban" to stringResource(R.string.catalog_douban))
+    val keyboard = LocalSoftwareKeyboardController.current
     BackHandler(onBack = onBack)
     Column(modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth()) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.catalog_back)) }
-            OutlinedTextField(state.query, vm::updateQuery, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.catalog_search)) })
+            OutlinedTextField(
+                state.query, vm::updateQuery, Modifier.weight(1f), singleLine = true,
+                label = { Text(stringResource(R.string.catalog_search)) },
+                // 输入本身已防抖搜索；IME 搜索键跳过防抖立即提交并收起键盘。
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide(); vm.submitSearch() })
+            )
         }
         TextButton(onClick = { showSources = true }) { Text(stringResource(R.string.catalog_sources, state.selectedSources.size)) }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

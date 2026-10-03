@@ -1,5 +1,7 @@
 package com.vela.app.ui.screens.dashboard.settings
 
+import com.vela.shared.ui.components.common.bottomContentPadding
+import com.vela.shared.ui.components.common.excludeBottom
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -375,10 +377,10 @@ private fun DownloadSettingsContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(innerPadding)
+            .padding(innerPadding.excludeBottom())
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
-        contentPadding = PaddingValues(bottom = 96.dp)
+        contentPadding = innerPadding.bottomContentPadding()
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -804,10 +806,10 @@ private fun DownloadsRootContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(innerPadding)
+            .padding(innerPadding.excludeBottom())
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp)
+        contentPadding = innerPadding.bottomContentPadding(top = 12.dp)
     ) {
         if (seriesGroups.isNotEmpty()) {
             item { SectionLabel(stringResource(R.string.tv_shows)) }
@@ -1137,10 +1139,10 @@ private fun SeriesDetailContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(innerPadding)
+            .padding(innerPadding.excludeBottom())
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp)
+        contentPadding = innerPadding.bottomContentPadding(top = 12.dp)
     ) {
         itemsIndexed(
             items = group.seasons,

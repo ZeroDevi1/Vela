@@ -1,5 +1,7 @@
 package com.vela.app.ui.screens.library
 
+import com.vela.shared.ui.components.common.bottomContentPadding
+import com.vela.shared.ui.components.common.excludeBottom
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -15,7 +17,14 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -28,7 +37,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
@@ -86,6 +97,7 @@ internal fun MediaLibraryScreen(kind: MediaLibraryKind, libraryId: String?, init
 @Composable
 private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind, libraryId: String?, initialItemId: String?, showNowPlaying: Boolean, onBack: () -> Unit) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     val sections = if (kind == MediaLibraryKind.MUSIC) listOf(LibrarySection.SONGS, LibrarySection.ALBUMS, LibrarySection.ARTISTS,
         LibrarySection.PLAYLISTS, LibrarySection.GENRES, LibrarySection.FAVORITES, LibrarySection.FOLDERS)
@@ -261,7 +273,7 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
             IconButton(onClick = { reload++ }, enabled = !loading) { Icon(Icons.Default.Refresh, "刷新") }
         })
     }, bottomBar = { if (playback.item != null) MusicMiniPlayer(onOpen = { showPlayer = true }, modifier = Modifier.navigationBarsPadding()) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        Column(Modifier.fillMaxSize().padding(padding.excludeBottom())) {
             if (group == null) LazyRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(sections) { tab -> FilterChip(selected = section == tab, onClick = { section = tab; query = "" }, label = { Text(tab.label) }) }
             }
@@ -269,12 +281,15 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), singleLine = true,
                 placeholder = { Text("搜索${group?.name ?: section.label}") }, leadingIcon = { Icon(Icons.Default.Search, null) },
                 trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "清除搜索") } },
-                shape = MaterialTheme.shapes.extraLarge)
+                shape = MaterialTheme.shapes.extraLarge,
+                // 列表随输入实时过滤，IME 搜索键只需收起键盘。
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }))
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(if (loading) "正在加载…" else "${section.label} · $total 项", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (supportsGrid) IconButton(onClick = { listView = !listView }) { Icon(if (listView) Icons.Default.GridView else Icons.Default.ViewList, if (listView) "网格视图" else "列表视图") }
+                if (supportsGrid) IconButton(onClick = { listView = !listView }) { Icon(if (listView) Icons.Default.GridView else Icons.AutoMirrored.Filled.ViewList, if (listView) "网格视图" else "列表视图") }
                 TextButton(onClick = { newest = !newest }, enabled = !loading && group?.type != "Playlist") {
-                    Icon(Icons.Default.Sort, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(if (newest) "最近添加" else "名称排序")
+                    Icon(Icons.AutoMirrored.Filled.Sort, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(if (newest) "最近添加" else "名称排序")
                 }
             }
             if (!loading && items.any { it.isAudioItem() }) Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -293,7 +308,7 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
                 else -> {
                     val grid = !listView && supportsGrid
                     if (grid) LazyVerticalGrid(GridCells.Adaptive(if (kind == MediaLibraryKind.BOOKS) 128.dp else 144.dp),
-                        Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                        Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = padding.calculateBottomPadding() + 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                         if (kind == MediaLibraryKind.BOOKS && group == null && section == LibrarySection.BOOKS && query.isBlank() && recent != null) item(span = { GridItemSpan(maxLineSpan) }) {
                             Card(onClick = { selectedBook = recent }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -303,7 +318,7 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
                                         Text(recent!!.name.orEmpty(), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleLarge)
                                         Text("回到上次停下的地方", style = MaterialTheme.typography.bodySmall)
                                     }
-                                    Icon(Icons.Default.ArrowForward, null)
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, null)
                                 }
                             }
                         }
@@ -321,7 +336,7 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
                             }
                         }
                         if (canLoadMore) item(span = { GridItemSpan(maxLineSpan) }) { LoadMore(loadingMore) { loadMore() } }
-                    } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+                    } else LazyColumn(Modifier.fillMaxSize(), contentPadding = padding.bottomContentPadding()) {
                         itemsIndexed(items, key = { index, item -> "${item.id}:$index" }) { _, item ->
                             ListItem(headlineContent = { Text(item.name ?: "未命名", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 supportingContent = { Text(item.librarySubtitle(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -342,7 +357,7 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
             ListItem(headlineContent = { Text(item.name.orEmpty(), style = MaterialTheme.typography.titleLarge) },
                 supportingContent = { Text(item.librarySubtitle()) }, leadingContent = { LibraryArtwork(session, item, Modifier.size(56.dp)) })
             ListItem(headlineContent = { Text(if (item.isBookItem()) "查看书籍 / 继续阅读" else if (item.isAudioItem()) "立即播放" else "打开") },
-                leadingContent = { Icon(if (item.isBookItem()) Icons.Default.MenuBook else Icons.Default.PlayArrow, null) },
+                leadingContent = { Icon(if (item.isBookItem()) Icons.AutoMirrored.Filled.MenuBook else Icons.Default.PlayArrow, null) },
                 modifier = Modifier.clickable { actionItem = null; open(item) })
             ListItem(headlineContent = { Text(if (item.userData?.isFavorite == true) "取消收藏" else "添加收藏") },
                 leadingContent = { Icon(Icons.Default.FavoriteBorder, null) }, modifier = Modifier.clickable { scope.launch {
@@ -351,7 +366,7 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
                     catch (e: Exception) { error = e.message ?: "收藏失败"; actionItem = null }
                 } })
             if (item.isAudioItem()) ListItem(headlineContent = { Text("新建歌单并添加") },
-                leadingContent = { Icon(Icons.Default.PlaylistAdd, null) }, modifier = Modifier.clickable { playlistName = "" })
+                leadingContent = { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null) }, modifier = Modifier.clickable { playlistName = "" })
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -392,7 +407,7 @@ internal fun LibraryArtwork(session: LibraryMediaSession?, item: BaseItemDto, mo
         Icon(when {
             failed -> Icons.Default.BrokenImage
             item.isFolder == true -> Icons.Default.Folder
-            item.isBookItem() -> Icons.Default.MenuBook
+            item.isBookItem() -> Icons.AutoMirrored.Filled.MenuBook
             else -> Icons.Default.MusicNote
         }, null, Modifier.size(30.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         AsyncImage(model = artwork, contentDescription = if (failed) "封面加载失败" else null,
@@ -450,7 +465,7 @@ internal fun BaseItemDto.librarySubtitle(): String = when {
                 }
             }
             item { Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { reading = true }, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) { Icon(Icons.Default.MenuBook, null); Spacer(Modifier.width(6.dp)); Text("阅读 / 继续阅读") }
+                Button(onClick = { reading = true }, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) { Icon(Icons.AutoMirrored.Filled.MenuBook, null); Spacer(Modifier.width(6.dp)); Text("阅读 / 继续阅读") }
                 FilledTonalIconButton(onClick = { scope.launch {
                     try {
                         val favorite = book.userData?.isFavorite != true

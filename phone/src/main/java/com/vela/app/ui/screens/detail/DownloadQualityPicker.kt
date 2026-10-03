@@ -320,7 +320,7 @@ private fun buildResolutionGroups(sourceHeight: Int?, sourceBitrate: Int?): List
 }
 
 private fun buildAudioLabel(stream: MediaStream): String {
-    val lang = stream.language?.let { Locale(it).displayLanguage } ?: "Unknown"
+    val lang = stream.language?.let { Locale.forLanguageTag(it).displayLanguage } ?: "Unknown"
     return if (stream.isDefault == true) "$lang (Default)" else lang
 }
 

@@ -17,9 +17,8 @@ import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -149,27 +148,21 @@ private fun AppHomeNavigationBar(
     selectedTab: AppHomeTab,
     onSelected: (AppHomeTab) -> Unit
 ) {
-    NavigationBar(
+    // M3 Expressive 的 flexible navigation bar：64dp 高、药丸指示器，颜色使用组件默认语义 token。
+    ShortNavigationBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainer
     ) {
         AppHomeTab.entries.forEach { tab ->
-            NavigationBarItem(
+            ShortNavigationBarItem(
                 selected = selectedTab == tab,
                 onClick = { onSelected(tab) },
                 icon = {
                     Icon(
                         imageVector = tab.icon,
-                        contentDescription = stringResource(tab.labelRes)
+                        contentDescription = null
                     )
                 },
-                label = { Text(stringResource(tab.labelRes)) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    selectedTextColor = MaterialTheme.colorScheme.onSurface,
-                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
-                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                label = { Text(stringResource(tab.labelRes), maxLines = 1) }
             )
         }
     }

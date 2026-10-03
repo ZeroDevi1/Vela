@@ -80,12 +80,14 @@ import com.vela.shared.util.image.rememberImageUrl
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private val PlaybackInfoPanelColor = Color(0xFF161618)
-private val PlaybackInfoOverviewColor = Color.White.copy(alpha = 0.62f)
-private val PlaybackInfoMetaColor = Color.White.copy(alpha = 0.48f)
-private val PlaybackInfoBadgeColor = Color(0xE61B3358)
-private val PlaybackInfoHandleColor = Color.White.copy(alpha = 0.28f)
-private val PlaybackInfoEpisodeShape = RoundedCornerShape(10.dp)
+// 面板颜色统一取主题角色，与播放器内的轨道/画质面板保持一致。
+private val PlaybackInfoOverviewColor: Color
+    @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
+private val PlaybackInfoMetaColor: Color
+    @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+private val PlaybackInfoHandleColor: Color
+    @Composable get() = MaterialTheme.colorScheme.outlineVariant
+private val PlaybackInfoEpisodeShape = RoundedCornerShape(12.dp)
 
 @Composable
 fun PlaybackInfoSheet(
@@ -172,7 +174,7 @@ fun PlaybackInfoSheet(
                         max = maxHeight * 0.58f
                     )
                     .clip(RoundedCornerShape(20.dp))
-                    .background(PlaybackInfoPanelColor),
+                    .background(MaterialTheme.colorScheme.surfaceContainer),
                 applyBottomInset = false
             )
         }
@@ -287,7 +289,7 @@ private fun LandscapePlaybackInfo(
                     .padding(horizontal = 48.dp)
                     .offset { IntOffset(0, offsetY.roundToInt()) }
                     .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
-                    .background(PlaybackInfoPanelColor)
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
                     .pointerInput(Unit) {
                         detectVerticalDragGestures(
                             onVerticalDrag = { _, dragAmount ->
@@ -319,7 +321,7 @@ private fun LandscapePlaybackInfo(
                     .padding(start = 48.dp, top = 28.dp, end = 48.dp)
                     .offset { IntOffset(0, offsetY.roundToInt()) }
                     .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
-                    .background(PlaybackInfoPanelColor)
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
                     .nestedScroll(nestedScroll)
             )
         }
@@ -351,7 +353,7 @@ private fun LandscapeInfoMiniBar(
                     .width(108.dp)
                     .height(60.dp)
                     .clip(PlaybackInfoEpisodeShape)
-                    .background(Color(0xFF2A2A2A))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             ) {
                 if (!posterUrl.isNullOrBlank()) {
                     JellyfinPosterImage(
@@ -368,7 +370,7 @@ private fun LandscapeInfoMiniBar(
                     Text(
                         text = seriesName,
                         color = Color.White,
-                        fontSize = 16.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -377,7 +379,7 @@ private fun LandscapeInfoMiniBar(
                 Text(
                     text = episodeTitle,
                     color = Color.White.copy(alpha = 0.86f),
-                    fontSize = 14.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -499,7 +501,7 @@ private fun PlaybackInfoPanel(
             Text(
                 text = overview,
                 color = PlaybackInfoOverviewColor,
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 lineHeight = 22.sp,
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)
             )
@@ -510,7 +512,7 @@ private fun PlaybackInfoPanel(
             Text(
                 text = playbackFromSeasonLabel(item),
                 color = Color.White,
-                fontSize = 17.sp,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 12.dp)
             )
@@ -580,7 +582,7 @@ private fun PlaybackInfoHeader(
                 .width(92.dp)
                 .aspectRatio(2f / 3f)
                 .clip(PlaybackInfoEpisodeShape)
-                .background(Color(0xFF2A2A2A)),
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             contentAlignment = Alignment.Center
         ) {
             if (!posterUrl.isNullOrBlank()) {
@@ -599,7 +601,7 @@ private fun PlaybackInfoHeader(
                 Text(
                     text = seriesName,
                     color = Color.White,
-                    fontSize = 20.sp,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -609,7 +611,7 @@ private fun PlaybackInfoHeader(
             Text(
                 text = episodeTitle,
                 color = Color.White,
-                fontSize = if (showSeriesName) 16.sp else 17.sp,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
@@ -630,7 +632,7 @@ private fun PlaybackInfoHeader(
                         Text(
                             text = communityRatingLabel,
                             color = Color.White.copy(alpha = 0.92f),
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -638,14 +640,14 @@ private fun PlaybackInfoHeader(
                         Text(
                             text = dateLabel,
                             color = PlaybackInfoMetaColor,
-                            fontSize = 13.sp
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                     if (ratingLabel != null) {
                         Text(
                             text = ratingLabel,
                             color = Color.White.copy(alpha = 0.9f),
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             modifier = Modifier
@@ -659,7 +661,7 @@ private fun PlaybackInfoHeader(
                 Text(
                     text = tagLine,
                     color = PlaybackInfoMetaColor,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 8.dp)
@@ -679,7 +681,7 @@ private fun PlaybackPeopleSection(
         Text(
             text = stringResource(R.string.detail_cast_and_crew),
             color = Color.White,
-            fontSize = 15.sp,
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 10.dp)
         )
@@ -730,7 +732,7 @@ private fun PlaybackPersonCard(
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
                 .clip(PlaybackInfoEpisodeShape)
-                .background(Color(0xFF2A2A2A)),
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             contentAlignment = Alignment.Center
         ) {
             if (!imageUrl.isNullOrBlank()) {
@@ -754,7 +756,7 @@ private fun PlaybackPersonCard(
             Text(
                 text = personName,
                 color = Color.White.copy(alpha = 0.92f),
-                fontSize = 11.sp,
+                style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Medium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -766,7 +768,7 @@ private fun PlaybackPersonCard(
             Text(
                 text = roleLabel,
                 color = Color.White.copy(alpha = 0.52f),
-                fontSize = 10.sp,
+                style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
@@ -820,11 +822,6 @@ private fun playbackPeople(people: List<BaseItemPerson>): List<BaseItemPerson> {
     return (actors + crew).distinctBy { it.id ?: "${it.name}-${it.role}-${it.type}" }
 }
 
-private fun aspectRatioFromSize(width: Float, height: Float): Float? {
-    if (!width.isFinite() || !height.isFinite() || width <= 0f || height <= 0f) return null
-    return (width / height).takeIf { it.isFinite() && it > 0f }
-}
-
 @Composable
 private fun PlaybackEpisodeCard(
     episode: BaseItemDto,
@@ -853,7 +850,7 @@ private fun PlaybackEpisodeCard(
                 .fillMaxWidth()
                 .height(84.dp)
                 .clip(PlaybackInfoEpisodeShape)
-                .background(Color(0xFF2A2A2A))
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
         ) {
             if (!imageUrl.isNullOrBlank()) {
                 JellyfinPosterImage(
@@ -868,14 +865,14 @@ private fun PlaybackEpisodeCard(
                 Text(
                     text = badge,
                     color = Color.White,
-                    fontSize = 10.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(6.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(PlaybackInfoBadgeColor)
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
                         .padding(horizontal = 7.dp, vertical = 3.dp)
                 )
             }
@@ -883,7 +880,7 @@ private fun PlaybackEpisodeCard(
         Text(
             text = label,
             color = Color.White,
-            fontSize = 12.sp,
+            style = MaterialTheme.typography.bodySmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp)
@@ -986,7 +983,7 @@ fun ChapterListSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF111111)
+        containerColor = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(
             modifier = Modifier
@@ -998,7 +995,7 @@ fun ChapterListSheet(
             Text(
                 text = stringResource(R.string.player_chapters),
                 color = Color.White,
-                fontSize = 20.sp,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
             if (chapters.isEmpty()) {
@@ -1015,7 +1012,7 @@ fun ChapterListSheet(
                     Text(
                         text = "${index + 1}.  $label    ${formatPlaybackTime(chapter.positionMs)}",
                         color = Color.White,
-                        fontSize = 15.sp,
+                        style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onChapterSelected(chapter) }

@@ -158,6 +158,7 @@ fun DashboardContainer(
     onNavigateToDetail: (com.vela.data.model.BaseItemDto) -> Unit = {},
     onNavigateToMergedDetail: (com.vela.data.model.BaseItemDto) -> Unit = onNavigateToDetail,
     onNavigateToViewAll: (String, String?, String) -> Unit = { _, _, _ -> },
+    onNavigateToRecentlyAdded: (String, String?, String) -> Unit = onNavigateToViewAll,
     onNavigateToSearchCategory: (String, String, String) -> Unit = { _, _, _ -> },
     onNavigateToPlayer: (String) -> Unit = {},
     onNavigateToPlayerSettings: () -> Unit = {},
@@ -493,6 +494,7 @@ fun DashboardContainer(
                             onLogout = onLogout,
                             onNavigateToDetail = onNavigateToDetail,
                             onNavigateToViewAll = onNavigateToViewAll,
+                            onNavigateToRecentlyAdded = onNavigateToRecentlyAdded,
                             onNavigateToPlayer = onNavigateToPlayer,
                             onAddServer = onAddServer,
                             onNavigateToServers = onNavigateToServers,
@@ -598,11 +600,13 @@ fun DashboardContainer(
             } else {
                 sideDestinations
             }
-            NavigationBar(
-                // 标准 M3 导航栏统一选中态、语义和系统栏 inset；不再维护自绘凹槽与独立触摸逻辑。
+            ShortNavigationBar(
+                // M3 Expressive flexible navigation bar 统一选中态、语义和系统栏 inset；不再维护自绘凹槽与独立触摸逻辑。
+                // 只能限制最大宽度：ShortNavigationBar 的等宽布局会把每项约束回父级 minWidth，
+                // fillMaxWidth/width 会让每一项都撑满整条导航栏，导致后续项被排到屏幕外。
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .then(if (shouldUseMobileBarWidth) Modifier.width(mobileLikeBarWidth) else Modifier.fillMaxWidth())
+                    .then(if (shouldUseMobileBarWidth) Modifier.widthIn(max = mobileLikeBarWidth) else Modifier)
                     .graphicsLayer {
                         translationY = bottomBarTranslationPx
                         alpha = bottomBarAlpha
@@ -625,23 +629,16 @@ fun DashboardContainer(
                         destination == DashboardDestination.MyMedia && !useMyMediaTabEnabled
                     ) Icons.Outlined.Explore else destination.unselectedIcon
 
-                    NavigationBarItem(
+                    ShortNavigationBarItem(
                         selected = isSelected,
                         onClick = { navigateToDestination(destination) },
                         icon = {
                             Icon(
                                 imageVector = if (isSelected) selectedIcon else unselectedIcon,
-                                contentDescription = title
+                                contentDescription = null
                             )
                         },
-                        label = { Text(title, maxLines = 1) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            selectedTextColor = MaterialTheme.colorScheme.onSurface,
-                            indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        label = { Text(title, maxLines = 1) }
                     )
                 }
             }
@@ -818,65 +815,6 @@ fun DashboardContainerPreview() {
     DashboardContainer()
 }
 
-/**
- * Skeleton for poster/card items in horizontal rows
- * Used in: Dashboard sections, Continue Watching, etc.
- */
-@Composable
-fun ActualImageBlurPlaceholder(
-    itemId: String,
-    mediaRepository: com.vela.data.repository.MediaRepository,
-    modifier: Modifier = Modifier,
-    width: Dp = 140.dp,
-    height: Dp = 210.dp,
-    cornerRadius: Float = 16f,
-    imageType: String = "Primary"
-) {
-    var blurImageUrl by remember(itemId) { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(itemId) {
-        try {
-            val url = mediaRepository.getImageUrl(
-                itemId = itemId,
-                imageType = imageType,
-                width = if (imageType == "Thumb") 50 else 30,
-                height = if (imageType == "Thumb") 30 else 45,
-                quality = 5
-            ).first()
-            blurImageUrl = url
-        } catch (e: Exception) {
-        }
-    }
-
-    if (blurImageUrl != null) {
-        AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(blurImageUrl)
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .diskCachePolicy(CachePolicy.ENABLED)
-                .allowHardware(true)
-                .allowRgb565(true)
-                .crossfade(0)
-                .build(),
-            contentDescription = null,
-            modifier = modifier
-                .width(width)
-                .height(height)
-                .clip(RoundedCornerShape(cornerRadius.dp))
-                .blur(radius = 8.dp),
-            contentScale = ContentScale.Crop
-        )
-    } else {
-        Box(
-            modifier = modifier
-                .width(width)
-                .height(height)
-                .clip(RoundedCornerShape(cornerRadius.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-        )
-    }
-}
-
 @Composable
 fun PosterSkeleton(
     modifier: Modifier = Modifier,
@@ -925,62 +863,6 @@ fun PosterSkeleton(
 }
 
 /**
- * Skeleton for continue watching items (landscape orientation)
- */
-@Composable
-fun ContinueWatchingSkeleton(
-    modifier: Modifier = Modifier
-) {
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        modifier = modifier.fillMaxWidth()
-    ) {
-        items(5) {
-            Column(
-                modifier = Modifier
-                    .width(200.dp)
-                    .height(180.dp)
-            ) {
-                // Image skeleton
-                ShimmerEffect(
-                    modifier = Modifier
-                        .width(200.dp)
-                        .height(120.dp),
-                    cornerRadius = 12f
-                )
-
-                // Title and info skeleton
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(60.dp)
-                        .padding(top = 8.dp, start = 4.dp, end = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    // Title skeleton
-                    ShimmerEffect(
-                        modifier = Modifier
-                            .fillMaxWidth(0.9f)
-                            .height(16.dp),
-                        cornerRadius = 4f
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    // Year/type skeleton
-                    ShimmerEffect(
-                        modifier = Modifier
-                            .fillMaxWidth(0.7f)
-                            .height(12.dp),
-                        cornerRadius = 4f
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
  * Skeleton for library/poster grid sections
  */
 @Composable
@@ -999,34 +881,6 @@ fun LibrarySkeleton(
     ) {
         items(itemCount) {
             PosterSkeleton()
-        }
-    }
-}
-
-/**
- * Skeleton for grid view (search results, view all screens)
- */
-@Composable
-fun GridSkeleton(
-    modifier: Modifier = Modifier,
-    columns: Int = 2,
-    itemCount: Int = 6,
-    aspectRatio: Float = 0.65f
-) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(columns),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 100.dp)
-    ) {
-        items(itemCount) {
-            ShimmerEffect(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(aspectRatio),
-                cornerRadius = 16f
-            )
         }
     }
 }

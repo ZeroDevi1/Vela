@@ -91,6 +91,8 @@ fun ViewAllScreen(
     genreId: String? = null,
     searchTerm: String? = null,
     tag: String? = null,
+    /** 本次进入时临时使用的排序字段（如从“最近添加”进入时为 DateCreated），不写入保存的偏好。 */
+    initialSort: String? = null,
     onBackPressed: () -> Unit,
     onItemClick: (BaseItemDto) -> Unit,
     onPlayFromBeginning: (String) -> Unit = {},
@@ -245,7 +247,7 @@ fun ViewAllScreen(
 
     // Load initial data
     LaunchedEffect(contentType, parentId, genreId, searchTerm, tag) {
-        viewModel.ensureItemsLoaded(contentType, parentId, genreId, searchTerm, tag)
+        viewModel.ensureItemsLoaded(contentType, parentId, genreId, searchTerm, tag, initialSort)
     }
 
     LaunchedEffect(userDataRefreshEvent, contentType, parentId, genreId, searchTerm, tag) {

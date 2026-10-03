@@ -70,7 +70,8 @@ class ViewAllViewModel @Inject constructor(
         parentId: String? = null,
         genreId: String? = null,
         searchTerm: String? = null,
-        tag: String? = null
+        tag: String? = null,
+        initialSort: String? = null
     ) {
         activeSearchTerm = searchTerm?.takeIf { it.isNotBlank() }
         activeTag = tag?.takeIf { it.isNotBlank() }
@@ -87,7 +88,13 @@ class ViewAllViewModel @Inject constructor(
                 repository().getCurrentUser().getOrNull()?.policy?.isAdministrator == true
             }
             _uiState.value = _uiState.value.copy(isAdministrator = isAdmin)
-            loadLibrarySortPreferences(parentId)
+            val overrideSort = initialSort?.let(::matchedLibrarySortBy)
+            if (overrideSort != null) {
+                // 临时排序只影响这次浏览：不读也不写库排序偏好，用户在页内改排序后照常保存。
+                _uiState.value = _uiState.value.copy(sortBy = overrideSort, sortOrder = "Descending")
+            } else {
+                loadLibrarySortPreferences(parentId)
+            }
             loadItems(contentType, parentId, refresh = true, genreId = genreId)
         }
     }

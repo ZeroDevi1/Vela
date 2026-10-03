@@ -19,6 +19,8 @@ data class PlayerState(
     val mediaTitle: String = "",
     val mediaLogoUrl: String? = null,
     val seasonEpisodeLabel: String? = null,
+    /** 剧集所属剧名；仅剧集有值，播放器顶栏用它作主标题、[seasonEpisodeLabel] 作副标题。 */
+    val seriesName: String? = null,
     val chapterMarkers: List<ChapterMarker> = emptyList(),
     val isVideoTranscodingAllowed: Boolean = false,
     val isAudioTranscodingAllowed: Boolean = false,

@@ -214,6 +214,8 @@
     <string name="player_info_duration_ms_compact">%1$dm%2$ds</string>
     <string name="player_speed_decrease">Decrease speed</string>
     <string name="player_speed_increase">Increase speed</string>
+    <string name="player_ends_at">Ends at %1$s</string>
+    <string name="player_playback_speed">Playback speed</string>
     <string name="player_cd_seek_backward">Seek backward %d seconds</string>
     <string name="player_cd_seek_forward">Seek forward %d seconds</string>
     <string name="player_settings_mpv_hardware_decoding">MPV Hardware Decoder</string>

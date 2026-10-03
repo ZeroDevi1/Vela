@@ -80,6 +80,7 @@ import com.vela.app.ui.components.common.containerWidthDp
 import com.vela.app.ui.components.common.detailActionWidth
 import com.vela.app.ui.components.common.isTabletDetailLayout
 import com.vela.app.ui.components.common.isTabletLayout
+import com.vela.app.ui.components.common.TopChromeScrim
 import com.vela.app.ui.components.common.rememberCompactProgress
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -1510,6 +1511,8 @@ fun DetailContent(
                 }
             }
         }
+
+        TopChromeScrim(progress = { detailLogoCompactProgress.value })
 
         BackButton(
             onClick = onBackPressed,

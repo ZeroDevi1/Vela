@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -173,7 +174,7 @@ internal fun MusicNowPlayingScreen(onBack: () -> Unit) {
                 }
                 Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                     TextButton(onClick = { showLyrics = !showLyrics }) { Icon(Icons.Default.Lyrics, null, Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text(if (showLyrics) "封面" else "歌词") }
-                    TextButton(onClick = { queue = true }) { Icon(Icons.Default.QueueMusic, null, Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text("队列 ${state.queue.size}") }
+                    TextButton(onClick = { queue = true }) { Icon(Icons.AutoMirrored.Filled.QueueMusic, null, Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text("队列 ${state.queue.size}") }
                     TextButton(onClick = { settings = true }) { Icon(Icons.Default.Bedtime, null, Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text(if (state.sleepAtMs != null) "定时中" else "定时") }
                 }
             }

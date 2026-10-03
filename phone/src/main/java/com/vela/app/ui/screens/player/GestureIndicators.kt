@@ -1,29 +1,33 @@
 package com.vela.app.ui.screens.player
 
+import android.content.res.Configuration
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.FastForward
+import androidx.compose.material.icons.rounded.FastRewind
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.vela.player.core.PlayerConstants.GESTURE_INDICATOR_PADDING_DP
-import com.vela.player.core.PlayerState
+import com.vela.shared.ui.theme.velaMotion
 
 enum class SeekSide {
     LEFT, CENTER, RIGHT
@@ -38,13 +42,16 @@ fun GestureIndicators(
     seekSide: SeekSide = SeekSide.CENTER,
     swipeSeekPositionMs: Long? = null,
     swipeSeekDurationMs: Long = 0L,
-    holdSpeedLabel: String? = null
+    holdSpeedLabel: String? = null,
+    controlsVisible: Boolean = false
 ) {
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val motion = MaterialTheme.velaMotion
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = volumeLevel != null,
-            enter = fadeIn() + slideInHorizontally(initialOffsetX = { it / 2 }),
-            exit = fadeOut() + slideOutHorizontally(targetOffsetX = { it / 2 }),
+            enter = fadeIn(motion.fastEffectsSpec()) + slideInHorizontally(motion.defaultSpatialSpec()) { it / 2 },
+            exit = fadeOut(motion.fastEffectsSpec()) + slideOutHorizontally { it / 2 },
             modifier = Modifier.align(Alignment.CenterEnd)
         ) {
             volumeLevel?.let { level ->
@@ -57,8 +64,8 @@ fun GestureIndicators(
 
         AnimatedVisibility(
             visible = brightnessLevel != null,
-            enter = fadeIn() + slideInHorizontally(initialOffsetX = { -it / 2 }),
-            exit = fadeOut() + slideOutHorizontally(targetOffsetX = { -it / 2 }),
+            enter = fadeIn(motion.fastEffectsSpec()) + slideInHorizontally(motion.defaultSpatialSpec()) { -it / 2 },
+            exit = fadeOut(motion.fastEffectsSpec()) + slideOutHorizontally { -it / 2 },
             modifier = Modifier.align(Alignment.CenterStart)
         ) {
             brightnessLevel?.let { level ->
@@ -69,33 +76,34 @@ fun GestureIndicators(
             }
         }
 
+        // ±秒提示的中心与前进/后退键中心对齐：控制层隐藏时就落在按键位置，
+        // 控制层可见时下移到按键正下方，避免与按键重叠。
+        val seekOffsetX = when (seekSide) {
+            SeekSide.LEFT -> -transportSeekCenterOffset(landscape)
+            SeekSide.CENTER -> 0.dp
+            SeekSide.RIGHT -> transportSeekCenterOffset(landscape)
+        }
+        val seekOffsetY = if (controlsVisible) TransportSeekButtonSize / 2 + 32.dp else 0.dp
         AnimatedVisibility(
             visible = seekPosition != null && swipeSeekPositionMs == null,
-            enter = fadeIn() + scaleIn(),
-            exit = fadeOut() + scaleOut(),
-            modifier = Modifier.align(
-                when (seekSide) {
-                    SeekSide.LEFT -> Alignment.CenterStart
-                    SeekSide.CENTER -> Alignment.Center
-                    SeekSide.RIGHT -> Alignment.CenterEnd
-                }
-            )
+            enter = fadeIn(motion.fastEffectsSpec()) + scaleIn(motion.fastSpatialSpec(), initialScale = 0.85f),
+            exit = fadeOut(motion.fastEffectsSpec()),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(x = seekOffsetX, y = seekOffsetY)
         ) {
             seekPosition?.let { position ->
                 SeekIndicator(
                     position = position,
-                    modifier = Modifier.padding(
-                        start = if (seekSide == SeekSide.LEFT) GESTURE_INDICATOR_PADDING_DP.dp else 0.dp,
-                        end = if (seekSide == SeekSide.RIGHT) GESTURE_INDICATOR_PADDING_DP.dp else 0.dp
-                    )
+                    forward = seekSide != SeekSide.LEFT
                 )
             }
         }
 
         AnimatedVisibility(
             visible = swipeSeekPositionMs != null && swipeSeekDurationMs > 0L,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(motion.fastEffectsSpec()),
+            exit = fadeOut(motion.fastEffectsSpec()),
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
@@ -110,54 +118,73 @@ fun GestureIndicators(
 
         AnimatedVisibility(
             visible = holdSpeedLabel != null,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(motion.fastEffectsSpec()) + scaleIn(motion.fastSpatialSpec(), initialScale = 0.9f),
+            exit = fadeOut(motion.fastEffectsSpec()),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = maxHeight * 0.25f)
+                .padding(top = maxHeight * 0.18f)
         ) {
             holdSpeedLabel?.let { label ->
-                PlayerGlass(shape = RoundedCornerShape(999.dp)) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            text = label,
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
+                GesturePill {
+                    Icon(
+                        imageVector = Icons.Rounded.FastForward,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.titleSmall.merge(TabularNumbers),
+                        color = Color.White
+                    )
                 }
             }
         }
     }
 }
 
+/** 手势提示统一的半透明胶囊；不使用模糊，避免每帧离屏渲染。 */
 @Composable
-fun SeekTimeHud(
+private fun GesturePill(
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit
+) {
+    Surface(
+        color = GestureFill,
+        contentColor = Color.White,
+        shape = CircleShape,
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            content = content
+        )
+    }
+}
+
+private val GestureFill = Color.Black.copy(alpha = 0.55f)
+private val GestureTrackHeight = 168.dp
+private val TabularNumbers = TextStyle(fontFeatureSettings = "tnum")
+
+@Composable
+private fun SeekTimeHud(
     positionMs: Long,
     durationMs: Long,
     modifier: Modifier = Modifier
 ) {
-    PlayerGlass(
-        modifier = modifier,
-        shape = RoundedCornerShape(999.dp)
-    ) {
+    GesturePill(modifier = modifier) {
         Text(
-            text = "${formatPlaybackTime(positionMs)} / ${formatPlaybackTime(durationMs)}",
-            color = Color.White,
-            fontSize = 22.sp,
+            text = formatPlaybackTime(positionMs),
+            style = MaterialTheme.typography.titleLarge.merge(TabularNumbers),
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            color = Color.White
+        )
+        Text(
+            text = "/ " + formatPlaybackTime(durationMs),
+            style = MaterialTheme.typography.titleMedium.merge(TabularNumbers),
+            color = Color.White.copy(alpha = 0.64f)
         )
     }
 }
@@ -175,8 +202,9 @@ private fun SwipeSeekHud(
     }
     Column(
         modifier = modifier
+            .widthIn(max = 360.dp)
             .fillMaxWidth()
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         SeekTimeHud(positionMs = positionMs, durationMs = durationMs)
@@ -184,10 +212,11 @@ private fun SwipeSeekHud(
             progress = { progress },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp)
-                .height(4.dp),
+                .padding(top = 12.dp),
             color = Color.White,
             trackColor = Color.White.copy(alpha = 0.28f),
+            strokeCap = StrokeCap.Round,
+            drawStopIndicator = {}
         )
     }
 }
@@ -245,18 +274,27 @@ private fun BrightnessIndicator(
 @Composable
 private fun SeekIndicator(
     position: String,
+    forward: Boolean,
     modifier: Modifier = Modifier
 ) {
-    // 方向由左右位置表达，保持文字提示克制，避免与中央播放控件争夺视觉焦点。
-    Text(
-        text = position,
-        color = Color.White.copy(alpha = 0.86f),
-        fontSize = 20.sp,
-        fontWeight = FontWeight.Medium,
-        modifier = modifier.padding(16.dp)
-    )
+    GesturePill(modifier = modifier) {
+        Icon(
+            imageVector = if (forward) Icons.Rounded.FastForward else Icons.Rounded.FastRewind,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(20.dp)
+        )
+        Text(
+            text = position,
+            style = MaterialTheme.typography.titleSmall.merge(TabularNumbers),
+            color = Color.White
+        )
+    }
 }
 
+/**
+ * 音量/亮度提示：竖向胶囊自下而上填充，图标固定在底部，颜色随是否被填充覆盖切换以保持对比度。
+ */
 @Composable
 private fun GestureIndicatorCard(
     icon: ImageVector,
@@ -264,101 +302,45 @@ private fun GestureIndicatorCard(
     progress: Float,
     modifier: Modifier = Modifier
 ) {
+    val level = progress.coerceIn(0f, 1f)
+    val motion = MaterialTheme.velaMotion
+    val animatedLevel by animateFloatAsState(
+        targetValue = level,
+        animationSpec = motion.fastSpatialSpec(),
+        label = "gestureLevel"
+    )
     Column(
         modifier = modifier.padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
             text = value,
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.width(52.dp)
+            style = MaterialTheme.typography.labelLarge.merge(TabularNumbers),
+            color = Color.White
         )
-
         Box(
             modifier = Modifier
-                .width(6.dp)
-                .height(120.dp)
-                .background(
-                    Color.White.copy(alpha = 0.3f),
-                    RoundedCornerShape(3.dp)
-                )
+                .width(52.dp)
+                .height(GestureTrackHeight)
+                .clip(RoundedCornerShape(26.dp))
+                .background(GestureFill),
+            contentAlignment = Alignment.BottomCenter
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(progress)
-                    .align(Alignment.BottomCenter)
-                    .background(
-                        Color.White,
-                        RoundedCornerShape(3.dp)
-                    )
+                    .fillMaxHeight(animatedLevel)
+                    .background(Color.White)
             )
-        }
-
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = Color.White,
-            modifier = Modifier.size(24.dp)
-        )
-    }
-}
-
-@Composable
-fun RippleAnimation(
-    isVisible: Boolean,
-    icon: ImageVector,
-    modifier: Modifier = Modifier
-) {
-    val infiniteTransition = rememberInfiniteTransition(label = "ripple")
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 0.8f,
-        targetValue = 1.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = EaseInOut),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "ripple_scale"
-    )
-    
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.8f,
-        targetValue = 0.3f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = EaseInOut),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "ripple_alpha"
-    )
-
-    AnimatedVisibility(
-        visible = isVisible,
-        enter = fadeIn() + scaleIn(),
-        exit = fadeOut() + scaleOut(),
-        modifier = modifier
-    ) {
-        Box(
-            modifier = Modifier
-                .size(120.dp)
-                .alpha(alpha)
-                .background(
-                    Color.White.copy(alpha = 0.2f),
-                    RoundedCornerShape(60.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = Color.White,
+                // 图标中心距底部 26dp（14dp 边距 + 半个 24dp 图标），填充越过中心后图标落在白底上，改用深色。
+                tint = if (animatedLevel * GestureTrackHeight.value > 26f) Color.Black else Color.White,
                 modifier = Modifier
-                    .size(48.dp)
-                    .alpha(1f)
+                    .padding(bottom = 14.dp)
+                    .size(24.dp)
             )
         }
     }

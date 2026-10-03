@@ -37,4 +37,30 @@ class ScrubFrameScheduleTest {
         assertFalse(shouldReuseScrubSync(lastSyncUs = 2_000_000L, syncUs = 5_000_000L))
         assertFalse(shouldReuseScrubSync(lastSyncUs = -1L, syncUs = -1L))
     }
+
+    @Test
+    fun sweepGoesCoarseToFineWithoutDuplicateBuckets() {
+        val positions = scrubSweepPositions(durationMs = 96 * 60_000L)
+        // 第一档 12 张均匀覆盖全片，后续档只补新位置。
+        assertEquals(12, positions.take(12).map { it / (8 * 60_000L) }.toSet().size)
+        assertEquals(96, positions.size)
+        assertEquals(positions.size, positions.map(::scrubFrameBucket).toSet().size)
+        assertTrue(scrubSweepPositions(0L).isEmpty())
+    }
+
+    @Test
+    fun shortClipsCollapseDuplicateSeconds() {
+        val positions = scrubSweepPositions(durationMs = 20_000L)
+        assertEquals(positions.size, positions.map(::scrubFrameBucket).toSet().size)
+        assertTrue(positions.size <= 20)
+    }
+
+    @Test
+    fun nearDistanceGrowsWithGridGapForLongFilms() {
+        assertEquals(SCRUB_FRAME_NEAR_MS, scrubNearDistanceMs(0L))
+        assertEquals(SCRUB_FRAME_NEAR_MS, scrubNearDistanceMs(10 * 60_000L))
+        assertEquals(75_000L, scrubNearDistanceMs(120 * 60_000L))
+        val cached = setOf(0L, 75L)
+        assertEquals(75L, nearestScrubFrameBucket(cached, 120_000L, scrubNearDistanceMs(120 * 60_000L)))
+    }
 }

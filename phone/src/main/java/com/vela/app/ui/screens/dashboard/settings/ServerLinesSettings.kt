@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Bolt
@@ -39,6 +40,8 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -303,6 +306,7 @@ private fun AddServerLineDialog(
                 label = { Text(stringResource(R.string.settings_server_line_name)) },
                 placeholder = { Text(stringResource(R.string.settings_server_line_name_placeholder)) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 colors = amoledAuthFieldColors()
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -313,6 +317,7 @@ private fun AddServerLineDialog(
                 label = { Text(stringResource(R.string.settings_server_line_url)) },
                 placeholder = { Text(stringResource(R.string.auth_server_url_placeholder)) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
                 colors = amoledAuthFieldColors()
             )
             Spacer(modifier = Modifier.height(20.dp))

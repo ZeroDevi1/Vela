@@ -1,5 +1,6 @@
 package com.vela.app.ui.screens.catalog
 
+import com.vela.shared.ui.components.common.excludeBottom
 import android.app.Application
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
@@ -107,7 +108,7 @@ fun CatalogDetailScreen(initial: CatalogTitle, onBack: () -> Unit, onCatalog: (C
         }
     }
     Scaffold(topBar = { TopAppBar(title = { Text(title.displayTitle, maxLines = 1) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.catalog_back)) } }) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        LazyColumn(Modifier.fillMaxSize().padding(padding.excludeBottom()), contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = padding.calculateBottomPadding() + 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { AsyncImage(title.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" } ?: title.posterUrl, title.displayTitle, Modifier.fillMaxWidth().height(220.dp), contentScale = ContentScale.Crop) }
             item { Text(title.displayTitle, style = MaterialTheme.typography.headlineMedium); Text(listOf(title.date, title.genres.joinToString(" · ") { it.name }).filter { it.isNotBlank() }.joinToString(" · ")) }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }

@@ -1,32 +1,40 @@
 package com.vela.app.ui.screens.player
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.rounded.ClosedCaption
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.ViewInAr
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.FormatSize
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +42,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,9 +51,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -53,6 +62,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.vela.shared.R
+import com.vela.shared.ui.theme.velaMotion
 import com.vela.data.model.AudioTranscodeMode
 import com.vela.player.core.AudioTrackInfo
 import com.vela.player.core.SubtitleTrackInfo
@@ -77,9 +87,6 @@ fun AudioTrackSelectionDialog(
     TrackSelectionDialog(
         title = stringResource(R.string.player_dialog_audio_title),
         helperText = stringResource(R.string.player_dialog_audio_summary),
-        itemCountLabel = stringResource(R.string.player_dialog_tracks_count),
-        icon = Icons.Rounded.GraphicEq,
-        accentColor = Color(0xFF00A9D6),
         tracks = audioTracks,
         currentTrack = currentAudioTrack,
         onTrackSelected = onTrackSelected,
@@ -111,23 +118,36 @@ fun SubtitleTrackSelectionDialog(
     subtitleTracks: List<SubtitleTrackInfo>,
     currentSubtitleTrack: SubtitleTrackInfo?,
     onTrackSelected: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onAddLocalSubtitle: (() -> Unit)? = null,
+    onShowSubtitleStyle: (() -> Unit)? = null,
+    onShowSubtitleDelay: (() -> Unit)? = null
 ) {
     if (!isVisible) return
 
+    // 字幕工具原先只藏在字幕按钮的长按菜单里，这里在面板顶部直接给出入口。
+    val actions = listOfNotNull(
+        onAddLocalSubtitle?.let {
+            PanelAction(stringResource(R.string.player_subtitle_add_local), Icons.Rounded.Add, it)
+        },
+        onShowSubtitleStyle?.let {
+            PanelAction(stringResource(R.string.player_subtitle_scale_position), Icons.Rounded.FormatSize, it)
+        },
+        onShowSubtitleDelay?.let {
+            PanelAction(stringResource(R.string.player_subtitle_time_offset), Icons.Rounded.Schedule, it)
+        }
+    )
     TrackSelectionDialog(
+        actions = actions,
         title = stringResource(R.string.player_dialog_subtitles_title),
         helperText = stringResource(R.string.player_dialog_subtitles_summary),
-        itemCountLabel = stringResource(R.string.player_dialog_tracks_count),
-        icon = Icons.Rounded.ClosedCaption,
-        accentColor = Color(0xFFFF6B3B),
         tracks = subtitleTracks,
         currentTrack = currentSubtitleTrack,
         onTrackSelected = onTrackSelected,
         onDismiss = onDismiss,
         trackKey = { track -> track.id },
         isTrackSelected = { track, selected -> track.id == selected?.id },
-                        trackDisplayInfo = { track ->
+        trackDisplayInfo = { track ->
             val lines = TrackDetails.subtitleDialogLines(track)
             TrackDisplayInfo(
                 title = lines.first,
@@ -158,9 +178,6 @@ fun VrProjectionSelectionDialog(
     TrackSelectionDialog(
         title = stringResource(R.string.player_vr_projection_title),
         helperText = stringResource(R.string.player_vr_projection_summary),
-        itemCountLabel = stringResource(R.string.player_vr_projection_count),
-        icon = Icons.Rounded.ViewInAr,
-        accentColor = Color(0xFF8B5CF6),
         tracks = options,
         currentTrack = selected,
         onTrackSelected = onProjectionSelected,
@@ -224,9 +241,6 @@ fun StreamingQualitySelectionDialog(
     TrackSelectionDialog(
         title = stringResource(R.string.player_dialog_streaming_quality_title),
         helperText = stringResource(R.string.player_dialog_streaming_quality_summary),
-        itemCountLabel = stringResource(R.string.player_dialog_streaming_quality_count),
-        icon = Icons.Rounded.Tune,
-        accentColor = Color(0xFF3B82F6),
         tracks = options,
         currentTrack = selectedOption,
         onTrackSelected = onQualitySelected,
@@ -276,9 +290,6 @@ fun AudioTranscodingModeDialog(
     TrackSelectionDialog(
         title = stringResource(R.string.player_dialog_audio_transcoding_title),
         helperText = stringResource(R.string.player_dialog_audio_transcoding_summary),
-        itemCountLabel = stringResource(R.string.player_dialog_audio_transcoding_count),
-        icon = Icons.Rounded.GraphicEq,
-        accentColor = Color(0xFF0EA5E9),
         tracks = options,
         currentTrack = selectedOption,
         onTrackSelected = { selectedId ->
@@ -297,20 +308,24 @@ fun AudioTranscodingModeDialog(
     )
 }
 
+/**
+ * 播放器内所有“单选列表”面板的统一外观：横屏从右侧滑入、竖屏从底部升起，视频保持可见。
+ *
+ * 选中态只用 secondaryContainer 底色 + 勾选图标表达，不再按类型区分强调色或显示序号。
+ * [actions] 用于在列表上方放置与当前类型相关的快捷操作（如字幕样式），可为空。
+ */
 @Composable
 private fun <T> TrackSelectionDialog(
     title: String,
     helperText: String,
-    itemCountLabel: String,
-    icon: ImageVector,
-    accentColor: Color,
     tracks: List<T>,
     currentTrack: T?,
     onTrackSelected: (String) -> Unit,
     onDismiss: () -> Unit,
     trackKey: (T) -> String,
     isTrackSelected: (T, T?) -> Boolean,
-    trackDisplayInfo: (T) -> TrackDisplayInfo
+    trackDisplayInfo: (T) -> TrackDisplayInfo,
+    actions: List<PanelAction> = emptyList()
 ) where T : Any {
     Dialog(
         onDismissRequest = onDismiss,
@@ -321,77 +336,94 @@ private fun <T> TrackSelectionDialog(
     ) {
         HideSystemBarsForDialogWindow()
 
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.64f))
-                .clickable(onClick = onDismiss),
-            contentAlignment = Alignment.Center
+                .background(Color.Black.copy(alpha = 0.48f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                )
         ) {
-            BoxWithConstraints {
-                val isLandscape = maxWidth > maxHeight
-                val dialogWidthFraction = if (isLandscape) 0.68f else 0.84f
-                val dialogMaxWidth: Dp = if (isLandscape) 380.dp else 460.dp
-                val listMaxHeight: Dp = if (isLandscape) 220.dp else 300.dp
+            val isLandscape = maxWidth > maxHeight
+            val motion = MaterialTheme.velaMotion
+            val visibleState = remember { MutableTransitionState(false) }.apply { targetState = true }
+            val panelModifier = if (isLandscape) {
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .width(PanelWidth)
+                    .padding(PanelInset)
+            } else {
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .heightIn(max = maxHeight * 0.62f)
+            }
+            val panelShape = if (isLandscape) {
+                RoundedCornerShape(28.dp)
+            } else {
+                RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+            }
 
+            AnimatedVisibility(
+                visibleState = visibleState,
+                modifier = panelModifier,
+                enter = fadeIn(motion.defaultEffectsSpec()) + if (isLandscape) {
+                    slideInHorizontally(motion.defaultSpatialSpec()) { it / 3 }
+                } else {
+                    slideInVertically(motion.defaultSpatialSpec()) { it / 3 }
+                }
+            ) {
                 Surface(
+                    shape = panelShape,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
                     modifier = Modifier
-                        .fillMaxWidth(dialogWidthFraction)
-                        .widthIn(max = dialogMaxWidth)
+                        // 吞掉面板内部点击，避免穿透到背景触发关闭。
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             onClick = {}
-                        ),
-                    shape = RoundedCornerShape(24.dp),
-                    tonalElevation = 12.dp,
-                    shadowElevation = 22.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        width = 1.dp,
-                        color = accentColor.copy(alpha = 0.25f)
-                    )
+                        )
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = if (isLandscape) {
+                            Modifier.fillMaxHeight()
+                        } else {
+                            Modifier.navigationBarsPadding()
+                        }
                     ) {
-                        DialogHeader(
+                        PanelHeader(
                             title = title,
                             helperText = helperText,
-                            itemCountLabel = itemCountLabel,
-                            icon = icon,
-                            accentColor = accentColor,
-                            trackCount = tracks.size,
                             onClose = onDismiss
                         )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
-
+                        if (actions.isNotEmpty()) {
+                            PanelActions(actions = actions)
+                        }
                         if (tracks.isEmpty()) {
                             EmptyState()
                         } else {
                             LazyColumn(
-                                modifier = Modifier.heightIn(max = listMaxHeight),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                contentPadding = PaddingValues(
+                                    start = 12.dp,
+                                    end = 12.dp,
+                                    bottom = 16.dp
+                                ),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
-                                itemsIndexed(
+                                items(
                                     items = tracks,
-                                    key = { _, track ->
-                                        trackKey(track)
-                                    }
-                                ) { index, track ->
+                                    key = { track -> trackKey(track) }
+                                ) { track ->
                                     val displayInfo = trackDisplayInfo(track)
-                                    val isSelected = isTrackSelected(track, currentTrack)
                                     val trackId = trackKey(track)
-
                                     TrackRow(
-                                        indexLabel = (index + 1).toString(),
                                         title = displayInfo.title,
                                         subtitle = displayInfo.subtitle,
                                         description = displayInfo.description,
-                                        isSelected = isSelected,
-                                        accentColor = accentColor,
+                                        isSelected = isTrackSelected(track, currentTrack),
                                         onSelected = { onTrackSelected(trackId) }
                                     )
                                 }
@@ -403,6 +435,16 @@ private fun <T> TrackSelectionDialog(
         }
     }
 }
+
+private val PanelWidth = 380.dp
+private val PanelInset = 12.dp
+
+/** 面板顶部的快捷操作，例如字幕面板里的“添加本地字幕”。 */
+internal data class PanelAction(
+    val label: String,
+    val icon: ImageVector,
+    val onClick: () -> Unit
+)
 
 @Composable
 private fun HideSystemBarsForDialogWindow() {
@@ -419,73 +461,40 @@ private fun HideSystemBarsForDialogWindow() {
 }
 
 @Composable
-private fun DialogHeader(
+private fun PanelHeader(
     title: String,
     helperText: String,
-    itemCountLabel: String,
-    icon: ImageVector,
-    accentColor: Color,
-    trackCount: Int,
     onClose: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, end = 12.dp, top = 16.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
+        Column(
             modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(
-                        color = accentColor.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    .border(
-                        width = 1.dp,
-                        color = accentColor.copy(alpha = 0.34f),
-                        shape = RoundedCornerShape(12.dp)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = accentColor,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                val helperLine = if (helperText.isBlank()) {
-                    "$trackCount $itemCountLabel"
-                } else {
-                    "$trackCount $itemCountLabel - $helperText"
-                }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (helperText.isNotBlank()) {
                 Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = helperLine,
-                    style = MaterialTheme.typography.bodySmall,
+                    text = helperText,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
         }
-
         IconButton(onClick = onClose) {
             Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "Close",
+                imageVector = Icons.Rounded.Close,
+                contentDescription = stringResource(R.string.settings_close),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -493,129 +502,96 @@ private fun DialogHeader(
 }
 
 @Composable
-private fun TrackRow(
-    indexLabel: String,
-    title: String,
-    subtitle: String,
-    description: String,
-    isSelected: Boolean,
-    accentColor: Color,
-    onSelected: () -> Unit
-) {
-    val containerColor = if (isSelected) {
-        accentColor.copy(alpha = 0.11f)
-    } else {
-        MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.46f)
-    }
-
-    val borderColor = if (isSelected) {
-        accentColor.copy(alpha = 0.72f)
-    } else {
-        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-    }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onSelected),
-        shape = RoundedCornerShape(14.dp),
-        color = containerColor,
-        border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
+private fun PanelActions(actions: List<PanelAction>) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(bottom = 8.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.24f)
-                )
-            ) {
-                Text(
-                    text = indexLabel,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                )
-            }
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                if (title.isNotEmpty()) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+        items(actions, key = { it.label }) { action ->
+            AssistChip(
+                onClick = action.onClick,
+                label = { Text(action.label) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = action.icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(AssistChipDefaults.IconSize)
                     )
                 }
-
-                if (subtitle.isNotEmpty()) {
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                if (description.isNotEmpty()) {
-                    Text(
-                        text = description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            SelectionIndicator(
-                isSelected = isSelected,
-                accentColor = accentColor
             )
         }
     }
 }
 
 @Composable
-private fun SelectionIndicator(
+private fun TrackRow(
+    title: String,
+    subtitle: String,
+    description: String,
     isSelected: Boolean,
-    accentColor: Color
+    onSelected: () -> Unit
 ) {
-    Box(
+    val colors = MaterialTheme.colorScheme
+    val motion = MaterialTheme.velaMotion
+    val containerColor by animateColorAsState(
+        targetValue = if (isSelected) colors.secondaryContainer else Color.Transparent,
+        animationSpec = motion.defaultEffectsSpec(),
+        label = "trackRowContainer"
+    )
+    val primaryText = if (isSelected) colors.onSecondaryContainer else colors.onSurface
+    val secondaryText = if (isSelected) {
+        colors.onSecondaryContainer.copy(alpha = 0.78f)
+    } else {
+        colors.onSurfaceVariant
+    }
+    val supporting = listOf(subtitle, description).filter { it.isNotBlank() }
+
+    Row(
         modifier = Modifier
-            .size(22.dp)
-            .background(
-                color = if (isSelected) accentColor else Color.Transparent,
-                shape = CircleShape
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(containerColor)
+            .selectable(
+                selected = isSelected,
+                role = Role.RadioButton,
+                onClick = onSelected
             )
-            .border(
-                width = 1.5.dp,
-                color = if (isSelected) accentColor else MaterialTheme.colorScheme.outline,
-                shape = CircleShape
-            ),
-        contentAlignment = Alignment.Center
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            if (title.isNotEmpty()) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = primaryText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            supporting.forEach { line ->
+                Text(
+                    text = line,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = secondaryText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
         if (isSelected) {
             Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "Selected",
-                tint = Color.White,
-                modifier = Modifier.size(13.dp)
+                imageVector = Icons.Rounded.Check,
+                contentDescription = null,
+                tint = colors.onSecondaryContainer,
+                modifier = Modifier.size(20.dp)
             )
         }
     }
@@ -623,22 +599,12 @@ private fun SelectionIndicator(
 
 @Composable
 private fun EmptyState() {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)
-        )
-    ) {
-        Text(
-            text = stringResource(R.string.player_dialog_no_tracks_available),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp)
-        )
-    }
+    Text(
+        text = stringResource(R.string.player_dialog_no_tracks_available),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 24.dp)
+    )
 }
 
 private data class TrackDisplayInfo(

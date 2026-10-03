@@ -5,15 +5,15 @@ package com.vela.app.ui.screens.player
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
+import android.net.TrafficStats
 import android.os.Build
+import android.os.SystemClock
 import android.view.View
 import android.view.WindowManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,12 +21,15 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -45,8 +48,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
@@ -54,6 +57,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import coil3.SingletonImageLoader
 import com.vela.shared.R
+import com.vela.shared.ui.theme.velaMotion
 import com.vela.data.model.AudioTranscodeMode
 import com.vela.data.model.BaseItemDto
 import com.vela.player.core.PlayerConstants.CONTROLS_AUTO_HIDE_DELAY
@@ -66,6 +70,7 @@ import com.vela.player.core.SkippableSegmentType
 import com.vela.player.preferences.PlayerPreferences
 import com.vela.app.ui.player.findActivity
 import kotlinx.coroutines.delay
+import java.util.Locale
 
 private const val PLAYER_POSITION_UPDATE_ACTIVE_MS = 250L
 private const val PLAYER_POSITION_UPDATE_IDLE_MS = 750L
@@ -107,7 +112,8 @@ internal fun PlayerScreenEffects(
     showMediaInfo: Boolean,
     showVrProjectionDialog: Boolean = false,
     autoHideKey: Int,
-    isScrubbing: Boolean,
+    /** 拖动进度或菜单打开时为 true，期间不自动隐藏控制层。 */
+    autoHideHeld: Boolean,
     hideSystemBars: () -> Unit,
     uiStateProvider: () -> PlayerUiState,
     onUiStateChange: (PlayerUiState) -> Unit,
@@ -371,9 +377,9 @@ internal fun PlayerScreenEffects(
         uiStateProvider().controlsVisible,
         playerState.hasStartedPlayback,
         autoHideKey,
-        isScrubbing
+        autoHideHeld
     ) {
-        if (uiStateProvider().controlsVisible && playerState.hasStartedPlayback && !isScrubbing) {
+        if (uiStateProvider().controlsVisible && playerState.hasStartedPlayback && !autoHideHeld) {
             delay(CONTROLS_AUTO_HIDE_DELAY)
             onUiStateChange(uiStateProvider().copy(controlsVisible = false))
         }
@@ -384,7 +390,6 @@ internal fun PlayerScreenEffects(
 internal fun BoxScope.PlayerOverlayHost(
     uiState: PlayerUiState,
     playerState: PlayerState,
-    currentStreamingQuality: String,
     hasPlaybackSettings: Boolean,
     chapterMarkersEnabled: Boolean,
     seekBackwardSeconds: Int,
@@ -397,7 +402,7 @@ internal fun BoxScope.PlayerOverlayHost(
     viewModel: PlayerViewModel,
     onBackPressed: (() -> Unit)?,
     resetAutoHideTimer: () -> Unit,
-    onScrubbingChange: (Boolean) -> Unit,
+    onAutoHideHoldChange: (Boolean) -> Unit,
     onWatchCredits: () -> Unit,
     onWatchPreviousEpisode: () -> Unit,
     onWatchNextEpisode: () -> Unit,
@@ -406,16 +411,12 @@ internal fun BoxScope.PlayerOverlayHost(
     onShowAudioTranscodingDialog: () -> Unit,
     onShowAudioTrackDialog: () -> Unit,
     onShowSubtitleTrackDialog: () -> Unit,
-    onAddLocalSubtitle: () -> Unit = {},
-    onShowSubtitleStyle: () -> Unit = {},
-    onShowSubtitleDelay: () -> Unit = {},
     onAdjustVideoSize: () -> Unit = {},
     onToggleOrientation: () -> Unit = {},
     onTitleClick: () -> Unit = {},
     onEnterPip: () -> Unit = {},
     onShowChapters: () -> Unit = {},
     onShowVrProjection: () -> Unit = {},
-    onBackgroundClick: () -> Unit = {},
     onSeekFeedback: (String, SeekSide) -> Unit = { _, _ -> },
     onPositionChanged: (Long) -> Unit = {}
 ): Unit {
@@ -452,13 +453,32 @@ internal fun BoxScope.PlayerOverlayHost(
         onWatchNextEpisode()
     }
 
-    if (uiState.controlsVisible) {
+    // 短暂加载（<280ms）不出加载圈，避免每次 seek 都闪一下。
+    var showLoadingOverlay by remember { mutableStateOf(false) }
+    LaunchedEffect(playerState.isLoading) {
+        if (playerState.isLoading) {
+            delay(280)
+            showLoadingOverlay = true
+        } else {
+            showLoadingOverlay = false
+        }
+    }
+
+    // 控制层整体淡入淡出；内部元素不再各自做出现动画，避免层层叠加的动效。
+    val controlsMotion = MaterialTheme.velaMotion
+    AnimatedVisibility(
+        visible = uiState.controlsVisible,
+        enter = fadeIn(controlsMotion.defaultEffectsSpec()),
+        exit = fadeOut(controlsMotion.fastEffectsSpec()),
+        modifier = Modifier.fillMaxSize()
+    ) {
         ControlsOverlay(
             title = playerState.mediaTitle,
-            mediaLogoUrl = playerState.mediaLogoUrl,
             seasonEpisodeLabel = playerState.seasonEpisodeLabel,
+            seriesName = playerState.seriesName,
             chapterMarkers = if (chapterMarkersEnabled) playerState.chapterMarkers else emptyList(),
             isPlaying = playerState.playWhenReady,
+            isBuffering = showLoadingOverlay,
             currentPosition = uiState.currentPosition,
             duration = viewModel.getDuration(),
             bufferedPosition = uiState.bufferedPosition,
@@ -479,8 +499,8 @@ internal fun BoxScope.PlayerOverlayHost(
                 viewModel.seekToProgress(progress, exact = true)
                 onPositionChanged(viewModel.getCurrentPosition())
             },
-            onScrubStateChange = { scrubbing ->
-                onScrubbingChange(scrubbing)
+            onAutoHideHoldChange = { held ->
+                onAutoHideHoldChange(held)
                 resetAutoHideTimer()
             },
             scrubPreviewFrame = viewModel.scrubPreviewFrame,
@@ -491,8 +511,6 @@ internal fun BoxScope.PlayerOverlayHost(
                     viewModel.requestScrubPreview(positionMs)
                 }
             },
-            spatializationResult = playerState.spatializationResult,
-            isSpatialAudioEnabled = playerState.isSpatialAudioEnabled,
             isHdrEnabled = playerState.isHdrEnabled,
             hdrFormat = playerState.hdrFormat,
             onShowMediaInfo = {
@@ -504,7 +522,6 @@ internal fun BoxScope.PlayerOverlayHost(
                 resetAutoHideTimer()
                 viewModel.toggleLock()
             },
-            currentStreamingQuality = currentStreamingQuality,
             showPlaybackSettingsButton = hasPlaybackSettings,
             onShowPlaybackSettings = {
                 resetAutoHideTimer()
@@ -521,22 +538,6 @@ internal fun BoxScope.PlayerOverlayHost(
             onShowSubtitleTrackSelection = {
                 resetAutoHideTimer()
                 onShowSubtitleTrackDialog()
-            },
-            onAddLocalSubtitle = {
-                resetAutoHideTimer()
-                onAddLocalSubtitle()
-            },
-            onShowSubtitleStyle = {
-                resetAutoHideTimer()
-                onShowSubtitleStyle()
-            },
-            onShowSubtitleDelay = {
-                resetAutoHideTimer()
-                onShowSubtitleDelay()
-            },
-            onCycleAspectRatio = {
-                resetAutoHideTimer()
-                viewModel.cycleAspectRatio()
             },
             onAdjustVideoSize = {
                 resetAutoHideTimer()
@@ -586,9 +587,9 @@ internal fun BoxScope.PlayerOverlayHost(
                 resetAutoHideTimer()
                 onShowChapters()
             },
-            onNudgeSpeed = { delta ->
+            onSetPlaybackSpeed = { speed ->
                 resetAutoHideTimer()
-                viewModel.nudgePlaybackSpeed(delta)
+                viewModel.setPlaybackSpeed(speed)
             },
             playbackSpeed = playerState.playbackSpeed,
             hardwareDecodingEnabled = playerState.hardwareDecoding !=
@@ -604,7 +605,6 @@ internal fun BoxScope.PlayerOverlayHost(
                 onShowVrProjection()
             },
             onUserInteraction = resetAutoHideTimer,
-            onBackgroundClick = onBackgroundClick,
             skipActionLabel = when (activeSkippableSegment?.type) {
                 SkippableSegmentType.RECAP -> stringResource(R.string.player_skip_recap)
                 SkippableSegmentType.PREVIEW -> stringResource(R.string.player_skip_preview)
@@ -631,22 +631,20 @@ internal fun BoxScope.PlayerOverlayHost(
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            OutlinedButton(
+            Button(
                 onClick = {
                     resetAutoHideTimer()
                     onWatchCredits()
                 },
-                shape = RoundedCornerShape(999.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    containerColor = Color.Black.copy(alpha = 0.32f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.Black.copy(alpha = 0.55f),
                     contentColor = Color.White
                 ),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
+                contentPadding = PaddingValues(horizontal = 20.dp)
             ) {
                 Text(
                     text = stringResource(R.string.player_watch_credits),
-                    fontSize = 14.sp
+                    style = MaterialTheme.typography.labelLarge
                 )
             }
 
@@ -670,36 +668,70 @@ internal fun BoxScope.PlayerOverlayHost(
         seekSide = uiState.seekSide,
         swipeSeekPositionMs = uiState.swipeSeekPositionMs,
         swipeSeekDurationMs = playerState.duration.takeIf { it > 0L } ?: viewModel.getDuration(),
-        holdSpeedLabel = uiState.holdSpeedLabel
+        holdSpeedLabel = uiState.holdSpeedLabel,
+        controlsVisible = uiState.controlsVisible
     )
 
-    var showLoadingOverlay by remember { mutableStateOf(false) }
-    LaunchedEffect(playerState.isLoading) {
-        if (playerState.isLoading) {
-            delay(280)
-            showLoadingOverlay = true
-        } else {
-            showLoadingOverlay = false
-        }
-    }
+    // 控制层可见时加载圈显示在播放键内，这里只负责控制层隐藏时的独立加载圈。
     AnimatedVisibility(
-        visible = showLoadingOverlay,
-        enter = fadeIn(),
-        exit = fadeOut(),
+        visible = showLoadingOverlay && !uiState.controlsVisible,
+        enter = fadeIn(controlsMotion.defaultEffectsSpec()),
+        exit = fadeOut(controlsMotion.fastEffectsSpec()),
         modifier = Modifier.fillMaxSize()
     ) {
+        BufferingIndicator()
+    }
+}
+
+/**
+ * 缓冲指示：只在加载超过 280ms 后出现，并附带当前下行速率，帮助判断是网络慢还是解码慢。
+ * 速率取设备总下行流量（TrafficStats），包含其他应用流量，只作参考。
+ */
+@Composable
+private fun BufferingIndicator() {
+    var speedLabel by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        var lastRx = TrafficStats.getTotalRxBytes()
+        var lastTime = SystemClock.elapsedRealtime()
+        while (true) {
+            delay(1_000)
+            val now = SystemClock.elapsedRealtime()
+            val rx = TrafficStats.getTotalRxBytes()
+            speedLabel = if (rx >= 0L && lastRx >= 0L) {
+                val bytesPerSecond = (rx - lastRx).coerceAtLeast(0L) * 1000.0 / (now - lastTime).coerceAtLeast(1L)
+                formatTransferRate(bytesPerSecond)
+            } else {
+                null
+            }
+            lastRx = rx
+            lastTime = now
+        }
+    }
+    // 加载圈与播放键同尺寸、同在屏幕正中；速率文字只做偏移绘制，不参与居中计算。
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.3f)),
+                .size(TransportPlayButtonSize)
+                .background(Color.Black.copy(alpha = 0.32f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            CircularProgressIndicator(
-                color = Color.White,
-                strokeWidth = 3.dp,
-                modifier = Modifier.size(48.dp)
-            )
+            BufferingSpinner()
         }
+        Text(
+            text = speedLabel.orEmpty(),
+            style = MaterialTheme.typography.labelMedium.merge(TextStyle(fontFeatureSettings = "tnum")),
+            color = Color.White.copy(alpha = 0.8f),
+            modifier = Modifier.offset(y = TransportPlayButtonSize / 2 + 18.dp)
+        )
+    }
+}
+
+private fun formatTransferRate(bytesPerSecond: Double): String {
+    val kb = bytesPerSecond / 1024.0
+    return if (kb < 1024.0) {
+        String.format(Locale.US, "%.0f KB/s", kb)
+    } else {
+        String.format(Locale.US, "%.1f MB/s", kb / 1024.0)
     }
 }
 
@@ -716,7 +748,7 @@ private fun NextEpisodeProgressPill(
         modifier = Modifier
             .clip(pillShape)
             .drawBehind {
-                drawRect(color = Color.Black.copy(alpha = 0.32f))
+                drawRect(color = Color.Black.copy(alpha = 0.55f))
                 if (clampedProgress > 0f) {
                     drawRect(
                         color = Color.White,
@@ -725,17 +757,13 @@ private fun NextEpisodeProgressPill(
                 }
             }
             .clickable(onClick = onClick)
-            .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.12f),
-                shape = pillShape
-            )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .heightIn(min = ButtonDefaults.MinHeight)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
-            fontSize = 14.sp,
+            style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.drawWithContent {
                 val progressEdge = (size.width * clampedProgress).coerceIn(0f, size.width)
                 clipRect(left = progressEdge) {
@@ -747,7 +775,7 @@ private fun NextEpisodeProgressPill(
 
         Text(
             text = label,
-            fontSize = 14.sp,
+            style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.drawWithContent {
                 val progressEdge = (size.width * clampedProgress).coerceIn(0f, size.width)
                 val overlapPx = 1.dp.toPx()
@@ -784,7 +812,10 @@ internal fun PlayerDialogsHost(
     showVrProjectionDialog: Boolean = false,
     currentVrProjectionId: String? = null,
     onVrProjectionSelected: (String) -> Unit = {},
-    onDismissVrProjectionDialog: () -> Unit = {}
+    onDismissVrProjectionDialog: () -> Unit = {},
+    onAddLocalSubtitle: (() -> Unit)? = null,
+    onShowSubtitleStyle: (() -> Unit)? = null,
+    onShowSubtitleDelay: (() -> Unit)? = null
 ) {
     AudioTrackSelectionDialog(
         isVisible = showAudioTrackDialog,
@@ -799,7 +830,10 @@ internal fun PlayerDialogsHost(
         subtitleTracks = playerState.availableSubtitleTracks,
         currentSubtitleTrack = playerState.currentSubtitleTrack,
         onTrackSelected = onSubtitleTrackSelected,
-        onDismiss = onDismissSubtitleTrackDialog
+        onDismiss = onDismissSubtitleTrackDialog,
+        onAddLocalSubtitle = onAddLocalSubtitle,
+        onShowSubtitleStyle = onShowSubtitleStyle,
+        onShowSubtitleDelay = onShowSubtitleDelay
     )
 
     StreamingQualitySelectionDialog(
