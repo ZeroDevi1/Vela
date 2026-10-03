@@ -25,6 +25,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import dagger.hilt.android.lifecycle.HiltViewModel
 import com.vela.app.playback.ActivePlayback
 import com.vela.app.player.mpv.MPVPlayer
+import com.vela.app.player.mpv.MpvRenderLoad
 import com.vela.app.player.mpv.MpvPlayerController
 import com.vela.app.player.mpv.MpvWarmPool
 import com.vela.app.player.vr.VrFlattenFilter
@@ -1202,13 +1203,15 @@ class PlayerViewModel @Inject constructor(
 
     /**
      * 拖动视角：[fingerDx]/[fingerDy] 是手指位移占视图高度的比例（右/下为正）。
-     * 按画面中心的角分辨率 2·tan(FOV/2)/高度 换算，让画面内容"粘"在手指下；FOV 缩放后同样跟手。
+     * 按画面中心的角分辨率 2·tan(竖直半视场)/高度 换算，让画面内容"粘"在手指下；FOV 缩放后同样跟手。
+     * FOV 沿画面长边定义，宽画面的竖直半视场正切要除以宽高比（与 vr_flatten.glsl 一致）。
      */
     fun applyVrLookDrag(fingerDx: Float, fingerDy: Float) {
         if (!_playerState.value.vrFlatEnabled) return
         val layout = detectedVrLayout ?: return
+        val aspect = (getSourceVideoAspectRatio() ?: (16f / 9f)).coerceAtLeast(1f)
         val degreesPerHeight = Math.toDegrees(
-            2.0 * kotlin.math.tan(Math.toRadians(vrOutputFov / 2.0))
+            2.0 * kotlin.math.tan(Math.toRadians(vrOutputFov / 2.0)) / aspect
         ).toFloat()
         // 右拖：内容右移 = 视角左转（yaw 减小）；下拖：内容下移 = 视角上抬（pitch 增大）。
         vrYaw = (vrYaw - fingerDx * degreesPerHeight).coerceIn(-layout.yawLimit, layout.yawLimit)
@@ -1626,6 +1629,9 @@ class PlayerViewModel @Inject constructor(
      * 让位规则：用户拖动请求排队时、主播放器缓冲时都暂停；直链只在非计费网络下进行，
      * 避免在流量网络上为预览额外下载关键帧。连续失败多次（片源不支持解复用或解码）即停止。
      *
+     * 预生成要额外开一路硬解并下载关键帧，会和主播放抢解码器与带宽：
+     * 超高像素（5.7K / 8K）与 VR 片源完全不预生成，拖动时现场抽帧；4K 级片源拉长间隔。
+     *
      * @param source 当前片源
      */
     private fun sweepScrubFrames(source: ScrubPreviewSource) {
@@ -1639,6 +1645,8 @@ class PlayerViewModel @Inject constructor(
             val remote = source.uri.scheme?.lowercase(Locale.ROOT) in setOf("http", "https")
             val connectivity = source.context.getSystemService(ConnectivityManager::class.java)
             if (remote && connectivity?.isActiveNetworkMetered != false) return@launch
+            if (isHeavySource() || _playerState.value.vrDetected) return@launch
+            val sweepGapMs = if (isLargeSource()) SCRUB_SWEEP_GAP_LARGE_SOURCE_MS else SCRUB_SWEEP_GAP_MS
             var consecutiveFailures = 0
             for (positionMs in scrubSweepPositions(_playerState.value.duration)) {
                 while (scrubPreviewQueued || _playerState.value.isLoading) delay(SCRUB_SWEEP_POLL_MS)
@@ -1658,7 +1666,7 @@ class PlayerViewModel @Inject constructor(
                 }
                 rememberScrubFrame(positionMs, frame)
                 // 每张之间让出一下抽帧锁和网络，保证拖动请求随时能插队。
-                delay(SCRUB_SWEEP_GAP_MS)
+                delay(sweepGapMs)
             }
         }
     }
@@ -2518,6 +2526,16 @@ class PlayerViewModel @Inject constructor(
         return PlayerMetadata.getSourceVideoHeight(apiMediaStreams)
     }
 
+    /** 超高像素片源（5.7K / 8K 等），与 mpv 轻量渲染使用同一阈值。 */
+    fun isHeavySource(): Boolean = MpvRenderLoad.isHeavySource(apiMediaStreams)
+
+    /** 高于 1440p 的片源（4K 级）。 */
+    private fun isLargeSource(): Boolean {
+        val video = apiMediaStreams.orEmpty().firstOrNull { it.type.equals("Video", ignoreCase = true) }
+            ?: return false
+        return (video.width ?: 0).toLong() * (video.height ?: 0).toLong() > LARGE_SOURCE_PIXELS
+    }
+
     fun getSourceVideoAspectRatio(): Float? {
         return PlayerMetadata.getSourceVideoAspectRatio(apiMediaStreams)
     }
@@ -2535,6 +2553,10 @@ private const val SCRUB_SWEEP_POLL_MS = 500L
 private const val SCRUB_SWEEP_START_DELAY_MS = 3_000L
 /** 预生成相邻两帧之间的让出间隔，单位毫秒。 */
 private const val SCRUB_SWEEP_GAP_MS = 40L
+/** 4K 级片源预生成相邻两帧的间隔，单位毫秒；拉长以免与主播放争抢硬解。 */
+private const val SCRUB_SWEEP_GAP_LARGE_SOURCE_MS = 400L
+/** 超过该像素量（2560x1440）视为 4K 级片源。 */
+private const val LARGE_SOURCE_PIXELS = 2560L * 1440L
 /** 连续失败这么多次就放弃预生成，避免对不支持的片源反复尝试。 */
 private const val SCRUB_SWEEP_MAX_FAILURES = 4
 

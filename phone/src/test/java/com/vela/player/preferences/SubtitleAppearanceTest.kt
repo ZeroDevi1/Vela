@@ -78,6 +78,9 @@ class SubtitleAppearanceTest {
         assertTrue(style.contains("OutlineColour=&H00000000"))
         assertTrue(style.contains("Alignment=2"))
         assertTrue(style.contains("MarginV=0"))
+        // 左右留边，换行后的长句不贴屏幕边缘。
+        assertTrue(style.contains("MarginL=16"))
+        assertTrue(style.contains("MarginR=16"))
     }
 
     @Test

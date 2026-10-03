@@ -37,8 +37,10 @@ vec2 dirToFisheye(vec3 dir, float srcFov) {
 
 vec4 hook() {
     vec2 ndc = HOOKED_pos * 2.0 - 1.0;
-    ndc.x *= target_size.x / max(target_size.y, 1.0);
-    float tanHalf = tan(radians(D_FOV) * 0.5);
+    float aspect = target_size.x / max(target_size.y, 1.0);
+    ndc.x *= aspect;
+    // D_FOV 是画面长边方向的视场角（与头显 FOV 的习惯一致）；按竖直方向算会让宽屏横向视场过大、主体显得很远。
+    float tanHalf = tan(radians(D_FOV) * 0.5) / max(aspect, 1.0);
     vec3 dir = normalize(vec3(ndc.x * tanHalf, ndc.y * tanHalf, 1.0));
 
     float cy = cos(radians(YAW));

@@ -493,6 +493,9 @@ class PlayerPreferences(context: Context) {
                 .coerceIn(0.02f, 0.25f)
         }
 
+        /** 强制样式下字幕左右边距，单位为 ASS 脚本坐标（mpv 文本字幕 PlayResX=384，约占宽度 4%）。 */
+        private const val MPV_SUB_SIDE_MARGIN = 16
+
         fun mpvAssOverride(compatible: Boolean): String {
             return if (compatible) "scale" else "force"
         }
@@ -512,8 +515,9 @@ class PlayerPreferences(context: Context) {
             }
             parts += "Alignment=2"
             parts += "MarginV=0"
-            parts += "MarginL=0"
-            parts += "MarginR=0"
+            // 左右留出少量边距，换行后的长句不贴屏幕边缘。自动换行由 sub-ass=no 的纯文本渲染保证。
+            parts += "MarginL=$MPV_SUB_SIDE_MARGIN"
+            parts += "MarginR=$MPV_SUB_SIDE_MARGIN"
             when (edgeType) {
                 SUBTITLE_EDGE_TYPE_OUTLINE -> {
                     parts += "Outline=2"

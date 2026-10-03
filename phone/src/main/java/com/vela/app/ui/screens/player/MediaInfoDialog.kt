@@ -1,35 +1,34 @@
 package com.vela.app.ui.screens.player
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.vela.shared.R
 import java.util.Locale
 
 data class MediaMetadataInfo(
@@ -78,6 +77,10 @@ data class HardwareAccelerationInfo(
     val performanceMetrics: String? = null
 )
 
+/**
+ * 媒体信息浮层。不拦截触摸、不抢焦点，视频照常播放；内容超出时在面板内滚动。
+ * 竖屏居中铺宽，横屏靠左，避开右侧倍速控件。
+ */
 @Composable
 fun MediaInfoDialog(
     mediaInfo: MediaMetadataInfo,
@@ -87,13 +90,17 @@ fun MediaInfoDialog(
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val screenWidth = configuration.screenWidthDp.dp
-    val compact = screenWidth < 700.dp
-    val panelWidth = (screenWidth * if (compact) 0.80f else 0.31f).coerceIn(240.dp, 390.dp)
-    val horizontalInset = if (compact) 14.dp else 34.dp
-    val popupOffset = with(density) { IntOffset(horizontalInset.roundToPx(), 0) }
+    val screenHeight = configuration.screenHeightDp.dp
+    val landscape = screenWidth > screenHeight
+    val panelWidth = if (landscape) {
+        (screenWidth * 0.42f).coerceIn(320.dp, 440.dp)
+    } else {
+        (screenWidth - 32.dp).coerceAtMost(480.dp)
+    }
+    val popupOffset = with(density) { IntOffset(if (landscape) 32.dp.roundToPx() else 0, 0) }
 
     Popup(
-        alignment = Alignment.CenterStart,
+        alignment = if (landscape) Alignment.CenterStart else Alignment.Center,
         offset = popupOffset,
         onDismissRequest = onDismiss,
         properties = PopupProperties(
@@ -103,70 +110,73 @@ fun MediaInfoDialog(
             clippingEnabled = false
         )
     ) {
-        Card(
+        Surface(
             modifier = modifier
                 .width(panelWidth)
-                .heightIn(max = if (compact) 170.dp else 190.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0x9916191F)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                .heightIn(max = screenHeight * 0.6f),
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 3.dp
         ) {
-            Box(modifier = Modifier.fillMaxWidth()) {
+            Column {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 8.dp, top = 8.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.player_media_info),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.cancel))
+                    }
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
-                        .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)
+                        .padding(start = 20.dp, end = 20.dp, bottom = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    SectionTitle("Stream")
-                    PrimaryLine(buildStreamLine(mediaInfo))
-                    SecondaryLine("-> ${mediaInfo.playMethod}")
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    SectionTitle("Video")
-                    PrimaryLine(buildVideoTitle(mediaInfo.videoFormat, mediaInfo.hdrFormat))
-                    buildVideoDetails(mediaInfo.videoFormat)?.let { PrimaryLine(it) }
-                    SecondaryLine("-> ${mediaInfo.playMethod}")
-                    mediaInfo.hardwareAcceleration?.let {
-                        MixedLine(
-                            "Renderer",
-                            when {
-                                !it.isHardwareDecoding -> "Software"
-                                it.decoderType.contains("copy", ignoreCase = true) ->
-                                    "MediaCodec (copy)"
-                                else -> "MediaCodec"
-                            }
-                        )
-                        buildDisplayMode(mediaInfo.videoFormat)?.let { mode ->
-                            MixedLine("Display Mode", mode)
+                    InfoSection(stringResource(R.string.player_info_stream)) {
+                        InfoRow(stringResource(R.string.player_info_container), buildStreamLine(mediaInfo))
+                        InfoRow(stringResource(R.string.player_info_play_method), mediaInfo.playMethod)
+                    }
+                    InfoSection(stringResource(R.string.player_info_video)) {
+                        InfoRow(stringResource(R.string.player_info_format), buildVideoTitle(mediaInfo.videoFormat, mediaInfo.hdrFormat))
+                        buildVideoDetails(mediaInfo.videoFormat)?.let {
+                            InfoRow(stringResource(R.string.player_info_details), it)
+                        }
+                        mediaInfo.hardwareAcceleration?.let {
+                            InfoRow(
+                                stringResource(R.string.player_info_renderer),
+                                when {
+                                    !it.isHardwareDecoding -> "Software"
+                                    it.decoderType.contains("copy", ignoreCase = true) -> "MediaCodec (copy)"
+                                    else -> "MediaCodec"
+                                }
+                            )
+                        }
+                        buildDisplayMode(mediaInfo.videoFormat)?.let {
+                            InfoRow(stringResource(R.string.player_info_display_mode), it)
+                        }
+                        mediaInfo.hdrFormat?.deviceCapabilities?.takeIf { it.isNotBlank() }?.let {
+                            InfoRow(stringResource(R.string.player_info_display_hdr), it)
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    SectionTitle("Audio")
-                    PrimaryLine(buildAudioTitle(mediaInfo.audioFormat))
-                    mediaInfo.audioFormat?.sampleRate?.let { PrimaryLine(it) }
-                    mediaInfo.audioFormat?.bitrate?.let { PrimaryLine(it) }
-                    SecondaryLine("-> ${mediaInfo.playMethod}")
-                }
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 8.dp, end = 12.dp)
-                        .size(20.dp)
-                        .clickable(onClick = onDismiss),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "\u2715",
-                        color = Color(0xFFF2F2F2),
-                        fontSize = 14.sp,
-                        lineHeight = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    InfoSection(stringResource(R.string.player_info_audio)) {
+                        InfoRow(stringResource(R.string.player_info_track), buildAudioTitle(mediaInfo.audioFormat))
+                        mediaInfo.audioFormat?.sampleRate?.let {
+                            InfoRow(stringResource(R.string.player_info_sample_rate), it)
+                        }
+                        mediaInfo.audioFormat?.bitrate?.let {
+                            InfoRow(stringResource(R.string.player_info_bitrate), it)
+                        }
+                    }
                 }
             }
         }
@@ -174,55 +184,36 @@ fun MediaInfoDialog(
 }
 
 @Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text = text,
-        color = Color(0xFFF3F3F3),
-        fontSize = 10.sp,
-        lineHeight = 12.sp,
-        fontWeight = FontWeight.SemiBold
-    )
+private fun InfoSection(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+        content()
+    }
 }
 
+/** 左侧标签、右侧数值；数值过长时在右栏内换行，标签不被挤压。 */
 @Composable
-private fun PrimaryLine(text: String) {
-    if (text.isBlank()) return
-    Text(
-        text = text,
-        color = Color(0xFFF3F3F3),
-        fontSize = 10.sp,
-        lineHeight = 12.sp,
-        fontWeight = FontWeight.SemiBold
-    )
-}
-
-@Composable
-private fun SecondaryLine(text: String) {
-    Text(
-        text = text,
-        color = Color(0xFFD4D4D4),
-        fontSize = 10.sp,
-        lineHeight = 12.sp,
-        fontWeight = FontWeight.Normal
-    )
-}
-
-@Composable
-private fun MixedLine(label: String, value: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+private fun InfoRow(label: String, value: String) {
+    if (value.isBlank()) return
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Text(
             text = label,
-            color = Color(0xFFF3F3F3),
-            fontSize = 10.sp,
-            lineHeight = 12.sp,
-            fontWeight = FontWeight.SemiBold
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.widthIn(min = 72.dp, max = 120.dp)
         )
         Text(
             text = value,
-            color = Color(0xFFD4D4D4),
-            fontSize = 10.sp,
-            lineHeight = 12.sp,
-            fontWeight = FontWeight.Normal
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f)
         )
     }
 }

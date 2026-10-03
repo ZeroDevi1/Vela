@@ -436,6 +436,7 @@ internal fun BoxScope.PlayerOverlayHost(
     onEnterPip: () -> Unit = {},
     onShowChapters: () -> Unit = {},
     onShowVrProjection: () -> Unit = {},
+    onShowPlaylist: (() -> Unit)? = null,
     onSeekFeedback: (String, SeekSide) -> Unit = { _, _ -> },
     onPositionChanged: (Long) -> Unit = {},
     playbackProgress: PlaybackProgressState,
@@ -583,6 +584,7 @@ internal fun BoxScope.PlayerOverlayHost(
                 resetAutoHideTimer()
                 onTitleClick()
             },
+            onShowPlaylist = onShowPlaylist,
             onSeekBackward = {
                 resetAutoHideTimer()
                 viewModel.seekBackward()
@@ -664,6 +666,7 @@ internal fun BoxScope.PlayerOverlayHost(
                 resetAutoHideTimer()
                 onShowVrProjection()
             },
+            animateProgressWave = !playerState.vrFlatEnabled && !viewModel.isHeavySource(),
             onUserInteraction = resetAutoHideTimer,
             skipActionLabel = when (activeSkippableSegment?.type) {
                 SkippableSegmentType.RECAP -> stringResource(R.string.player_skip_recap)

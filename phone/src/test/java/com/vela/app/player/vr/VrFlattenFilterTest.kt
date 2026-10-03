@@ -44,8 +44,8 @@ class VrFlattenFilterTest {
     fun clampsOutputFov() {
         val low = VrFlattenFilter.shaderSource(template, layout, outputFov = 10f)
         val high = VrFlattenFilter.shaderSource(template, layout, outputFov = 200f)
-        assertTrue(low.contains("#define D_FOV 40.00"))
-        assertTrue(high.contains("#define D_FOV 120.00"))
+        assertTrue(low.contains("#define D_FOV 50.00"))
+        assertTrue(high.contains("#define D_FOV 150.00"))
     }
 
     @Test
@@ -75,7 +75,7 @@ class VrFlattenFilterTest {
         assertFalse(source.contains("#define YAW"))
         assertFalse(source.contains("__LOOK_"))
         assertEquals(
-            "YAW=12.50,PITCH=-4.00,D_FOV=120.00",
+            "YAW=12.50,PITCH=-4.00,D_FOV=150.00",
             VrFlattenFilter.lookShaderOpts(12.5f, -4f, 200f)
         )
     }

@@ -19,6 +19,9 @@ import com.vela.player.core.PlayerConstants.ZOOM_SCALE_BASE
 import com.vela.player.core.PlayerConstants.ZOOM_SCALE_THRESHOLD
 import com.vela.player.preferences.PlayerPreferences
 
+/** VR 转平面时保留滑动调进度的底部区域占视图高度的比例。 */
+private const val VR_SEEK_BAND_FRACTION = 0.22f
+
 class GestureHelper(
     private val context: Context,
     private val touchView: View,
@@ -108,6 +111,8 @@ class GestureHelper(
 
             override fun onLongPress(e: MotionEvent) {
                 if (!playerPreferences.arePlayerGesturesEnabled()) return
+                // VR 转平面时“按住再拖”是调整视角的自然动作，长按倍速会误触成快进并锁住视角拖动。
+                if (isVrLookAround()) return
                 if (swipeGestureProgressOpen || swipeGestureVolumeOpen || swipeGestureBrightnessOpen) return
                 speedHoldActive = true
                 touchView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -145,7 +150,7 @@ class GestureHelper(
                 }
                 if (inExclusionArea(firstEvent)) return false
 
-                if (isVrLookAround()) {
+                if (isVrLookAround() && !inVrSeekBand(firstEvent)) {
                     if (speedHoldActive || (SystemClock.elapsedRealtime() - lastScaleEvent) <= 200) {
                         return false
                     }
@@ -383,6 +388,15 @@ class GestureHelper(
         } finally {
             transformed.recycle()
         }
+    }
+
+    /**
+     * VR 转平面时单指拖动用于转视角；从底部这条区域起手的横向拖动仍是滑动调进度，两种手势按起点区分、互不冲突。
+     */
+    private fun inVrSeekBand(firstEvent: MotionEvent): Boolean {
+        val height = touchView.measuredHeight
+        if (height <= 0) return false
+        return firstEvent.y > height * (1f - VR_SEEK_BAND_FRACTION)
     }
 
     private fun inVolumeBrightnessEdge(firstEvent: MotionEvent): Boolean {

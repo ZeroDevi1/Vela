@@ -76,6 +76,7 @@ import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material.icons.outlined.ScreenRotation
 import androidx.compose.material.icons.outlined.Subtitles
 import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.PanoramaPhotosphere
 import androidx.compose.material.icons.outlined.ViewInAr
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
@@ -237,6 +238,9 @@ private enum class MoreMenuPage { Main, SleepTimer }
  * @param onSwitchPlayerEngine 切换播放引擎；null 时菜单不显示该项
  * @param sleepTimerDeadline 定时关闭截止时刻（elapsedRealtime 毫秒）；null 表示未开启
  * @param onSetSleepTimer 设置定时关闭，参数为分钟数，null 表示取消
+ * @param onShowPlaylist 打开播放列表（多 CD 分段等）；null 时“选集”按钮打开元数据面板里的剧集列表
+ * @param animateProgressWave 进度条波浪是否随播放流动；超高像素或 VR 片源传 false，
+ *   避免控制层每帧重绘与视频渲染争抢 GPU（波形仍保留，只是静止）
  */
 @Composable
 fun ControlsOverlay(
@@ -269,6 +273,7 @@ fun ControlsOverlay(
     onCycleAspectRatio: () -> Unit = {},
     onToggleOrientation: () -> Unit = {},
     onTitleClick: () -> Unit = {},
+    onShowPlaylist: (() -> Unit)? = null,
     onSeekBackward: () -> Unit = {},
     onSeekForward: () -> Unit = {},
     seekBackwardSeconds: Int = 10,
@@ -300,7 +305,8 @@ fun ControlsOverlay(
     vrDetected: Boolean = false,
     vrFlatEnabled: Boolean = false,
     onToggleVrFlat: () -> Unit = {},
-    onShowVrProjection: () -> Unit = {}
+    onShowVrProjection: () -> Unit = {},
+    animateProgressWave: Boolean = true
 ) {
     val landscape = LocalConfiguration.current.orientation != Configuration.ORIENTATION_PORTRAIT
     val motion = MaterialTheme.velaMotion
@@ -475,7 +481,7 @@ fun ControlsOverlay(
             landscape = landscape,
             edgeInset = edgeInset,
             accent = accent,
-            isPlaying = isPlaying && !isBuffering,
+            isPlaying = isPlaying && !isBuffering && animateProgressWave,
             showPlaybackSettingsButton = showPlaybackSettingsButton,
             canPlayPreviousEpisode = canPlayPreviousEpisode,
             canPlayNextEpisode = canPlayNextEpisode,
@@ -488,6 +494,7 @@ fun ControlsOverlay(
             hdrLabel = if (isHdrEnabled) osdHdrLabel(hdrFormat) else "",
             secondaryChromeAlpha = { secondaryChromeAlpha.value },
             onTitleClick = onTitleClick,
+            onShowPlaylist = onShowPlaylist,
             onSeek = onSeek,
             onScrubProgressChange = { progress -> scrubProgress = progress },
             onScrubPreviewProgressChange = { progress ->
@@ -949,7 +956,7 @@ private fun OverlayMoreMenu(
                     )
                     OverlayMenuItem(
                         text = stringResource(R.string.player_vr_projection_title),
-                        icon = null,
+                        icon = Icons.Outlined.PanoramaPhotosphere,
                         onClick = { dismissThen(onShowVrProjection) }
                     )
                 }
@@ -1230,6 +1237,7 @@ private fun OverlayBottomSection(
     hdrLabel: String,
     secondaryChromeAlpha: () -> Float,
     onTitleClick: () -> Unit,
+    onShowPlaylist: (() -> Unit)?,
     onSeek: (Float) -> Unit,
     onScrubProgressChange: (Float?) -> Unit,
     onScrubPreviewProgressChange: (Float?) -> Unit,
@@ -1356,9 +1364,9 @@ private fun OverlayBottomSection(
             if (landscape) {
                 BottomActions(
                     showPlaybackSettingsButton = showPlaybackSettingsButton,
-                    showEpisodes = hasEpisodeNavigation,
+                    showEpisodes = hasEpisodeNavigation || onShowPlaylist != null,
                     onShowPlaybackSettings = onShowPlaybackSettings,
-                    onShowEpisodes = onTitleClick,
+                    onShowEpisodes = onShowPlaylist ?: onTitleClick,
                     onShowAudioTrackSelection = onShowAudioTrackSelection,
                     onShowSubtitleTrackSelection = onShowSubtitleTrackSelection,
                     modifier = Modifier.graphicsLayer { alpha = secondaryChromeAlpha() }
@@ -1369,9 +1377,9 @@ private fun OverlayBottomSection(
         if (!landscape) {
             BottomActions(
                 showPlaybackSettingsButton = showPlaybackSettingsButton,
-                showEpisodes = hasEpisodeNavigation,
+                showEpisodes = hasEpisodeNavigation || onShowPlaylist != null,
                 onShowPlaybackSettings = onShowPlaybackSettings,
-                onShowEpisodes = onTitleClick,
+                onShowEpisodes = onShowPlaylist ?: onTitleClick,
                 onShowAudioTrackSelection = onShowAudioTrackSelection,
                 onShowSubtitleTrackSelection = onShowSubtitleTrackSelection,
                 modifier = Modifier

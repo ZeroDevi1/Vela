@@ -114,7 +114,9 @@ fun PlayerScreen(
     previousEpisodeId: String? = null,
     onWatchPreviousEpisode: ((String) -> Unit)? = null,
     nextEpisodeId: String? = null,
-    onWatchNextEpisode: ((String) -> Unit)? = null
+    onWatchNextEpisode: ((String) -> Unit)? = null,
+    playlist: List<BaseItemDto> = emptyList(),
+    onPlaylistItemSelected: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val currentView = LocalView.current
@@ -225,6 +227,7 @@ fun PlayerScreen(
     val seekBackwardSeconds = playerPreferences.getSeekBackwardIntervalSeconds()
     var showPlaybackInfoSheet by remember { mutableStateOf(false) }
     var showChaptersSheet by remember { mutableStateOf(false) }
+    var showPlaylistSheet by remember { mutableStateOf(false) }
     val seekForwardSeconds = playerPreferences.getSeekForwardIntervalSeconds()
     val chapterMarkersEnabled = playerPreferences.areChapterMarkersEnabled()
     var playbackOrientation by remember {
@@ -699,6 +702,14 @@ fun PlayerScreen(
             },
             onShowChapters = { showChaptersSheet = true },
             onShowVrProjection = { showVrProjectionDialog = true },
+            onShowPlaylist = if (playlist.size > 1) {
+                {
+                    showPlaylistSheet = true
+                    uiState = uiState.copy(controlsVisible = false)
+                }
+            } else {
+                null
+            },
             onSeekFeedback = { label, side ->
                 // 事件序号保证连续点击同一方向时也会重新开始提示的淡出计时。
                 uiState = uiState.copy(
@@ -836,6 +847,19 @@ fun PlayerScreen(
                 mediaRepository = mediaRepository,
                 onDismiss = { showPlaybackInfoSheet = false },
                 onEpisodeSelected = playEpisodeInPlace
+            )
+        }
+
+        if (showPlaylistSheet) {
+            PlayerPlaylistSheet(
+                items = playlist,
+                currentItemId = currentPlaybackId,
+                mediaRepository = mediaRepository,
+                onDismiss = { showPlaylistSheet = false },
+                onItemSelected = { id ->
+                    showPlaylistSheet = false
+                    if (id != currentPlaybackId) onPlaylistItemSelected(id)
+                }
             )
         }
 

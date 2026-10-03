@@ -32,6 +32,7 @@ import com.vela.app.ui.player.applyPlayerPipParams
 import com.vela.app.ui.player.findActivity
 import com.vela.app.ui.screens.player.PlayerScreen
 import com.vela.app.ui.screens.player.PlayerViewModel
+import com.vela.data.model.BaseItemDto
 import com.vela.data.repository.MediaRepositoryProvider
 import com.vela.shared.ui.theme.VelaTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -224,8 +225,16 @@ private fun PlayerRoute(args: PlaybackArgs) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val mediaRepository = remember { MediaRepositoryProvider.getInstance(context) }
     var mediaId by remember(args.mediaId, args.remoteUrl) { mutableStateOf(args.mediaId) }
-    var previousEpisodeId by remember { mutableStateOf<String?>(null) }
-    var nextEpisodeId by remember { mutableStateOf<String?>(null) }
+    var episodePreviousId by remember { mutableStateOf<String?>(null) }
+    var episodeNextId by remember { mutableStateOf<String?>(null) }
+    // 多 CD / 多分段影片的各部分，按启动的条目取一次；部分之间原地切换时不重新获取。
+    var parts by remember(args.mediaId, args.remoteUrl) { mutableStateOf<List<BaseItemDto>>(emptyList()) }
+    val partIndex = parts.indexOfFirst { it.id == mediaId }
+    // 剧集优先用上一集/下一集；没有剧集导航时（电影分段）用相邻部分，自动续播同样生效。
+    val previousEpisodeId = episodePreviousId
+        ?: parts.getOrNull(partIndex - 1)?.id?.takeIf { partIndex > 0 }
+    val nextEpisodeId = episodeNextId
+        ?: parts.getOrNull(partIndex + 1)?.id?.takeIf { partIndex >= 0 }
 
     LaunchedEffect(args) {
         mediaId = args.mediaId
@@ -233,13 +242,21 @@ private fun PlayerRoute(args: PlaybackArgs) {
 
     LaunchedEffect(mediaId, args.remoteUrl) {
         if (!args.remoteUrl.isNullOrBlank()) {
-            previousEpisodeId = null
-            nextEpisodeId = null
+            episodePreviousId = null
+            episodeNextId = null
             return@LaunchedEffect
         }
         val navigation = mediaRepository.getEpisodeNavigationIds(mediaId)
-        previousEpisodeId = navigation.previousEpisodeId
-        nextEpisodeId = navigation.nextEpisodeId
+        episodePreviousId = navigation.previousEpisodeId
+        episodeNextId = navigation.nextEpisodeId
+    }
+
+    LaunchedEffect(args.mediaId, args.remoteUrl) {
+        if (!args.remoteUrl.isNullOrBlank()) return@LaunchedEffect
+        val additional = mediaRepository.getAdditionalParts(args.mediaId).getOrNull().orEmpty()
+        if (additional.isEmpty()) return@LaunchedEffect
+        val primary = mediaRepository.getItemById(args.mediaId).getOrNull() ?: return@LaunchedEffect
+        parts = listOf(primary) + additional
     }
 
     LaunchedEffect(Unit) {
@@ -259,6 +276,8 @@ private fun PlayerRoute(args: PlaybackArgs) {
         nextEpisodeId = nextEpisodeId,
         onWatchPreviousEpisode = { episodeId -> mediaId = episodeId },
         onWatchNextEpisode = { episodeId -> mediaId = episodeId },
+        playlist = parts,
+        onPlaylistItemSelected = { partId -> mediaId = partId },
         onPlaybackCompleted = { completedId ->
             val nextId = nextEpisodeId
             if (!nextId.isNullOrBlank() && nextId != completedId) {

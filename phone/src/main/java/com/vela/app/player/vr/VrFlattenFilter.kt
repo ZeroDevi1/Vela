@@ -14,9 +14,14 @@ package com.vela.app.player.vr
 object VrFlattenFilter {
     const val SHADER_ASSET = "shaders/vr_flatten.glsl"
     const val SHADER_FILE_PREFIX = "vr_flatten"
-    const val DEFAULT_OUTPUT_FOV = 90f
-    const val MIN_OUTPUT_FOV = 40f
-    const val MAX_OUTPUT_FOV = 120f
+    /**
+     * 输出视场角，单位度，沿画面长边计算（见 vr_flatten.glsl）。
+     * 默认 100° 接近头显观感：横屏 20:9 时竖直约 57°，主体大小适中、边缘拉伸小；
+     * 双指缩放在 [MIN_OUTPUT_FOV]（拉近）到 [MAX_OUTPUT_FOV]（看全景）之间调整。
+     */
+    const val DEFAULT_OUTPUT_FOV = 100f
+    const val MIN_OUTPUT_FOV = 50f
+    const val MAX_OUTPUT_FOV = 150f
 
     /**
      * @param dynamicLook true 时生成 gpu-next 动态参数版本，[yaw]/[pitch]/[outputFov] 只作为初始值，

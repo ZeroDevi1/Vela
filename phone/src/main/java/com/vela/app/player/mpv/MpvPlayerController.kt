@@ -84,6 +84,17 @@ class MpvPlayerController(
     private var vrShaderActive = false
     /** gpu-next 上视角走动态 uniform；gpu 上视角烘焙进 #define，需换文件重载。 */
     private var vrDynamicLook = false
+    /**
+     * VR 转平面期间临时改用 gpu-next：vo=gpu 不支持动态参数，每次视角变化都要写新着色器并整段重编译，
+     * 拖动时约 30 次/秒，渲染线程编译导致掉帧，松手后还有缓存写盘的卡顿。关闭转平面后恢复用户设置的 vo。
+     */
+    private var vrForcedGpuNext = false
+    /** Surface 已挂上；未挂时只记下要用的 vo，由 [attachSurface] 生效，避免 mpv 在无窗口时建 vo。 */
+    private var surfaceAttached = false
+
+    /** 当前应使用的 vo：转平面期间为 gpu-next，否则为用户设置。 */
+    private val effectiveVideoOutput: String
+        get() = if (vrForcedGpuNext) PlayerPreferences.MPV_VIDEO_OUTPUT_GPU_NEXT else videoOutput
     private var lastVrShaderSource: String? = null
     private val vrLookHandler = Handler(Looper.getMainLooper())
     private var vrLookScheduled = false
@@ -195,7 +206,8 @@ class MpvPlayerController(
         if (released) return
         MPVLib.attachSurface(surface)
         MPVLib.setOptionString("force-window", "yes")
-        MPVLib.setOptionString("vo", videoOutput)
+        MPVLib.setOptionString("vo", effectiveVideoOutput)
+        surfaceAttached = true
         if (width > 0 && height > 0) {
             surfaceWidth = width
             surfaceHeight = height
@@ -228,6 +240,9 @@ class MpvPlayerController(
         if (released) return
         setMpv("sub-visibility", "yes")
         val compatible = playerPreferences.isSubtitleAssCompatible()
+        // 非兼容模式剥掉 ASS 样式按纯文本渲染：字幕文件的 WrapStyle=2（不自动换行）无法通过样式覆盖改掉，
+        // 长句会冲出屏幕；纯文本渲染使用 mpv 默认的智能换行，并完全套用应用的字体、字号与位置。
+        setMpv("sub-ass", if (compatible) "yes" else "no")
         val edgeType = playerPreferences.getSubtitleEdgeType()
         val backgroundColor = playerPreferences.getSubtitleBackgroundColor()
         setMpv("sub-ass-override", PlayerPreferences.mpvAssOverride(compatible))
@@ -268,6 +283,7 @@ class MpvPlayerController(
 
     fun detachSurface() {
         if (released) return
+        surfaceAttached = false
         MPVLib.setOptionString("vo", "null")
         MPVLib.setOptionString("force-window", "no")
         MPVLib.detachSurface()
@@ -378,7 +394,12 @@ class MpvPlayerController(
             clearVrFlattenShader()
             return
         }
-        vrDynamicLook = isGpuNextOutput()
+        if (!isGpuNextOutput()) {
+            // 切换 vo 会重建一次渲染输出（开启时一次性的短暂停顿），换来拖动视角零重编译。
+            vrForcedGpuNext = true
+            if (surfaceAttached) setMpv("vo", PlayerPreferences.MPV_VIDEO_OUTPUT_GPU_NEXT)
+        }
+        vrDynamicLook = true
         vrShaderActive = true
         val source = vrShaderSource(VrLook(layout, yaw, pitch, outputFov)) ?: return
         if (vrDynamicLook) {
@@ -427,10 +448,15 @@ class MpvPlayerController(
         if (!released) {
             MPVLib.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
             setMpv("glsl-shader-opts", "")
+            if (vrForcedGpuNext) {
+                vrForcedGpuNext = false
+                if (surfaceAttached) setMpv("vo", videoOutput)
+            }
         }
     }
 
     private fun isGpuNextOutput(): Boolean {
+        if (vrForcedGpuNext) return true
         val vo = MPVLib.getPropertyString("current-vo")?.takeIf { it.isNotBlank() } ?: videoOutput
         return vo == PlayerPreferences.MPV_VIDEO_OUTPUT_GPU_NEXT
     }
@@ -670,7 +696,7 @@ class MpvPlayerController(
         MPVLib.setOptionString("demuxer-lavf-probe-info", "on")
         MPVLib.setOptionString("demuxer-lavf-probesize", "5MiB")
         MPVLib.setOptionString("demuxer-lavf-analyzeduration", "10")
-        MPVLib.setOptionString("sub-ass", "yes")
+        MPVLib.setOptionString("sub-ass", if (playerPreferences.isSubtitleAssCompatible()) "yes" else "no")
         MPVLib.setOptionString("embeddedfonts", "yes")
         MPVLib.setOptionString("sub-ass-use-video-data", "aspect-ratio")
         MPVLib.setOptionString("sub-scale-with-window", "no")
@@ -924,7 +950,15 @@ class MpvPlayerController(
             "sub-scale",
             String.format(Locale.US, "%.3f", scale)
         )
-        if (playerPreferences.isSubtitleAssCompatible()) return
+        if (playerPreferences.isSubtitleAssCompatible()) {
+            // 兼容模式不使用黑边（sub-use-margins=no），sub-pos 以视频区域为基准；
+            // 只移动对白类字幕，用 \pos 定位的特效字幕保持原位。
+            setMpv(
+                "sub-pos",
+                PlayerPreferences.mpvSubPosFromBottomPercent(playerPreferences.getSubtitlePosition()).toString()
+            )
+            return
+        }
         setMpv(
             "sub-pos",
             PlayerPreferences.mpvSubPosForWindow(
