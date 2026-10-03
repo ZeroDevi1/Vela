@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.vela.data.R
 import com.vela.data.network.tokenQueryParameter
+import com.vela.data.repository.PlaybackDeviceProfileFactory
 import com.vela.data.network.ServerType
 import com.vela.data.util.buildServerUrl
 import com.vela.data.util.getServerUrl
@@ -217,7 +218,20 @@ internal object PlaybackUrlBuilder {
                 selectedAudioStream = selectedAudioStream
             )
 
+            // 原画且无需音频转码时，若只是码率上限挡住了本可直放的源，改为直放原始流；
+            // 用户选了画质上限则尊重服务端转码。
+            val bypassBitrateOnlyTranscode = !hasQualityCap &&
+                !needsAudioTranscoding &&
+                mediaSource.hasBitrateTranscodeReason() &&
+                PlaybackDeviceProfileFactory.supportsVideoDirectPlay(
+                    container = mediaSource.container,
+                    videoCodec = mediaSource.mediaStreams
+                        ?.firstOrNull { it.type.equals("Video", ignoreCase = true) }
+                        ?.codec,
+                    audioCodec = selectedAudioStream?.codec
+                )
             val serverTranscodingUrl = !mediaSource.transcodingUrl.isNullOrBlank() &&
+                !bypassBitrateOnlyTranscode &&
                 (
                     needsAudioTranscoding ||
                         (mediaSource.supportsDirectPlay != true &&
@@ -250,7 +264,9 @@ internal object PlaybackUrlBuilder {
                 }
             }
 
-            val useStaticStream = mediaSource.supportsDirectPlay == true || mediaSource.isStrmSource()
+            val useStaticStream = mediaSource.supportsDirectPlay == true ||
+                mediaSource.isStrmSource() ||
+                bypassBitrateOnlyTranscode
             val streamQueryParams = mutableListOf<Pair<String, String?>>()
             streamQueryParams.add("mediaSourceId" to mediaSource.id)
             if (!useStaticStream) {

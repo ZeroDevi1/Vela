@@ -133,6 +133,29 @@ fun MediaSource.isStrmSource(): Boolean {
         sourceName.endsWith(".strm", ignoreCase = true)
 }
 
+/** 与码率上限有关的转码原因（Jellyfin / Emby 共用命名）。 */
+private val BITRATE_TRANSCODE_REASONS = setOf(
+    "containerbitrateexceedslimit",
+    "videobitratenotsupported",
+    "audiobitratenotsupported"
+)
+
+/**
+ * 服务端转码原因中含码率超限（典型是"互联网串流码率限制"把 VPN/外网判为远程）。
+ * 其余原因可能只是转码路径的副产物（如转码 profile 不含 HEVC 时记 VideoCodecNotSupported），
+ * 调用方需自行复核直放兼容性。原因缺失时返回 false。
+ */
+fun MediaSource.hasBitrateTranscodeReason(): Boolean {
+    val query = transcodingUrl?.substringAfter('?', missingDelimiterValue = "") ?: return false
+    return query.split('&')
+        .firstOrNull { it.substringBefore('=').equals("TranscodeReasons", ignoreCase = true) }
+        ?.substringAfter('=')
+        ?.replace("%2C", ",", ignoreCase = true)
+        ?.split(',')
+        .orEmpty()
+        .any { it.trim().lowercase() in BITRATE_TRANSCODE_REASONS }
+}
+
 fun MediaSource.shouldUseOriginalContainerDownload(): Boolean {
     if (supportsDirectPlay != true) return false
     if (isStrmSource()) return false

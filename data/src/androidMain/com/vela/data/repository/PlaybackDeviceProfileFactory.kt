@@ -7,6 +7,28 @@ import com.vela.data.model.SubtitleProfile
 import com.vela.data.model.TranscodingProfile
 
 internal object PlaybackDeviceProfileFactory {
+    private const val DIRECT_PLAY_VIDEO_CONTAINERS = "mp4,mkv,webm,ts,m2ts,mov,avi"
+    private const val DIRECT_PLAY_VIDEO_CODECS = "h264,hevc,vp9,av1,mpeg4,mpeg2video,vp8"
+    private const val DIRECT_PLAY_AUDIO_CODECS = "aac,mp3,ac3,eac3,dts,flac,opus,vorbis,truehd,pcm"
+
+    /**
+     * 按本 profile 的 DirectPlayProfile 判断源文件能否直放（与服务端直放判定同口径：容器 + 音视频编码）。
+     * 服务端的 VideoCodecNotSupported 可能来自"转码时能否复制视频流"的评估，不代表直放不支持，
+     * 因此码率超限回退直放前用本地口径复核。[container] 可为逗号列表（如 Jellyfin 的 "mov,mp4,m4a"）。
+     */
+    fun supportsVideoDirectPlay(container: String?, videoCodec: String?, audioCodec: String?): Boolean {
+        val containers = tokens(container)
+        if (containers.isEmpty() || containers.none { it in tokens(DIRECT_PLAY_VIDEO_CONTAINERS) }) return false
+        val video = videoCodec?.trim()?.lowercase()
+        if (video.isNullOrEmpty() || video !in tokens(DIRECT_PLAY_VIDEO_CODECS)) return false
+        val audio = audioCodec?.trim()?.lowercase()
+        return audio.isNullOrEmpty() || audio in tokens(DIRECT_PLAY_AUDIO_CODECS)
+    }
+
+    private fun tokens(value: String?): Set<String> {
+        return value.orEmpty().split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
+    }
+
     fun create(
         maxStreamingBitrate: Long? = null,
         audioTranscodeMode: AudioTranscodeMode = AudioTranscodeMode.AUTO
@@ -23,9 +45,9 @@ internal object PlaybackDeviceProfileFactory {
             directPlayProfiles = listOf(
                 DirectPlayProfile(
                     type = "Video",
-                    container = "mp4,mkv,webm,ts,m2ts,mov,avi",
-                    videoCodec = "h264,hevc,vp9,av1,mpeg4,mpeg2video,vp8",
-                    audioCodec = "aac,mp3,ac3,eac3,dts,flac,opus,vorbis,truehd,pcm"
+                    container = DIRECT_PLAY_VIDEO_CONTAINERS,
+                    videoCodec = DIRECT_PLAY_VIDEO_CODECS,
+                    audioCodec = DIRECT_PLAY_AUDIO_CODECS
                 ),
                 DirectPlayProfile(
                     type = "Audio",
