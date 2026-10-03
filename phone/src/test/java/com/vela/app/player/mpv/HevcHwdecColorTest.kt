@@ -25,6 +25,20 @@ class HevcHwdecColorTest {
     }
 
     @Test
+    fun unspecified8kVrHevcKeepsZeroCopyHardware() {
+        val streams = listOf(unspecifiedHevc(width = 7680, height = 3840, codecTag = "hev1"))
+        assertEquals(
+            PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC,
+            HevcHwdecColor.hardwareDecoding(
+                PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC,
+                streams
+            )
+        )
+        assertFalse(HevcHwdecColor.needsCopyColorPath(streams))
+        assertEquals("", HevcHwdecColor.formatVf(streams))
+    }
+
+    @Test
     fun tagged4kBt709HevcUsesCopy() {
         val streams = listOf(
             MediaStream(

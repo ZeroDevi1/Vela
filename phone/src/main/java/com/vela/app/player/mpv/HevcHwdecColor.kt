@@ -11,6 +11,9 @@ internal object HevcHwdecColor {
     const val BT709_FORMAT_VF =
         "format=convert=no:colormatrix=bt.709:primaries=bt.709:gamma=bt.1886"
 
+    /** copy 回读的像素上限：DCI 4K（4096x2160）。更大的帧走零拷贝 mediacodec。 */
+    private const val MAX_COPY_PIXELS = 4096L * 2160L
+
     fun hardwareDecoding(
         userPreference: String,
         mediaStreams: List<MediaStream>?
@@ -51,6 +54,9 @@ internal object HevcHwdecColor {
         val video = videoStream(mediaStreams) ?: return false
         if (!isHevc(video) || isHdr(video) || !isHdOrUnknown(video)) return false
         if (isBt2020Sdr(video)) return false
+        // copy 每帧把解码结果回读到 CPU 再上传 GPU；8K VR（7680x3840 约 44MB/帧）会卡在起播。
+        // 超预算时放弃色彩修正：vf 也一并不加，否则 mpv 会为插 filter 退回软解。
+        if (exceedsCopyBudget(video)) return false
         // 有明确的非 BT.709 标签时不凭分辨率或 hev1 封装覆盖它。
         return listOf(video.colorSpace, video.colorPrimaries, video.colorTransfer).all {
             isBlankOrUnspecified(it) || it?.lowercase() in setOf("bt709", "bt.709", "bt1886", "bt.1886")
@@ -84,6 +90,12 @@ internal object HevcHwdecColor {
         val width = video.width ?: 0
         val height = video.height ?: 0
         return width >= 3840 || height >= 2160
+    }
+
+    private fun exceedsCopyBudget(video: MediaStream): Boolean {
+        val width = video.width?.toLong() ?: 0L
+        val height = video.height?.toLong() ?: 0L
+        return width * height > MAX_COPY_PIXELS
     }
 
     private fun isHdOrUnknown(video: MediaStream): Boolean {

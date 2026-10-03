@@ -674,8 +674,8 @@ fun PlayerScreen(
                 }
             },
             vrLookAround = playerState.vrFlatEnabled,
-            onLookAround = { deltaYaw, deltaPitch ->
-                viewModel.applyVrLookDelta(deltaYaw, deltaPitch)
+            onLookAround = { fingerDx, fingerDy ->
+                viewModel.applyVrLookDrag(fingerDx, fingerDy)
             },
             onFovScale = { scaleFactor ->
                 if (viewModel.mpvPlayer != null) {

@@ -63,17 +63,22 @@ class MpvPlayerController(
     private var lastDolbyRuntimePath: String? = null
     private var colorPolicyStreams: List<MediaStream>? = null
     private var requestedHwdec: String = hardwareDecoding
+    /** 当前片源是否超高像素；见 [MpvRenderLoad]。 */
+    private var heavySource = false
+    private var currentSpeed = 1.0
     private var vrShaderActive = false
+    /** gpu-next 上视角走动态 uniform；gpu 上视角烘焙进 #define，需换文件重载。 */
+    private var vrDynamicLook = false
     private var lastVrShaderSource: String? = null
     private val vrLookHandler = Handler(Looper.getMainLooper())
     private var vrLookScheduled = false
     private val applyPendingVrLook = Runnable {
         vrLookScheduled = false
-        val source = pendingVrLookSource
-        pendingVrLookSource = null
-        source?.let { reloadVrShader(it) }
+        val look = pendingVrLook
+        pendingVrLook = null
+        look?.let(::applyVrLook)
     }
-    private var pendingVrLookSource: String? = null
+    private var pendingVrLook: VrLook? = null
     private val vrShaderTemplate: String? by lazy {
         runCatching {
             appContext.assets.open(VrFlattenFilter.SHADER_ASSET).bufferedReader().use { it.readText() }
@@ -293,6 +298,26 @@ class MpvPlayerController(
         colorPolicyStreams = mediaStreams
         applyColorHwdec()
         applyDolbyDecodeOptions(asOptions = false)
+        applyRenderLoad(mediaStreams)
+    }
+
+    /** 按片源像素量切换缩放/去色带/插帧；超高像素片源改走轻量路径，普通片源恢复用户设置。 */
+    private fun applyRenderLoad(mediaStreams: List<MediaStream>?) {
+        heavySource = MpvRenderLoad.isHeavySource(mediaStreams)
+        if (heavySource) {
+            setMpv("scale", MpvRenderLoad.FAST_SCALER)
+            setMpv("dscale", MpvRenderLoad.FAST_SCALER)
+            setMpv("cscale", MpvRenderLoad.FAST_SCALER)
+            setMpv("deband", "no")
+        } else {
+            setMpv("scale", playerPreferences.getMpvUpscaleFilter())
+            setMpv("dscale", playerPreferences.getMpvDownscaleFilter())
+            setMpv("cscale", MpvRenderLoad.FAST_SCALER)
+            setMpv("deband", if (playerPreferences.getMpvDeband()) "yes" else "no")
+        }
+        setMpv("fbo-format", MpvRenderLoad.fboFormat(mediaStreams))
+        applySpeedPerformance(currentSpeed)
+        Log.i(COLOR_LOG_TAG, "render heavy=$heavySource fbo=${MpvRenderLoad.fboFormat(mediaStreams)}")
     }
 
     private fun applyColorHwdec() {
@@ -320,6 +345,10 @@ class MpvPlayerController(
         )
     }
 
+    /**
+     * 开启/关闭 VR 转平面。hook 读取的是 mpv 的 RGB 中间纹理，零拷贝 mediacodec 也能处理，
+     * 因此不切 mediacodec-copy（8K 下每帧约 50MB 回读）。
+     */
     fun setVrFlattenShader(
         layout: VrLayout?,
         yaw: Float = 0f,
@@ -329,13 +358,18 @@ class MpvPlayerController(
         if (released) return
         vrLookHandler.removeCallbacks(applyPendingVrLook)
         vrLookScheduled = false
-        pendingVrLookSource = null
+        pendingVrLook = null
         if (layout == null) {
             clearVrFlattenShader()
             return
         }
-        val source = vrShaderSource(layout, yaw, pitch, outputFov) ?: return
+        vrDynamicLook = isGpuNextOutput()
         vrShaderActive = true
+        val source = vrShaderSource(VrLook(layout, yaw, pitch, outputFov)) ?: return
+        if (vrDynamicLook) {
+            // 先写参数再装载，避免首帧用 PARAM 默认值渲染。
+            setMpv("glsl-shader-opts", VrFlattenFilter.lookShaderOpts(yaw, pitch, outputFov))
+        }
         reloadVrShader(source)
     }
 
@@ -346,19 +380,33 @@ class MpvPlayerController(
         outputFov: Float
     ) {
         if (released || !vrShaderActive) return
-        val source = vrShaderSource(layout, yaw, pitch, outputFov) ?: return
-        pendingVrLookSource = source
-        // 合并一帧内的手势；不能每次重置计时，否则连续拖动直到松手才更新。
+        if (vrDynamicLook) {
+            // 只写 uniform，开销可忽略；直接应用，避免额外一帧延迟。
+            applyVrLook(VrLook(layout, yaw, pitch, outputFov))
+            return
+        }
+        pendingVrLook = VrLook(layout, yaw, pitch, outputFov)
+        // 重编译路径：合并一帧内的手势；不能每次重置计时，否则连续拖动直到松手才更新。
         if (!vrLookScheduled) {
             vrLookScheduled = true
             vrLookHandler.postDelayed(applyPendingVrLook, VR_LOOK_RELOAD_MS)
         }
     }
 
+    private fun applyVrLook(look: VrLook) {
+        if (released || !vrShaderActive) return
+        if (vrDynamicLook) {
+            // 只更新 uniform，不重编译着色器。
+            setMpv("glsl-shader-opts", VrFlattenFilter.lookShaderOpts(look.yaw, look.pitch, look.outputFov))
+        } else {
+            vrShaderSource(look)?.let(::reloadVrShader)
+        }
+    }
+
     private fun clearVrFlattenShader() {
         vrLookHandler.removeCallbacks(applyPendingVrLook)
         vrLookScheduled = false
-        pendingVrLookSource = null
+        pendingVrLook = null
         lastVrShaderSource = null
         vrShaderActive = false
         if (!released) {
@@ -367,14 +415,21 @@ class MpvPlayerController(
         }
     }
 
-    private fun vrShaderSource(
-        layout: VrLayout,
-        yaw: Float,
-        pitch: Float,
-        outputFov: Float
-    ): String? {
+    private fun isGpuNextOutput(): Boolean {
+        val vo = MPVLib.getPropertyString("current-vo")?.takeIf { it.isNotBlank() } ?: videoOutput
+        return vo == PlayerPreferences.MPV_VIDEO_OUTPUT_GPU_NEXT
+    }
+
+    private fun vrShaderSource(look: VrLook): String? {
         val template = vrShaderTemplate ?: return null
-        return VrFlattenFilter.shaderSource(template, layout, yaw, pitch, outputFov)
+        return VrFlattenFilter.shaderSource(
+            template,
+            look.layout,
+            look.yaw,
+            look.pitch,
+            look.outputFov,
+            dynamicLook = vrDynamicLook
+        )
     }
 
     private fun reloadVrShader(source: String) {
@@ -384,21 +439,32 @@ class MpvPlayerController(
         MPVLib.command(arrayOf("change-list", "glsl-shaders", "set", shader.absolutePath))
         Log.i(
             VR_LOG_TAG,
-            "glsl hook=${shader.name} hwdec=${MPVLib.getPropertyString("hwdec")} " +
-                "shaders=${MPVLib.getPropertyString("glsl-shaders")}"
+            "glsl hook=${shader.name} dynamic=$vrDynamicLook hwdec=${MPVLib.getPropertyString("hwdec")}"
         )
     }
 
     private fun writeVrShader(source: String): File? {
-        val dest = appContext.filesDir.resolve("mpv-shaders").apply { mkdirs() }
-            .resolve(VrFlattenFilter.SHADER_FILE_NAME)
+        val dir = appContext.filesDir.resolve("mpv-shaders").apply { mkdirs() }
+        val dest = dir.resolve(VrFlattenFilter.shaderFileName(source))
         return runCatching {
-            dest.writeText(source)
+            if (!dest.exists()) {
+                // mpv 已缓存过的旧变体不再需要磁盘文件；只保留当前一份。
+                dir.listFiles { file -> file.name.startsWith(VrFlattenFilter.SHADER_FILE_PREFIX) }
+                    ?.forEach { it.delete() }
+                dest.writeText(source)
+            }
             dest
         }.onFailure { error ->
             Log.e(VR_LOG_TAG, "failed to write VR flatten shader", error)
         }.getOrNull()
     }
+
+    private data class VrLook(
+        val layout: VrLayout,
+        val yaw: Float,
+        val pitch: Float,
+        val outputFov: Float
+    )
 
     fun setVolume(volume: Float) {
         if (!released) {
@@ -409,6 +475,7 @@ class MpvPlayerController(
     fun setSpeed(speed: Double, retunePerformance: Boolean = true) {
         if (released) return
         val value = speed.coerceIn(0.25, 4.0)
+        currentSpeed = value
         MPVLib.setPropertyDouble("speed", value)
         // 长按预览只改 speed：切 interpolation / video-sync / framedrop 会清解码缓冲，造成一帧卡顿。
         if (retunePerformance) {
@@ -545,7 +612,8 @@ class MpvPlayerController(
 
         MPVLib.setOptionString("profile", "fast")
         MPVLib.setOptionString("terminal", "no")
-        MPVLib.setOptionString("msg-level", "all=no,cplayer=warn,ffmpeg=error,sub=info,demux=warn")
+        // vo=error：GPU 着色器编译失败只在 vo 层报错，屏蔽后用户 hook 会静默失效。
+        MPVLib.setOptionString("msg-level", "all=no,cplayer=warn,ffmpeg=error,sub=info,demux=warn,vo=error")
         MPVLib.setOptionString("vo", "null")
         MPVLib.setOptionString("gpu-api", "opengl")
         MPVLib.setOptionString("gpu-context", "android")
@@ -864,7 +932,8 @@ class MpvPlayerController(
     }
 
     private fun applySpeedPerformance(speed: Double, asOptions: Boolean = false) {
-        val smoothMotion = playerPreferences.getMpvSmoothMotion()
+        // 插帧需要逐帧中间纹理，超高像素片源下反而导致掉帧。
+        val smoothMotion = playerPreferences.getMpvSmoothMotion() && !heavySource
         val interpolation = MpvPlaybackTuning.interpolation(smoothMotion, speed)
         val videoSync = MpvPlaybackTuning.videoSync(smoothMotion, speed)
         val framedrop = MpvPlaybackTuning.framedrop(speed)

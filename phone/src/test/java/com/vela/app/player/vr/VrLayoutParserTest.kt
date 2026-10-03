@@ -116,10 +116,57 @@ class VrLayoutParserTest {
     }
 
     @Test
-    fun parsesCrvrTitleAsFisheye() {
+    fun parsesCrvrTitleAsHalfEquirect() {
         val layout = VrLayoutParser.parse(itemName = "CRVR-146 【VR】深田えいみ")
-        assertEquals(VrProjection.Fisheye, layout?.projection)
+        assertEquals(VrProjection.HalfEquirect, layout?.projection)
         assertEquals(VrStereo.SideBySide, layout?.stereo)
         assertEquals(180, layout?.inputFov)
+    }
+
+    @Test
+    fun rejectsVrTitleFlattenedTo16by9() {
+        assertNull(
+            VrLayoutParser.parse(
+                itemName = "SIVR-357 【VR】可愛い",
+                videoWidth = 3840,
+                videoHeight = 2160
+            )
+        )
+    }
+
+    @Test
+    fun keeps8kSbsVrWhenSizeMatches() {
+        val layout = VrLayoutParser.parse(
+            itemName = "CRVR-416 【VR】【8KVR】",
+            videoWidth = 7680,
+            videoHeight = 3840
+        )
+        assertEquals(VrStereo.SideBySide, layout?.stereo)
+    }
+
+    @Test
+    fun infersStereoFromAspectWhenNameIsSilent() {
+        assertEquals(
+            VrStereo.Mono,
+            VrLayoutParser.parse(mediaSourcePath = "Clip_vr180.mp4", videoWidth = 4096, videoHeight = 4096)?.stereo
+        )
+        assertEquals(
+            VrStereo.TopBottom,
+            VrLayoutParser.parse(mediaSourcePath = "Clip_vr180.mp4", videoWidth = 2880, videoHeight = 5760)?.stereo
+        )
+        assertEquals(
+            VrStereo.Mono,
+            VrLayoutParser.parse(mediaSourcePath = "Travel_vr360.mp4", videoWidth = 5760, videoHeight = 2880)?.stereo
+        )
+    }
+
+    @Test
+    fun aspectOverridesContradictingStereoToken() {
+        val layout = VrLayoutParser.parse(
+            mediaSourcePath = "World_360_tb.mp4",
+            videoWidth = 7680,
+            videoHeight = 1920
+        )
+        assertEquals(VrStereo.SideBySide, layout?.stereo)
     }
 }

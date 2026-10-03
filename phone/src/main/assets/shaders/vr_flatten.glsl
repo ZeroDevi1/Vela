@@ -1,12 +1,10 @@
-//!HOOK MAIN
+__LOOK_PARAMS__//!HOOK MAIN
 //!BIND HOOKED
 //!DESC VR flatten to rectilinear 2D
-//!WIDTH OUTPUT.w OUTPUT.h * 0 > OUTPUT.w HOOKED.w ?
-//!HEIGHT OUTPUT.w OUTPUT.h * 0 > OUTPUT.h HOOKED.h ?
+//!WIDTH OUTPUT.w
+//!HEIGHT OUTPUT.h
 
-#define YAW __YAW__
-#define PITCH __PITCH__
-#define D_FOV __D_FOV__
+__LOOK_DEFINES__
 #define ID_FOV __ID_FOV__
 #define PROJ_MODE __PROJ_MODE__
 #define STEREO_MODE __STEREO_MODE__
@@ -59,7 +57,9 @@ vec4 hook() {
     }
 
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-        return vec4(0.0);
+        return vec4(0.0, 0.0, 0.0, 1.0);
     }
-    return HOOKED_tex(stereoUv(uv));
+    // 不用 HOOKED_tex：Adreno 预处理器不会把 HOOKED_tex -> MAINPRESUB_tex(pos) 这种
+    // "对象宏指向函数宏"继续展开，整个 hook 编译失败并被 libplacebo 禁用。
+    return textureLod(HOOKED_raw, stereoUv(uv), 0.0) * HOOKED_mul;
 }

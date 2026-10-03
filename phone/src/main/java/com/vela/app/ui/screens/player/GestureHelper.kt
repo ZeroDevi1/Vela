@@ -145,11 +145,9 @@ class GestureHelper(
                         dispatchVrSurfaceLook(surface, firstEvent, currentEvent)
                         return true
                     }
-                    val width = touchView.measuredWidth.coerceAtLeast(1)
-                    val height = touchView.measuredHeight.coerceAtLeast(1)
-                    val deltaYaw = -distanceX / width.toFloat() * 90f
-                    val deltaPitch = distanceY / height.toFloat() * 60f
-                    onLookAround(deltaYaw, deltaPitch)
+                    // 上报手指位移（以视图高度为单位，右/下为正），角度换算依赖当前 FOV，交给 ViewModel。
+                    val height = touchView.measuredHeight.coerceAtLeast(1).toFloat()
+                    onLookAround(-distanceX / height, -distanceY / height)
                     return true
                 }
 

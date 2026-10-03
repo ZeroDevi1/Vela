@@ -135,6 +135,12 @@ class PlayerViewModel @Inject constructor(
     private var spatializerHelper: SpatializerHelper? = null
     private var playerContext: Context? = null
     private var apiMediaStreams: List<MediaStream>? = null
+
+    /**
+     * 解码/色彩策略依据的流信息。服务端转码时实际收到的是转码器输出（H.264、已标色），
+     * 源文件的 HEVC/分辨率元数据不再适用，此时为 null。
+     */
+    private var decodePolicyStreams: List<MediaStream>? = null
     private var defaultAudioStreamIndex: Int? = null
     private var defaultSubtitleStreamIndex: Int? = null
     private var hasHandledPlaybackCompletion = false
@@ -200,6 +206,24 @@ class PlayerViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * 记录服务端直放/转码决策；转码 URL 里的 TranscodeReasons 是排查"该直放却被转码"的唯一依据。
+     * 只输出查询参数中的原因和码率，不含 api_key 等凭证。
+     */
+    private fun logPlaybackDecision(mediaSource: MediaSource?, maxStreamingBitrate: Int?) {
+        val transcodeUri = mediaSource?.transcodingUrl?.let(Uri::parse)
+        val video = mediaSource?.mediaStreams?.firstOrNull { it.type.equals("Video", ignoreCase = true) }
+        Log.i(
+            TAG,
+            "playback decision direct=${mediaSource?.supportsDirectPlay}/${mediaSource?.supportsDirectStream} " +
+                "container=${mediaSource?.container} bitrate=${mediaSource?.bitrate} " +
+                "video=${video?.codec}/${video?.codecTag} ${video?.width}x${video?.height} " +
+                "maxBitrate=$maxStreamingBitrate " +
+                "reasons=${transcodeUri?.getQueryParameter("TranscodeReasons")} " +
+                "transcodeMaxBitrate=${transcodeUri?.getQueryParameter("VideoBitrate")}"
+        )
     }
 
     private fun isMpvPlayback(): Boolean {
@@ -484,7 +508,8 @@ class PlayerViewModel @Inject constructor(
                     }
 
                     primaryMediaSource = playbackInfo.selectedMediaSource(requestedMediaSourceId)
-                    
+                    logPlaybackDecision(primaryMediaSource, maxStreamingBitrate)
+
                     apiMediaStreams = PlayerTrack.resolveApiMediaStreams(
                         itemDetails = itemDetails,
                         playbackMediaSource = primaryMediaSource
@@ -534,6 +559,9 @@ class PlayerViewModel @Inject constructor(
                         streamingUrl = streamingUrl,
                         fallback = sessionPlayMethod
                     )
+                    decodePolicyStreams = apiMediaStreams.takeUnless {
+                        sessionPlayMethod == PlayMethod.TRANSCODE
+                    }
 
                     val activeSubtitleStreamIndex = MPVPlayer.resolvedSubtitleStreamIndex(
                         preferredIndex = activePreferredSubtitleStreamIndex,
@@ -610,10 +638,10 @@ class PlayerViewModel @Inject constructor(
                         val strmHardwareDecoding = MPVPlayer.hardwareDecodingFor(
                             mediaSource = primaryMediaSource,
                             userPreference = playerPreferences.getMpvHardwareDecoding(),
-                            mediaStreams = apiMediaStreams
+                            mediaStreams = decodePolicyStreams
                         )
                         player.setHardwareDecoding(strmHardwareDecoding)
-                        player.applyStreamColorPolicy(apiMediaStreams)
+                        player.applyStreamColorPolicy(decodePolicyStreams)
                         Log.i(
                             "JellyCine-Sub",
                             "mpv subtitle plan index=$selectedSubtitleStreamIndex " +
@@ -709,15 +737,19 @@ class PlayerViewModel @Inject constructor(
                 val hardwareDecoding = MPVPlayer.hardwareDecodingFor(
                     mediaSource = primaryMediaSource,
                     userPreference = userHardwareDecoding,
-                    mediaStreams = apiMediaStreams
+                    mediaStreams = decodePolicyStreams
                 )
+                val sourceVideoStream = apiMediaStreams.orEmpty()
+                    .firstOrNull { it.type.equals("Video", ignoreCase = true) }
                 val vrLayout = VrLayoutParser.parse(
                     mediaSourcePath = primaryMediaSource?.path,
                     itemPath = itemDetails?.path,
                     itemName = itemDetails?.name,
                     mediaSourceName = primaryMediaSource?.name,
                     tags = itemDetails?.tags,
-                    video3DFormat = itemDetails?.video3DFormat
+                    video3DFormat = itemDetails?.video3DFormat,
+                    videoWidth = sourceVideoStream?.width,
+                    videoHeight = sourceVideoStream?.height
                 )
                 detectedVrLayout = vrLayout
                 _playerState.value = _playerState.value.copy(
@@ -802,6 +834,7 @@ class PlayerViewModel @Inject constructor(
                 hasRenderedFirstFrame = false
                 currentItemDetails = null
                 apiMediaStreams = null
+                decodePolicyStreams = null
                 defaultAudioStreamIndex = null
                 defaultSubtitleStreamIndex = null
                 playbackSession = PlaybackSessionContext()
@@ -1093,10 +1126,10 @@ class PlayerViewModel @Inject constructor(
         val applied = MPVPlayer.hardwareDecodingFor(
             mediaSource = null,
             userPreference = next,
-            mediaStreams = apiMediaStreams
+            mediaStreams = decodePolicyStreams
         )
         mpvPlayer?.setHardwareDecoding(applied)
-        mpvPlayer?.applyStreamColorPolicy(apiMediaStreams)
+        mpvPlayer?.applyStreamColorPolicy(decodePolicyStreams)
         _playerState.value = _playerState.value.copy(hardwareDecoding = applied)
     }
 
@@ -1121,11 +1154,19 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    fun applyVrLookDelta(deltaYaw: Float, deltaPitch: Float) {
+    /**
+     * 拖动视角：[fingerDx]/[fingerDy] 是手指位移占视图高度的比例（右/下为正）。
+     * 按画面中心的角分辨率 2·tan(FOV/2)/高度 换算，让画面内容"粘"在手指下；FOV 缩放后同样跟手。
+     */
+    fun applyVrLookDrag(fingerDx: Float, fingerDy: Float) {
         if (!_playerState.value.vrFlatEnabled) return
         val layout = detectedVrLayout ?: return
-        vrYaw = (vrYaw + deltaYaw).coerceIn(-layout.yawLimit, layout.yawLimit)
-        vrPitch = (vrPitch + deltaPitch).coerceIn(-85f, 85f)
+        val degreesPerHeight = Math.toDegrees(
+            2.0 * kotlin.math.tan(Math.toRadians(vrOutputFov / 2.0))
+        ).toFloat()
+        // 右拖：内容右移 = 视角左转（yaw 减小）；下拖：内容下移 = 视角上抬（pitch 增大）。
+        vrYaw = (vrYaw - fingerDx * degreesPerHeight).coerceIn(-layout.yawLimit, layout.yawLimit)
+        vrPitch = (vrPitch + fingerDy * degreesPerHeight).coerceIn(-85f, 85f)
         mpvPlayer?.setVrLook(layout, vrYaw, vrPitch, vrOutputFov)
     }
 
@@ -1691,6 +1732,7 @@ class PlayerViewModel @Inject constructor(
         playbackReporter.reset()
         trackSelectionCoordinator.clear()
         apiMediaStreams = null
+        decodePolicyStreams = null
         defaultAudioStreamIndex = null
         defaultSubtitleStreamIndex = null
         mpvExternalSubtitleUrls = emptyMap()
