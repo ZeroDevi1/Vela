@@ -3,7 +3,7 @@
 #
 # Do NOT compile ffmpeg/mpv inside this Windows Gradle tree.
 # mpv-android/buildscripts only work on Linux/macOS (WSL is unsupported).
-# mpv-android 2026-08-11 ships FFmpeg 9.0 (LIBAVUTIL_61) and libmpv @ f4d13e1.
+# mpv-android 2026-09-17 ships FFmpeg 9.0 (LIBAVUTIL_61) and libmpv @ 0b7ed67.
 #
 # Always copy the whole .so set, never libmpv.so alone.
 set -euo pipefail
@@ -11,7 +11,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST_ROOT="$ROOT/phone/src/main/jniLibs"
 SOURCE_FILE="$DEST_ROOT/SOURCE.txt"
-DEFAULT_TAG="2026-08-11"
+DEFAULT_TAG="2026-09-17"
 EXPECTED_SONAME="LIBAVUTIL_61"
 ABIS=(arm64-v8a armeabi-v7a x86 x86_64)
 REQUIRED=(
@@ -45,7 +45,7 @@ from-prefix   copy after a Linux mpv-android buildscripts run:
                 PREFIX_LIB_DIR = buildscripts/prefix/arm64/lib
                 PLAYER_SO      = app/build/.../libplayer.so
 
-Default tag $DEFAULT_TAG is libmpv (mpv @ f4d13e1) / FFmpeg 9.0 ($EXPECTED_SONAME).
+Default tag $DEFAULT_TAG is libmpv (mpv @ 0b7ed67) / FFmpeg 9.0 ($EXPECTED_SONAME).
 EOF
 }
 
