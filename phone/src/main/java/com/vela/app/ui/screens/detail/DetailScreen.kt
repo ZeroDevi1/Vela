@@ -1,4 +1,6 @@
 package com.vela.app.ui.screens.detail
+
+import com.vela.app.cache.PageSnapshotCache
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -83,6 +85,10 @@ internal val heroBottomFadeGradient = arrayOf(
     0.96f to Color.Black.copy(alpha = 0.86f),
     1.0f to Color.Black
 )
+
+/** 详情页磁盘快照的键：按服务器与账号隔离。 */
+private fun detailSnapshotKey(itemId: String, serverId: String?, username: String?): String =
+    listOf("detail-v1", serverId, username, itemId).joinToString("\u001F") { it.orEmpty() }
 
 private data class SeasonDetailData(
     val seriesId: String,
@@ -474,6 +480,16 @@ fun DetailScreenContainer(
     }
 
     LaunchedEffect(itemId, activeServerId) {
+        val snapshotKey = detailSnapshotKey(itemId, activeServerId, authRepository.getActiveSessionSnapshot().username)
+        if (item == null) {
+            // 内存里没有（进程被回收、冷启动）时用磁盘快照先把页面画出来，网络结果到达后再覆盖。
+            PageSnapshotCache.read(context, snapshotKey, BaseItemDto.serializer())?.let { snapshot ->
+                if (item == null) {
+                    item = snapshot.value
+                    isLoading = false
+                }
+            }
+        }
         val hadItem = item != null
         try {
             if (!hadItem) {
@@ -489,8 +505,9 @@ fun DetailScreenContainer(
             )
             result.fold(
                 onSuccess = { fetchedItem ->
-                    item = fetchedItem
+                    if (item != fetchedItem) item = fetchedItem
                     DetailPageCache.putItem(itemId, activeServerId, fetchedItem)
+                    PageSnapshotCache.write(context, snapshotKey, fetchedItem, BaseItemDto.serializer())
                     isLoading = false
                 },
                 onFailure = { exception ->

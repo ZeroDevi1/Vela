@@ -1,38 +1,32 @@
 package com.vela.app.ui.screens.player
 
-import android.annotation.SuppressLint
 import android.graphics.PixelFormat
-import android.media.AudioManager
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.ViewGroup
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.vela.app.player.mpv.MpvPlayerController
 
-@SuppressLint("ClickableViewAccessibility")
+/**
+ * mpv 渲染用的 SurfaceView。Surface 的生命周期即 mpv vo 的生命周期：销毁会卸载 vo，
+ * 所以调用方不能因横竖屏等原因重建它，尺寸变化交给 surfaceChanged。
+ */
 @UnstableApi
 @Composable
 fun MpvVideoSurface(
     player: MpvPlayerController,
     resizeMode: Int,
-    audioManager: AudioManager,
-    @Suppress("UNUSED_PARAMETER") isHdr: Boolean,
-    onToggleControls: () -> Unit,
-    onSeek: (Long) -> Unit,
-    onVolumeChange: (Float) -> Unit,
-    onBrightnessChange: (Float) -> Unit,
-    getCurrentVolumeLevel: () -> Float,
-    getCurrentBrightnessLevel: () -> Float,
-    onZoomChange: (Boolean) -> Unit,
-    onTogglePlayPause: () -> Unit,
-    onSurfaceReady: () -> Unit = {},
-    @Suppress("UNUSED_PARAMETER") subtitleAppearanceEpoch: Int = 0,
+    subtitleAppearanceEpoch: Int,
     modifier: Modifier
 ) {
+    // Surface 回调捕获的是创建时的控制器；换实例（下一集、换引擎）时必须换一个 SurfaceView 挂到新实例上。
+    key(player) {
     AndroidView(
         factory = { context ->
             SurfaceView(context).apply {
@@ -50,9 +44,6 @@ fun MpvVideoSurface(
                             width = frame.width(),
                             height = frame.height()
                         )
-                        if (frame.width() > 0 && frame.height() > 0) {
-                            post { onSurfaceReady() }
-                        }
                     }
 
                     override fun surfaceChanged(
@@ -62,9 +53,6 @@ fun MpvVideoSurface(
                         height: Int
                     ) {
                         player.resizeSurface(width, height)
-                        if (width > 0 && height > 0) {
-                            post { onSurfaceReady() }
-                        }
                     }
 
                     override fun surfaceDestroyed(holder: SurfaceHolder) {
@@ -73,13 +61,16 @@ fun MpvVideoSurface(
                 })
             }
         },
-        update = { view ->
-            player.applySubtitlePreferences()
-            player.setZoomMode(resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
-            if (view.width > 0 && view.height > 0) {
-                player.resizeSurface(view.width, view.height)
-            }
-        },
         modifier = modifier
     )
+    }
+
+    // 只在真正变化时写 mpv 属性。放在 AndroidView.update 里会随每次重组（进度刷新、手势）
+    // 重复设置字幕样式，触发 mpv 重新排版字幕并造成掉帧。尺寸由 surfaceChanged 负责同步。
+    LaunchedEffect(player, subtitleAppearanceEpoch) {
+        player.applySubtitlePreferences()
+    }
+    LaunchedEffect(player, resizeMode) {
+        player.setZoomMode(resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
+    }
 }

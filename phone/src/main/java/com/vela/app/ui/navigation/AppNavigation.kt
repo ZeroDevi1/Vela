@@ -1,15 +1,16 @@
 package com.vela.app.ui.navigation
 
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
+import androidx.activity.BackEventCompat
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.animateDp
-import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
@@ -49,6 +50,8 @@ import com.vela.app.ui.activity.PlayerActivity
 import com.vela.app.player.mpv.MpvWarmPool
 import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 import com.vela.data.model.BaseItemDto
 import com.vela.data.model.isAudioItem
 import com.vela.data.model.isBookItem
@@ -57,39 +60,74 @@ import com.vela.app.ui.screens.library.MediaLibraryScreen
 import com.vela.app.ui.screens.music.MusicPlayback
 import com.vela.app.ui.screens.music.MusicMiniPlayer
 
+/**
+ * 应用内预测性返回的手势状态。手势进行中，被返回的页面按 M3 规范跟手缩小、向手势侧平移、圆角渐显；
+ * 松手提交后保持最后的形变，与 popExit 叠加继续退场，不会弹回原尺寸再缩小。
+ *
+ * HyperOS 有时只发开始/提交、不发进度：此时 [progress] 始终为 0，提交后照常完整播放 popExit。
+ */
+@Stable
+private class NavBackPreview {
+    /** 正在被返回的页面；null 表示没有进行中的返回手势。 */
+    var entryId by mutableStateOf<String?>(null)
+
+    /** 已缓动的手势进度，0..1。 */
+    var progress by mutableFloatStateOf(0f)
+
+    /** 手势起始边缘，取值见 [BackEventCompat.EDGE_LEFT] / [BackEventCompat.EDGE_RIGHT]。 */
+    var swipeEdge by mutableIntStateOf(BackEventCompat.EDGE_LEFT)
+}
+
+/** M3 预测性返回：页面最多缩到 90%。 */
+private const val BACK_PREVIEW_MIN_SCALE = 0.9f
+
+/** 预测性返回的进度缓动，前段跟手更灵敏。 */
+private val BackPreviewEasing = CubicBezierEasing(0.1f, 0.1f, 0f, 1f)
+
 @Composable
 private fun PredictiveBackScene(
-    navController: NavController,
     entry: NavBackStackEntry,
-    animatedVisibilityScope: AnimatedVisibilityScope,
+    backPreview: NavBackPreview,
     content: @Composable () -> Unit
 ) {
-    val currentEntry by navController.currentBackStackEntryAsState()
-    val isCurrent = currentEntry?.id == entry.id
-    val transition = animatedVisibilityScope.transition
-    val corner by transition.animateDp(label = "nav-back-corner") { state ->
-        if (isCurrent && state == EnterExitState.PostExit) 28.dp else 0.dp
+    // 页面离开组合（popExit 播完）时清掉手势状态，下一次返回从头开始。
+    DisposableEffect(entry.id) {
+        onDispose {
+            if (backPreview.entryId == entry.id) {
+                backPreview.entryId = null
+                backPreview.progress = 0f
+            }
+        }
     }
-    val elevation by transition.animateFloat(label = "nav-back-elevation") { state ->
-        if (isCurrent && state == EnterExitState.PostExit) 24f else 0f
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
             .graphicsLayer {
-                val radiusPx = corner.toPx()
-                clip = radiusPx > 0.5f || elevation > 0f
-                shape = RoundedCornerShape(corner)
-                shadowElevation = elevation
+                // 只在绘制阶段读取手势状态，跟手过程不触发重组。
+                val progress = if (backPreview.entryId == entry.id) backPreview.progress else 0f
+                if (progress <= 0f) {
+                    clip = false
+                    return@graphicsLayer
+                }
+                val scale = 1f - (1f - BACK_PREVIEW_MIN_SCALE) * progress
+                scaleX = scale
+                scaleY = scale
+                // 向手势侧平移，最大位移为宽度的 1/20 减 8dp（M3 规范）。
+                val maxShift = (size.width / 20f - 8.dp.toPx()).coerceAtLeast(0f)
+                val direction = if (backPreview.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
+                translationX = direction * maxShift * progress
+                shape = RoundedCornerShape(32.dp * progress)
+                clip = true
+                shadowElevation = 12.dp.toPx() * progress
             }
     ) {
         content()
     }
 }
 
+private val LocalNavBackPreview = staticCompositionLocalOf { NavBackPreview() }
+
 private fun NavGraphBuilder.scene(
-    navController: NavController,
     route: String,
     arguments: List<NamedNavArgument> = emptyList(),
     enterTransition: (
@@ -109,11 +147,7 @@ private fun NavGraphBuilder.scene(
         popExitTransition = { NavTransitions.popExit() }
     ) { entry ->
         val animatedScope = this
-        PredictiveBackScene(
-            navController = navController,
-            entry = entry,
-            animatedVisibilityScope = animatedScope
-        ) {
+        PredictiveBackScene(entry = entry, backPreview = LocalNavBackPreview.current) {
             animatedScope.content(entry)
         }
     }
@@ -211,17 +245,39 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
         }
     }
 
+    val backPreview = remember { NavBackPreview() }
+    CompositionLocalProvider(LocalNavBackPreview provides backPreview) {
     Column(modifier = Modifier.fillMaxSize()) {
         val musicState by MusicPlayback.state.collectAsState()
         val currentEntry by navController.currentBackStackEntryAsState()
         val canPopNav = currentEntry != null && navController.previousBackStackEntry != null
         SideEffect {
-            // HyperOS 用 GestureStub 直接完成返回，NavHost 的 predictive seek 会一帧结束。
-            // 关掉 NavHost 自己吃返回，改走 popBackStack，才能播完整 popExit。
+            // NavHost 自带的预测性返回在提交时按已拖动比例计算剩余时长，HyperOS 不发进度时会一帧结束；
+            // 关掉它，由下面的 PredictiveBackHandler 自己做跟手预览，提交后 popBackStack 播完整 popExit。
             navController.enableOnBackPressed(false)
         }
-        BackHandler(enabled = canPopNav) {
-            navController.popBackStack()
+        val backScope = rememberCoroutineScope()
+        PredictiveBackHandler(enabled = canPopNav) { backEvents ->
+            val entryId = navController.currentBackStackEntry?.id
+            backPreview.entryId = entryId
+            backPreview.progress = 0f
+            try {
+                backEvents.collect { event ->
+                    backPreview.swipeEdge = event.swipeEdge
+                    backPreview.progress = BackPreviewEasing.transform(event.progress)
+                }
+                navController.popBackStack()
+            } catch (cancel: CancellationException) {
+                // 手势取消：弹回原样。本协程已取消，回弹放到界面作用域里执行。
+                val from = backPreview.progress
+                backScope.launch {
+                    animate(from, 0f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { value, _ ->
+                        if (backPreview.entryId == entryId) backPreview.progress = value
+                    }
+                    if (backPreview.entryId == entryId) backPreview.entryId = null
+                }
+                throw cancel
+            }
         }
 
     NavHost(
@@ -234,7 +290,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
         popExitTransition = { NavTransitions.popExit() }
     ) {
             scene(
-                navController,
                 "splash",
                 enterTransition = { NavTransitions.enter() },
                 exitTransition = {
@@ -260,7 +315,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "auth",
                 enterTransition = {
                     if (initialState.destination.route == "dashboard") {
@@ -292,7 +346,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "server_connection",
                 enterTransition = {
                     if (
@@ -314,7 +367,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "add_user?serverUrl={serverUrl}&serverName={serverName}",
                 arguments = listOf(
                     navArgument("serverUrl") {
@@ -351,7 +403,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "dashboard",
                 enterTransition = { NavTransitions.enter() },
                 exitTransition = {
@@ -430,7 +481,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "media_library/{kind}?libraryId={libraryId}&itemId={itemId}&nowPlaying={nowPlaying}",
                 arguments = listOf(
                     navArgument("kind") { type = NavType.StringType },
@@ -449,7 +499,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "player/{itemId}?fromStart={fromStart}",
                 arguments = listOf(
                     navArgument("itemId") { type = NavType.StringType },
@@ -482,7 +531,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "detail/{itemId}?mergeVersions={mergeVersions}",
                 arguments = listOf(
                     navArgument("itemId") { type = NavType.StringType },
@@ -531,7 +579,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "episode/{episodeId}",
                 arguments = listOf(navArgument("episodeId") { type = NavType.StringType }),
                 enterTransition = { NavTransitions.enter() },
@@ -572,7 +619,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "person/{personId}",
                 arguments = listOf(navArgument("personId") { type = NavType.StringType }),
                 enterTransition = { NavTransitions.enter() },
@@ -601,7 +647,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "viewall/{contentType}?parentId={parentId}&title={title}&genreId={genreId}&searchTerm={searchTerm}&tag={tag}&initialSort={initialSort}",
                 arguments = listOf(
                     navArgument("contentType") { type = NavType.StringType },
@@ -689,7 +734,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "player_settings",
                 enterTransition = { NavTransitions.enter() },
                 exitTransition = { NavTransitions.exit() }
@@ -705,7 +749,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "subtitle_settings",
                 enterTransition = { NavTransitions.enter() },
                 exitTransition = { NavTransitions.exit() }
@@ -718,7 +761,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "downloads",
                 enterTransition = { NavTransitions.enter() },
                 exitTransition = { NavTransitions.exit() }
@@ -731,7 +773,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "interface_settings",
                 enterTransition = { NavTransitions.enter() },
                 exitTransition = { NavTransitions.exit() }
@@ -744,7 +785,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "servers",
                 enterTransition = { NavTransitions.enter() },
                 exitTransition = { NavTransitions.exit() }
@@ -791,7 +831,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "connections_settings",
                 enterTransition = { NavTransitions.enter() },
                 exitTransition = { NavTransitions.exit() }
@@ -807,7 +846,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "cache_settings",
                 enterTransition = { NavTransitions.enter() },
                 exitTransition = { NavTransitions.exit() }
@@ -820,7 +858,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "about",
                 enterTransition = { NavTransitions.enter() },
                 exitTransition = { NavTransitions.exit() }
@@ -833,7 +870,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                navController,
                 "server_info",
                 enterTransition = { NavTransitions.enter() },
                 exitTransition = { NavTransitions.exit() }
@@ -851,5 +887,6 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                 modifier = Modifier.navigationBarsPadding()
             )
         }
+    }
     }
 }

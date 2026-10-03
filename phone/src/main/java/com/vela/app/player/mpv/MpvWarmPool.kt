@@ -54,7 +54,7 @@ object MpvWarmPool {
             withContext(Dispatchers.IO) {
                 MPVLib.preload()
             }
-            withContext(Dispatchers.Main) {
+            withContext(MpvPlayerController.LifecycleDispatcher) {
                 MpvPlayerController(
                     context = appContext,
                     hardwareDecoding = config.hardwareDecoding,
@@ -142,7 +142,7 @@ object MpvWarmPool {
         }
 
         try {
-            val created = withContext(Dispatchers.Main) {
+            val created = withContext(MpvPlayerController.LifecycleDispatcher) {
                 MpvPlayerController(
                     context = appContext,
                     hardwareDecoding = config.hardwareDecoding,

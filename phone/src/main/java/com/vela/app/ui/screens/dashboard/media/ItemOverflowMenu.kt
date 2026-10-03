@@ -25,6 +25,9 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.ClosedCaption
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.Refresh
@@ -68,6 +71,10 @@ import androidx.compose.ui.unit.sp
 import com.vela.app.download.DownloadRepositoryProvider
 import com.vela.data.model.BaseItemDto
 import com.vela.data.repository.MediaRepository
+import com.vela.app.ui.screens.metadata.MetadataEditor
+import com.vela.app.ui.screens.metadata.MetadataEditorSheet
+import com.vela.app.ui.screens.metadata.supportsSubtitleSearch
+import com.vela.app.ui.screens.metadata.supportsIdentify
 import com.vela.player.preferences.TranscodeProfile
 import com.vela.shared.R
 import com.vela.shared.util.image.JellyfinPosterImage
@@ -98,6 +105,11 @@ fun ItemOverflowSheet(
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmRemoveIdentify by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    var editor by remember { mutableStateOf(MetadataEditor.None) }
+    if (editor != MetadataEditor.None) {
+        MetadataEditorSheet(editor = editor, item = item, mediaRepository = mediaRepository, onDismiss = onDismiss)
+        return
+    }
     val isFavorite = item.userData?.isFavorite == true
     val isPlayed = item.userData?.played == true
     val isLocked = item.lockData == true
@@ -315,21 +327,33 @@ fun ItemOverflowSheet(
                     onClick = { confirmDelete = true }
                 )
                 OverflowAction(
-                    icon = Icons.Outlined.Search,
-                    label = stringResource(R.string.item_action_identify),
+                    icon = Icons.Outlined.Edit,
+                    label = stringResource(R.string.item_action_edit_metadata),
                     enabled = !busy,
-                    onClick = {
-                        val itemId = item.id ?: return@OverflowAction
-                        runAction {
-                            mediaRepository.refreshItemMetadata(
-                                itemId = itemId,
-                                metadataRefreshMode = "FullRefresh",
-                                imageRefreshMode = "FullRefresh",
-                                replaceAllMetadata = true
-                            )
-                        }
-                    }
+                    onClick = { editor = MetadataEditor.EditMetadata }
                 )
+                OverflowAction(
+                    icon = Icons.Outlined.Image,
+                    label = stringResource(R.string.item_action_edit_images),
+                    enabled = !busy,
+                    onClick = { editor = MetadataEditor.Images }
+                )
+                if (item.supportsSubtitleSearch()) {
+                    OverflowAction(
+                        icon = Icons.Outlined.ClosedCaption,
+                        label = stringResource(R.string.item_action_edit_subtitles),
+                        enabled = !busy,
+                        onClick = { editor = MetadataEditor.Subtitles }
+                    )
+                }
+                if (item.supportsIdentify()) {
+                    OverflowAction(
+                        icon = Icons.Outlined.Search,
+                        label = stringResource(R.string.item_action_identify),
+                        enabled = !busy,
+                        onClick = { editor = MetadataEditor.Identify }
+                    )
+                }
                 OverflowAction(
                     icon = Icons.Outlined.Replay,
                     label = stringResource(R.string.item_action_remove_identify),

@@ -3,6 +3,7 @@ package com.vela.app.ui.screens.dashboard.media
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.vela.app.cache.PageSnapshotCache
 import com.vela.app.ui.screens.dashboard.favorites.FAVORITES_VIEW_ALL_PARENT_ID
 import com.vela.data.model.AwardMode
 import com.vela.data.model.BaseItemDto
@@ -24,6 +25,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private val FirstPageSerializer = QueryResult.serializer(BaseItemDto.serializer())
+
+/** 进程内记住的管理员身份：再次进入媒体库时菜单立即可用，后台请求结果到达后再校正。 */
+@Volatile
+private var cachedIsAdministrator: Boolean? = null
 
 @HiltViewModel
 class ViewAllViewModel @Inject constructor(
@@ -47,6 +54,8 @@ class ViewAllViewModel @Inject constructor(
     private var hasMorePages = true
     private var currentRequestKey: String? = null
     private var loadJob: Job? = null
+    /** 正在用网络结果校正快照第一页；期间不翻页，否则会取消校正请求并从错误的页码续翻。 */
+    private var revalidatingSnapshot = false
     private var ensureJob: Job? = null
     @Volatile
     private var loadGeneration = 0
@@ -83,11 +92,16 @@ class ViewAllViewModel @Inject constructor(
         }
         currentRequestKey = requestKey
         ensureJob?.cancel()
-        ensureJob = viewModelScope.launch {
+        // 管理员身份只影响长按菜单，和列表请求并行，不能挡在首屏前面多等一次往返。
+        cachedIsAdministrator?.let { _uiState.value = _uiState.value.copy(isAdministrator = it) }
+        viewModelScope.launch {
             val isAdmin = withContext(Dispatchers.IO) {
-                repository().getCurrentUser().getOrNull()?.policy?.isAdministrator == true
-            }
+                repository().getCurrentUser().getOrNull()?.policy?.isAdministrator
+            } ?: return@launch
+            cachedIsAdministrator = isAdmin
             _uiState.value = _uiState.value.copy(isAdministrator = isAdmin)
+        }
+        ensureJob = viewModelScope.launch {
             val overrideSort = initialSort?.let(::matchedLibrarySortBy)
             if (overrideSort != null) {
                 // 临时排序只影响这次浏览：不读也不写库排序偏好，用户在页内改排序后照常保存。
@@ -205,12 +219,29 @@ class ViewAllViewModel @Inject constructor(
         loadJob?.cancel()
         val generation = ++loadGeneration
         loadJob = viewModelScope.launch {
-            val showRefresh = refresh && _items.value.isNotEmpty()
+            val snapshotKey = if (refresh) firstPageSnapshotKey(contentType, parentId, genreId) else null
+            // 首屏先用上次的快照秒开，网络结果回来后再覆盖；快照命中时静默刷新，不显示下拉刷新圈。
+            var showingSnapshot = false
+            if (snapshotKey != null && _items.value.isEmpty()) {
+                PageSnapshotCache.read(context, snapshotKey, FirstPageSerializer)?.let { snapshot ->
+                    if (generation != loadGeneration) return@launch
+                    val cachedItems = snapshot.value.items.orEmpty()
+                    if (cachedItems.isNotEmpty()) {
+                        _items.value = cachedItems
+                        totalItems = snapshot.value.totalRecordCount ?: cachedItems.size
+                        showingSnapshot = true
+                        revalidatingSnapshot = true
+                    }
+                }
+            }
+            val showRefresh = refresh && _items.value.isNotEmpty() && !showingSnapshot
             _uiState.value = _uiState.value.copy(
-                isLoading = !showRefresh,
+                isLoading = !showRefresh && !showingSnapshot,
                 isRefreshing = showRefresh,
+                totalItems = if (showingSnapshot) totalItems else _uiState.value.totalItems,
                 error = null
             )
+            try {
 
             try {
                 val repo = repository()
@@ -278,10 +309,19 @@ class ViewAllViewModel @Inject constructor(
                                 pagingTab &&
                                 (currentPage + 1) * pageSize < totalItems
 
+                            if (snapshotKey != null && newItems.isNotEmpty()) {
+                                PageSnapshotCache.write(
+                                    context,
+                                    snapshotKey,
+                                    queryResult.copy(items = newItems),
+                                    FirstPageSerializer
+                                )
+                            }
                             withContext(Dispatchers.Main) {
                                 if (generation != loadGeneration) return@withContext
                                 if (refresh) {
-                                    _items.value = newItems
+                                    // 与快照相同则不替换，避免网格无意义地整体重组。
+                                    if (_items.value != newItems) _items.value = newItems
                                 } else {
                                     _items.value = _items.value + newItems
                                 }
@@ -298,11 +338,22 @@ class ViewAllViewModel @Inject constructor(
                             if (exception.isCancellation()) throw exception
                             withContext(Dispatchers.Main) {
                                 if (generation != loadGeneration) return@withContext
-                                _uiState.value = _uiState.value.copy(
-                                    isLoading = false,
-                                    isRefreshing = false,
-                                    error = exception.message ?: "Unknown error occurred"
-                                )
+                                if (showingSnapshot) {
+                                    // 弱网/离线：保留快照，不覆盖成错误页。快照即第一页，翻页从第二页继续。
+                                    currentPage = 1
+                                    hasMorePages = currentPage * pageSize < totalItems
+                                    _uiState.value = _uiState.value.copy(
+                                        isLoading = false,
+                                        isRefreshing = false,
+                                        hasMorePages = hasMorePages
+                                    )
+                                } else {
+                                    _uiState.value = _uiState.value.copy(
+                                        isLoading = false,
+                                        isRefreshing = false,
+                                        error = exception.message ?: "Unknown error occurred"
+                                    )
+                                }
                             }
                         }
                     )
@@ -311,13 +362,42 @@ class ViewAllViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 if (generation != loadGeneration) return@launch
+                if (showingSnapshot) currentPage = 1
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     isRefreshing = false,
-                    error = e.message ?: "Unknown error occurred"
+                    error = if (showingSnapshot) null else e.message ?: "Unknown error occurred"
                 )
             }
+            } finally {
+                if (generation == loadGeneration) revalidatingSnapshot = false
+            }
         }
+    }
+
+    /**
+     * 第一页快照的键：服务器、账号与决定结果内容的全部条件（类型、库、文件夹/类型钻取、排序、筛选、搜索、标签）。
+     * 任一条件不同都视为不同的页，保证快照内容与当前条件一致。
+     */
+    private fun firstPageSnapshotKey(contentType: ContentType, parentId: String?, genreId: String?): String {
+        val session = authRepository.getActiveSessionSnapshot()
+        val state = _uiState.value
+        return listOf(
+            "library-v1",
+            session.activeServerId,
+            session.username,
+            contentType.name,
+            parentId,
+            genreId,
+            state.browseTab.name,
+            folderStack.lastOrNull()?.id,
+            drilledGenre?.id,
+            state.sortBy,
+            state.sortOrder,
+            state.selectedGenres.sorted().joinToString("|"),
+            activeSearchTerm,
+            activeTag
+        ).joinToString("\u001F") { it.orEmpty() }
     }
 
     private suspend fun loadQuery(
@@ -521,6 +601,7 @@ class ViewAllViewModel @Inject constructor(
     }
 
     fun loadMoreItems(contentType: ContentType, parentId: String? = null, genreId: String? = null) {
+        if (revalidatingSnapshot) return
         loadItems(contentType, parentId, refresh = false, genreId = genreId)
     }
 

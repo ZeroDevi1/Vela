@@ -1,17 +1,15 @@
 package com.vela.app.ui.screens.player
 
-import android.content.Context
-import android.media.AudioManager
 import android.view.LayoutInflater
 import android.view.View
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
+import androidx.compose.material3.MaterialTheme
+import com.vela.shared.ui.theme.velaMotion
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -33,6 +31,11 @@ import com.vela.app.player.vr.VrLayout
 import com.vela.app.player.vr.VrStereo
 import kotlin.math.roundToInt
 
+/**
+ * 视频画面层。只负责渲染与缩放平移；手势全部由 [PlayerGestureLayer] 处理。
+ *
+ * 缩放/平移动画只在 graphicsLayer 中读取，动画过程不触发重组，也不会让 AndroidView 重新执行 update。
+ */
 @UnstableApi
 @Composable
 fun VideoSurface(
@@ -44,52 +47,37 @@ fun VideoSurface(
     offsetX: Float,
     offsetY: Float,
     resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT,
-    isHdr: Boolean = false,
-    onVolumeChange: (Float) -> Unit,
-    onBrightnessChange: (Float) -> Unit,
-    getCurrentVolumeLevel: () -> Float,
-    getCurrentBrightnessLevel: () -> Float,
-    onSeek: (Long) -> Unit,
-    onToggleControls: () -> Unit,
-    onTogglePlayPause: () -> Unit = {},
-    onZoomChange: (Boolean) -> Unit = {},
-    onSurfaceReady: () -> Unit = {},
-    snapTransform: Boolean = false,
     subtitleAppearanceEpoch: Int = 0,
     vrFlatEnabled: Boolean = false,
     vrLayout: VrLayout? = null,
     onSphericalTouchTarget: ((View?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-
-    val transformAnim = if (snapTransform) tween<Float>(durationMillis = 0) else tween<Float>(durationMillis = 200)
-    val animatedScale by animateFloatAsState(
+    val motion = MaterialTheme.velaMotion
+    val animatedScale = animateFloatAsState(
         targetValue = scale,
-        animationSpec = transformAnim,
+        animationSpec = motion.defaultSpatialSpec(),
         label = "video_scale"
     )
-    val animatedOffsetX by animateFloatAsState(
+    val animatedOffsetX = animateFloatAsState(
         targetValue = offsetX,
-        animationSpec = transformAnim,
+        animationSpec = motion.defaultSpatialSpec(),
         label = "video_offset_x"
     )
-    val animatedOffsetY by animateFloatAsState(
+    val animatedOffsetY = animateFloatAsState(
         targetValue = offsetY,
-        animationSpec = transformAnim,
+        animationSpec = motion.defaultSpatialSpec(),
         label = "video_offset_y"
     )
-    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val surfaceModifier = Modifier
         .fillMaxSize()
-        .clip(RoundedCornerShape(0.dp))
-        .graphicsLayer(
-            scaleX = animatedScale,
-            scaleY = animatedScale,
-            translationX = animatedOffsetX,
-            translationY = animatedOffsetY,
-            clip = false
-        )
+        .clipToBounds()
+        .graphicsLayer {
+            scaleX = animatedScale.value
+            scaleY = animatedScale.value
+            translationX = animatedOffsetX.value
+            translationY = animatedOffsetY.value
+        }
 
     Box(
         modifier = modifier.background(Color.Black)
@@ -98,17 +86,6 @@ fun VideoSurface(
             MpvVideoSurface(
                 player = mpvPlayer,
                 resizeMode = resizeMode,
-                audioManager = audioManager,
-                isHdr = isHdr,
-                onToggleControls = onToggleControls,
-                onSeek = onSeek,
-                onVolumeChange = onVolumeChange,
-                onBrightnessChange = onBrightnessChange,
-                getCurrentVolumeLevel = getCurrentVolumeLevel,
-                getCurrentBrightnessLevel = getCurrentBrightnessLevel,
-                onZoomChange = onZoomChange,
-                onTogglePlayPause = onTogglePlayPause,
-                onSurfaceReady = onSurfaceReady,
                 subtitleAppearanceEpoch = subtitleAppearanceEpoch,
                 modifier = surfaceModifier
             )

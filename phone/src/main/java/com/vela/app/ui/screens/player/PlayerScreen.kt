@@ -3,6 +3,7 @@ package com.vela.app.ui.screens.player
 import android.content.res.Configuration
 import android.content.Context
 import android.media.AudioManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.View
 import androidx.activity.compose.BackHandler
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -60,8 +62,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
  */
 data class PlayerUiState(
     val controlsVisible: Boolean = true,
-    val currentPosition: Long = 0L,
-    val bufferedPosition: Long = 0L,
     val isPlaying: Boolean = false,
     val volumeLevel: Float? = null,
     val brightnessLevel: Float? = null,
@@ -74,6 +74,19 @@ data class PlayerUiState(
     val videoOffsetX: Float = 0f,
     val videoOffsetY: Float = 0f
 )
+
+/**
+ * 播放进度单独成 state，不放进 [PlayerUiState]：进度每 250ms 刷新一次，
+ * 只应让读取它的时间文字和进度条重组/重绘，不能牵动整页和视频 Surface。
+ */
+@Stable
+class PlaybackProgressState {
+    /** 当前播放位置，毫秒。 */
+    var positionMs by mutableLongStateOf(0L)
+
+    /** 已缓冲到的位置，毫秒。 */
+    var bufferedMs by mutableLongStateOf(0L)
+}
 
 /**
  * Player Screen with proper immersive mode and gestures
@@ -109,6 +122,7 @@ fun PlayerScreen(
 
     // Consolidated UI state
     var uiState by remember { mutableStateOf(PlayerUiState()) }
+    val playbackProgress = remember { PlaybackProgressState() }
     var lifecycle by remember { mutableStateOf(Lifecycle.Event.ON_CREATE) }
     var autoHideKey by remember { mutableStateOf(0) }
     var autoHideHeld by remember { mutableStateOf(false) }
@@ -142,8 +156,17 @@ fun PlayerScreen(
     var pendingStreamingQualitySelection by remember { mutableStateOf<String?>(null) }
     var showMediaInfo by remember { mutableStateOf(false) }
     var showVrProjectionDialog by remember { mutableStateOf(false) }
+    /** 定时关闭的截止时刻（elapsedRealtime 毫秒）；null 表示未开启。到点只暂停，不退出播放页。 */
+    var sleepTimerDeadline by rememberSaveable { mutableStateOf<Long?>(null) }
     val mediaInfoSnapshot = remember(showMediaInfo, viewModel) {
         if (showMediaInfo) viewModel.getMediaMetadataInfo() else null
+    }
+
+    LaunchedEffect(sleepTimerDeadline) {
+        val deadline = sleepTimerDeadline ?: return@LaunchedEffect
+        delay((deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L))
+        viewModel.pause()
+        sleepTimerDeadline = null
     }
 
     // Player state from ViewModel
@@ -266,6 +289,7 @@ fun PlayerScreen(
         autoHideHeld = autoHideHeld,
         hideSystemBars = hideSystemBars,
         uiStateProvider = { uiState },
+        playbackProgress = playbackProgress,
         onUiStateChange = { uiState = it },
         initializedMediaIdProvider = { initializedMediaId },
         onInitializedMediaIdChange = { initializedMediaId = it },
@@ -294,7 +318,8 @@ fun PlayerScreen(
     val hasPlaybackSettings = playerState.isVideoTranscodingAllowed ||
         playerState.isAudioTranscodingAllowed
     val playbackDuration = viewModel.getDuration()
-    val activeSkippableSegment = remember(
+    // 进度只在 derivedStateOf 里读取：片段切换时才触发整页重组，而不是每次进度刷新。
+    val activeSkippableSegment by remember(
         skipIntroEnabled,
         playerState.isLocked,
         playerState.recapStartMs,
@@ -305,16 +330,17 @@ fun PlayerScreen(
         playerState.creditsEndMs,
         playerState.previewStartMs,
         playerState.previewEndMs,
-        playbackDuration,
-        uiState.currentPosition
+        playbackDuration
     ) {
-        if (!skipIntroEnabled || playerState.isLocked) {
-            null
-        } else {
-            playerState.findActiveSkippableSegment(
-                positionMs = uiState.currentPosition,
-                durationMs = playbackDuration
-            )
+        derivedStateOf(structuralEqualityPolicy()) {
+            if (!skipIntroEnabled || playerState.isLocked) {
+                null
+            } else {
+                playerState.findActiveSkippableSegment(
+                    positionMs = playbackProgress.positionMs,
+                    durationMs = playbackDuration
+                )
+            }
         }
     }
     val activeCreditsSegment = activeSkippableSegment?.takeIf {
@@ -346,7 +372,6 @@ fun PlayerScreen(
             }
         },
         onStop = {
-            viewModel.releasePlayer()
             onBackPressed?.invoke()
         }
     )
@@ -489,29 +514,15 @@ fun PlayerScreen(
     val miniLayout = compactPlayback && !inPip
 
     // Back handler
-    BackHandler(enabled = !miniLayout) {
-        if (showPlaybackInfoSheet) {
-            showPlaybackInfoSheet = false
-        } else {
-            viewModel.releasePlayer()
-            onBackPressed?.invoke()
-        }
+    // 只在有浮层可关时拦截返回；否则交给系统，播放跨 Activity 的原生预测性返回（跟手露出下层详情页）。
+    // 退出前的暂停、上报由 PlayerActivity.finish 统一处理。
+    BackHandler(enabled = !miniLayout && showPlaybackInfoSheet) {
+        showPlaybackInfoSheet = false
     }
 
     val isPortraitPlayback = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
-    var hideVideoForRotation by remember { mutableStateOf(false) }
     var vrSphericalView by remember { mutableStateOf<View?>(null) }
-    var seenPortraitPlayback by remember { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(isPortraitPlayback, miniLayout) {
-        if (miniLayout) return@LaunchedEffect
-        val previous = seenPortraitPlayback
-        seenPortraitPlayback = isPortraitPlayback
-        if (previous == null || previous == isPortraitPlayback) return@LaunchedEffect
-        hideVideoForRotation = true
-        delay(180)
-        hideVideoForRotation = false
-    }
-    BoxWithConstraints(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
@@ -519,90 +530,26 @@ fun PlayerScreen(
         // Surface 铺满窗口，由播放器在内部 letterbox；字幕才能画到竖屏上下黑边。
         contentAlignment = Alignment.Center
     ) {
-        key(isPortraitPlayback) {
-        val videoAspect = viewModel.getSourceVideoAspectRatio()?.takeIf { it > 0f } ?: (16f / 9f)
-        val screenAspect = (maxWidth / maxHeight).let { ratio ->
-            if (ratio > 0f) ratio else (16f / 9f)
-        }
-        val fitWidthRatio = if (screenAspect <= videoAspect) 1f else videoAspect / screenAspect
-        val fillWidthScale = 1f / fitWidthRatio.coerceAtLeast(0.01f)
+        // 旋转时保留同一个 SurfaceView：尺寸变化走 surfaceChanged 即时重排。不能按方向 key 重建，
+        // 否则 mpv 会随 Surface 销毁卸载 vo、重建解码与渲染管线，表现为黑屏后重新加载。
+        // 播放器内部按 Fit 做 letterbox（长边贴满屏幕、完整显示画面），这里不再额外放大；
+        // 需要铺满时由“画面比例”切到 Zoom 或用捏合/画面尺寸调整。
         VideoSurface(
             player = viewModel.exoPlayer,
             mpvPlayer = viewModel.mpvPlayer,
             lifecycle = lifecycle,
             isInPictureInPictureMode = inPip,
-            scale = fillWidthScale * playerState.videoWidthFraction * playerState.videoScale,
+            scale = playerState.videoWidthFraction * playerState.videoScale,
             offsetX = playerState.videoOffsetX,
             offsetY = playerState.videoOffsetY,
             resizeMode = viewModel.getCurrentResizeMode(),
-            isHdr = playerState.isHdrEnabled,
-            onVolumeChange = { level ->
-                if (!playerState.isLocked) {
-                    playerVolume = level.coerceIn(0f, 1f)
-                    if (!useDeviceVolumeInPlayer) {
-                        playerPreferences.setPlayerVolume(playerVolume)
-                    }
-
-                    // Apply volume to system
-                    val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                    val newVolume = (playerVolume * maxVolume).toInt().coerceIn(0, maxVolume)
-                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0)
-
-                    uiState = uiState.copy(volumeLevel = playerVolume)
-                }
-            },
-            onBrightnessChange = { delta ->
-                if (!playerState.isLocked) {
-                    activity?.let { act ->
-                        val newPlayerBrightness = (playerBrightness + delta).coerceIn(0.01f, 1f)
-                        playerBrightness = newPlayerBrightness
-                        if (!useDeviceBrightnessInPlayer) {
-                            playerPreferences.setPlayerBrightness(newPlayerBrightness)
-                        }
-
-                        val layoutParams = act.window.attributes
-                        layoutParams.screenBrightness = newPlayerBrightness
-                        act.window.attributes = layoutParams
-
-                        uiState = uiState.copy(brightnessLevel = newPlayerBrightness)
-                    }
-                }
-            },
-            getCurrentVolumeLevel = { playerVolume },
-            getCurrentBrightnessLevel = { playerBrightness },
-            onSeek = { delta ->
-                if (!playerState.isLocked) {
-                    viewModel.seekBy(delta)
-                    uiState = uiState.copy(seekPosition = null)
-                }
-            },
-            onToggleControls = {
-                resetAutoHideTimer()
-                uiState = uiState.copy(controlsVisible = !uiState.controlsVisible)
-            },
-            onTogglePlayPause = viewModel::togglePlayPause,
-            onZoomChange = { isZooming ->
-                viewModel.handlePinchZoom(isZooming)
-            },
-            onSurfaceReady = { hideVideoForRotation = false },
-            snapTransform = hideVideoForRotation,
             subtitleAppearanceEpoch = viewModel.subtitleAppearanceEpoch,
             vrFlatEnabled = playerState.vrFlatEnabled,
             vrLayout = playerState.vrProjectionId?.let(VrLayoutParser::layoutForId),
             onSphericalTouchTarget = { vrSphericalView = it },
             modifier = Modifier.fillMaxSize()
         )
-        }
 
-        if (hideVideoForRotation) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
-            )
-        }
-
-        key(isPortraitPlayback) {
         PlayerGestureLayer(
             audioManager = audioManager,
             enabled = !miniLayout &&
@@ -619,10 +566,8 @@ fun PlayerScreen(
             onSeek = { delta ->
                 if (!playerState.isLocked) {
                     viewModel.seekBy(delta)
-                    uiState = uiState.copy(
-                        currentPosition = viewModel.getCurrentPosition(),
-                        seekPosition = null
-                    )
+                    playbackProgress.positionMs = viewModel.getCurrentPosition()
+                    uiState = uiState.copy(seekPosition = null)
                 }
             },
             onVolumeChange = { level ->
@@ -684,7 +629,6 @@ fun PlayerScreen(
             },
             getVrSurface = { vrSphericalView }
         )
-        }
 
         if (!miniLayout) {
         PlayerOverlayHost(
@@ -764,7 +708,21 @@ fun PlayerScreen(
                 )
             },
             onPositionChanged = { position ->
-                uiState = uiState.copy(currentPosition = position)
+                playbackProgress.positionMs = position
+            },
+            playbackProgress = playbackProgress,
+            sleepTimerDeadline = sleepTimerDeadline,
+            onSetSleepTimer = { minutes ->
+                sleepTimerDeadline = minutes?.let { SystemClock.elapsedRealtime() + it * 60_000L }
+            },
+            onAddLocalSubtitle = { localSubtitlePicker.launch(arrayOf("*/*")) },
+            onShowSubtitleStyle = {
+                showSubtitleStyleSheet = true
+                uiState = uiState.copy(controlsVisible = false)
+            },
+            onShowSubtitleDelay = {
+                showSubtitleDelaySheet = true
+                uiState = uiState.copy(controlsVisible = false)
             }
         )
         } else {
@@ -775,7 +733,6 @@ fun PlayerScreen(
             )
             IconButton(
                 onClick = {
-                    viewModel.releasePlayer()
                     onBackPressed?.invoke()
                 },
                 modifier = Modifier
@@ -888,7 +845,7 @@ fun PlayerScreen(
                 onDismiss = { showChaptersSheet = false },
                 onChapterSelected = { chapter ->
                     viewModel.seekTo(chapter.positionMs)
-                    uiState = uiState.copy(currentPosition = chapter.positionMs)
+                    playbackProgress.positionMs = chapter.positionMs
                     showChaptersSheet = false
                     resetAutoHideTimer()
                 }

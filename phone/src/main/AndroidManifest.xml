@@ -26,6 +26,11 @@
         android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!--
+        开启系统预测性返回。应用内页面由 AppNavigation 的 PredictiveBackHandler 自己做跟手预览，
+        不留给系统处理（否则 HyperOS 会叠加一张静止的窗口截图缩小动画）；
+        播放页无可关闭的浮层时不拦截返回，交给系统播放跨 Activity 的原生返回预览。
+    -->
     <application
         android:name=".VelaApplication"
         android:allowBackup="true"

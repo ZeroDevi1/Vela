@@ -9,6 +9,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
@@ -22,11 +23,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.core.view.WindowCompat
 import androidx.media3.common.util.UnstableApi
+import com.vela.app.R
 import com.vela.app.locale.AppLanguageManager
+import com.vela.app.ui.screens.player.requestedOrientationFor
+import com.vela.player.preferences.PlayerPreferences
 import com.vela.app.ui.player.PictureInPictureHost
 import com.vela.app.ui.player.applyPlayerPipParams
 import com.vela.app.ui.player.findActivity
 import com.vela.app.ui.screens.player.PlayerScreen
+import com.vela.app.ui.screens.player.PlayerViewModel
 import com.vela.data.repository.MediaRepositoryProvider
 import com.vela.shared.ui.theme.VelaTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -38,6 +43,8 @@ import kotlinx.coroutines.flow.asStateFlow
 @AndroidEntryPoint
 class PlayerActivity : ComponentActivity(), PictureInPictureHost {
 
+    /** 与 PlayerScreen 里 hiltViewModel() 取到的是同一实例（同为本 Activity 的 ViewModelStore）。 */
+    private val playerViewModel: PlayerViewModel by viewModels()
     private val pipMode = MutableStateFlow(false)
     private val playbackArgs = MutableStateFlow<PlaybackArgs?>(null)
 
@@ -52,8 +59,12 @@ class PlayerActivity : ComponentActivity(), PictureInPictureHost {
         super.onCreate(savedInstanceState)
         AppLanguageManager.applySavedLanguage(this)
         applyEdgeToEdgeSystemBars()
-        @Suppress("DEPRECATION")
-        overridePendingTransition(0, 0)
+        // 首帧之前就锁定方向：否则窗口先按竖屏出现，等 Compose 生效后再旋转，会多一次布局与旋转动画。
+        requestedOrientation = requestedOrientationFor(PlayerPreferences(this).getPlayerOrientation())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, R.anim.player_fade_in, R.anim.player_hold)
+            overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, R.anim.player_hold, R.anim.player_fade_out)
+        }
         playbackArgs.value = PlaybackArgs.from(intent)
         pipMode.value = isInPictureInPictureMode
 
@@ -91,10 +102,17 @@ class PlayerActivity : ComponentActivity(), PictureInPictureHost {
         applyEdgeToEdgeSystemBars()
     }
 
+    /**
+     * 所有退出路径（返回键、系统预测性返回、媒体会话停止、返回按钮）最终都会走到这里：
+     * 先暂停并上报停止，解码器释放留给 ViewModel.onCleared，在退出转场结束后进行。
+     */
     override fun finish() {
+        if (!isFinishing) playerViewModel.prepareExit()
         super.finish()
-        @Suppress("DEPRECATION")
-        overridePendingTransition(0, 0)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(R.anim.player_hold, R.anim.player_fade_out)
+        }
     }
 
     private fun applyEdgeToEdgeSystemBars() {
@@ -150,8 +168,10 @@ class PlayerActivity : ComponentActivity(), PictureInPictureHost {
                 }
             }
             context.startActivity(intent)
-            @Suppress("DEPRECATION")
-            activity?.overridePendingTransition(0, 0)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                @Suppress("DEPRECATION")
+                activity?.overridePendingTransition(R.anim.player_fade_in, R.anim.player_hold)
+            }
         }
     }
 }

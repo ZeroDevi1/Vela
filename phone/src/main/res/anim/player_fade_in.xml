@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    进入播放器：M3 Shared axis Z 前进——从略小放大到原尺寸并淡入。
+    透明度先完成，缩放用减速曲线收尾，避免黑色视频窗口长时间半透明发灰。
+-->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shareInterpolator="false">
+    <alpha
+        android:duration="150"
+        android:fromAlpha="0.0"
+        android:interpolator="@android:interpolator/linear_out_slow_in"
+        android:toAlpha="1.0" />
+    <scale
+        android:duration="280"
+        android:fromXScale="0.92"
+        android:fromYScale="0.92"
+        android:interpolator="@android:interpolator/decelerate_cubic"
+        android:pivotX="50%"
+        android:pivotY="50%"
+        android:toXScale="1.0"
+        android:toYScale="1.0" />
+</set>

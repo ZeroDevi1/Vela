@@ -1008,6 +1008,44 @@ class PlayerViewModel @Inject constructor(
         return true
     }
 
+    /** 远程直链播放没有可重建的媒体会话，不支持中途换引擎。 */
+    fun canSwitchPlayerEngine(): Boolean =
+        remotePlaybackRequestKey == null && playbackSession.mediaId != null && playerContext != null
+
+    /**
+     * 在 MPV 与 ExoPlayer 之间切换当前播放的引擎，保留进度、播放状态和已选音轨/字幕。
+     * 只影响本次播放，不改写设置里的默认引擎；条件不满足时不做任何事。
+     */
+    fun switchPlayerEngine() {
+        if (!canSwitchPlayerEngine()) return
+        val context = playerContext ?: return
+        val mediaId = playbackSession.mediaId ?: return
+        cancelMpvWatchdog()
+        val targetEngine = if (isMpvPlayback()) {
+            PlayerPreferences.PLAYER_ENGINE_EXO
+        } else {
+            PlayerPreferences.PLAYER_ENGINE_MPV
+        }
+        val itemDetails = currentItemDetails
+        val resumePositionMs = getCurrentPosition()
+        val shouldResumePlaying = _playerState.value.playWhenReady || isPlayingNow()
+        val preferredAudioStreamIndex = _preferredStreamIndexes.value.audioStreamIndex
+        val preferredSubtitleStreamIndex = _preferredStreamIndexes.value.subtitleStreamIndex
+
+        releasePlayer()
+        initializePlayer(
+            context = context,
+            mediaId = mediaId,
+            initialItemDetails = itemDetails,
+            preferredAudioStreamIndex = preferredAudioStreamIndex,
+            preferredSubtitleStreamIndex = preferredSubtitleStreamIndex,
+            initialSeekPositionMs = resumePositionMs,
+            startPlayback = shouldResumePlaying,
+            forcedPlayerEngine = targetEngine,
+            mediaSourceId = requestedMediaSourceId
+        )
+    }
+
     private fun cancelMpvWatchdog() {
         mpvWatchdogJob?.cancel()
         mpvWatchdogJob = null
@@ -1768,6 +1806,19 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 退出播放页的第一步：立即暂停、保存进度并上报停止，然后调用方即可 finish。
+     *
+     * 真正释放解码器（ExoPlayer.release 可能阻塞主线程数百毫秒）留给 [onCleared]，
+     * 它在播放页销毁时执行，此时返回转场已经结束，不会卡住下层页面的首帧。
+     */
+    fun prepareExit() {
+        exoPlayer?.pause()
+        mpvPlayer?.pause()
+        persistPosition()
+        playbackReporter.reportPlaybackStopped(refreshDelayMs = EXIT_TRANSITION_SETTLE_MS)
+    }
+
     fun releasePlayer() {
         ActivePlayback.setActive(false)
         releaseScrubPreview()
@@ -2472,6 +2523,9 @@ class PlayerViewModel @Inject constructor(
     }
 
 }
+
+/** 退出转场（缩小淡出 220ms，见 res/anim/player_fade_out.xml）加余量，单位毫秒；在此之后再让详情页刷新条目。 */
+private const val EXIT_TRANSITION_SETTLE_MS = 400L
 
 /** 关键帧预览长边上限，单位像素。 */
 private const val SCRUB_PREVIEW_WIDTH_PX = 320

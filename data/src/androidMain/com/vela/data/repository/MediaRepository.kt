@@ -1,6 +1,7 @@
 package com.vela.data.repository
 
 import android.content.Context
+import kotlin.coroutines.cancellation.CancellationException
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -907,6 +908,149 @@ class MediaRepository(private val context: Context) {
             } else {
                 Result.failure(Exception("Failed to remove identification: ${response.code()} - ${response.message()}"))
             }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 识别：用名称/年份/外部 ID 向服务端的元数据提供方搜索候选。
+     *
+     * @param searchType RemoteSearch 路径段，见 [com.vela.data.model.remoteSearchTypeFor]
+     */
+    suspend fun searchRemoteMetadata(
+        itemId: String,
+        searchType: String,
+        searchInfo: com.vela.data.model.RemoteSearchInfo
+    ): Result<List<com.vela.data.model.RemoteSearchResult>> = remoteMetadataCall("search metadata") { api ->
+        api.remoteSearch(
+            searchType = searchType,
+            query = com.vela.data.model.RemoteSearchQuery(itemId = itemId, searchInfo = searchInfo)
+        )
+    }.map { it.orEmpty() }
+
+    /** 应用识别结果；服务端在返回前已完成元数据刷新。 */
+    suspend fun applyRemoteMetadata(
+        itemId: String,
+        result: com.vela.data.model.RemoteSearchResult,
+        replaceAllImages: Boolean
+    ): Result<Unit> = remoteMetadataCall("apply metadata") { api ->
+        api.applyRemoteSearchResult(itemId, result, replaceAllImages)
+    }.map { }
+
+    suspend fun getRemoteImages(
+        itemId: String,
+        imageType: com.vela.data.model.RemoteImageType,
+        providerName: String? = null,
+        includeAllLanguages: Boolean = false
+    ): Result<com.vela.data.model.RemoteImageResult> = remoteMetadataCall("load remote images") { api ->
+        api.getRemoteImages(
+            itemId = itemId,
+            imageType = imageType.apiValue,
+            providerName = providerName,
+            includeAllLanguages = includeAllLanguages
+        )
+    }.map { it ?: com.vela.data.model.RemoteImageResult() }
+
+    suspend fun downloadRemoteImage(
+        itemId: String,
+        imageType: com.vela.data.model.RemoteImageType,
+        image: com.vela.data.model.RemoteImageInfo
+    ): Result<Unit> {
+        val url = image.url?.takeIf { it.isNotBlank() }
+            ?: return Result.failure(IllegalArgumentException("Remote image has no url"))
+        return remoteMetadataCall("download remote image") { api ->
+            api.downloadRemoteImage(
+                itemId = itemId,
+                imageType = imageType.apiValue,
+                imageUrl = url,
+                providerName = image.providerName
+            )
+        }.map { }
+    }
+
+    suspend fun getExternalIdInfos(itemId: String): Result<List<com.vela.data.model.ExternalIdInfo>> =
+        remoteMetadataCall("load external ids") { api -> api.getExternalIdInfos(itemId) }.map { it.orEmpty() }
+
+    suspend fun getItemImages(itemId: String): Result<List<com.vela.data.model.ItemImageInfo>> =
+        remoteMetadataCall("load item images") { api -> api.getItemImages(itemId) }.map { it.orEmpty() }
+
+    suspend fun deleteItemImage(itemId: String, imageType: String, imageIndex: Int?): Result<Unit> =
+        remoteMetadataCall("delete image") { api -> api.deleteItemImage(itemId, imageType, imageIndex) }.map { }
+
+    /**
+     * 上传本地图片。Base64 编码在后台线程完成，大图（数 MB）不会占用主线程。
+     *
+     * @param mimeType 例如 `image/jpeg`、`image/png`
+     */
+    suspend fun uploadItemImage(
+        itemId: String,
+        imageType: String,
+        bytes: ByteArray,
+        mimeType: String
+    ): Result<Unit> {
+        val encoded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        }
+        return remoteMetadataCall("upload image") { api ->
+            api.uploadItemImage(itemId, imageType, encoded, mimeType)
+        }.map { }
+    }
+
+    /** 读取条目的原始 JSON，供元数据编辑整份回写。 */
+    suspend fun getItemJson(itemId: String): Result<kotlinx.serialization.json.JsonObject> {
+        val userId = getUserId()
+            ?: return Result.failure(Exception(string(R.string.data_error_user_id_not_available)))
+        return remoteMetadataCall("load item") { api -> api.getItemJson(userId, itemId) }.mapCatching {
+            it ?: error("Empty item response")
+        }
+    }
+
+    suspend fun updateItemJson(itemId: String, item: kotlinx.serialization.json.JsonObject): Result<Unit> =
+        remoteMetadataCall("update item") { api -> api.updateItemJson(itemId, item) }.map { }
+
+    suspend fun searchRemoteSubtitles(
+        itemId: String,
+        language: String,
+        mediaSourceId: String?
+    ): Result<List<com.vela.data.model.RemoteSubtitleInfo>> =
+        remoteMetadataCall("search subtitles") { api ->
+            api.searchRemoteSubtitles(itemId, language, mediaSourceId)
+        }.map { it.orEmpty() }
+
+    suspend fun downloadRemoteSubtitle(itemId: String, subtitleId: String, mediaSourceId: String?): Result<Unit> =
+        remoteMetadataCall("download subtitle") { api ->
+            api.downloadRemoteSubtitle(itemId, subtitleId, mediaSourceId)
+        }.map { }
+
+    suspend fun deleteSubtitle(itemId: String, mediaSourceId: String?, streamIndex: Int): Result<Unit> =
+        remoteMetadataCall("delete subtitle") { api ->
+            api.deleteSubtitle(itemId, mediaSourceId, streamIndex)
+        }.map { }
+
+    suspend fun getCultures(): Result<List<com.vela.data.model.CultureInfo>> =
+        remoteMetadataCall("load cultures") { api -> api.getCultures() }.map { it.orEmpty() }
+
+    /** 管理接口的统一包装：非 2xx 转为带状态码的 [HttpStatusException]，便于界面区分无权限。 */
+    private suspend inline fun <T> remoteMetadataCall(
+        action: String,
+        crossinline call: suspend (com.vela.data.api.MediaServerApi) -> com.vela.data.network.ApiResponse<T>
+    ): Result<T?> {
+        return try {
+            val api = getApi() ?: return Result.failure(Exception(string(R.string.data_error_api_not_available)))
+            val response = call(api)
+            if (response.isSuccessful) {
+                Result.success(response.body())
+            } else {
+                Result.failure(
+                    HttpStatusException(
+                        statusCode = response.code(),
+                        message = "Failed to $action: ${response.code()} - ${response.message()}"
+                    )
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

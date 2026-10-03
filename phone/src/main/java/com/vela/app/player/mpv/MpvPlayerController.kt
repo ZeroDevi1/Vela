@@ -18,6 +18,9 @@ import `is`.xyz.mpv.MPVLib
 import `is`.xyz.mpv.MPVLib.MpvEvent
 import `is`.xyz.mpv.MPVLib.MpvFormat
 import java.io.File
+import java.util.concurrent.Executors
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
 import java.util.Locale
 
 class MpvPlayerController(
@@ -34,6 +37,18 @@ class MpvPlayerController(
         private const val COLOR_LOG_TAG = "JellyCine-Color"
         private const val VR_LOG_TAG = "JellyCine-VR"
         private const val VR_LOOK_RELOAD_MS = 32L
+
+        /**
+         * mpv 是进程级单例（[MPVLib] 持有唯一句柄）。创建要初始化 GPU 上下文，销毁要等解码/网络线程退出，
+         * 都可能阻塞上百毫秒，因此统一放到这条单线程上串行执行：既不卡主线程（转场、旋转保持流畅），
+         * 又保证新实例一定在上一个实例销毁完成之后才创建。
+         *
+         * 构造 [MpvPlayerController] 必须在此 dispatcher 上进行。
+         */
+        private val lifecycleExecutor = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "mpv-lifecycle")
+        }
+        val LifecycleDispatcher: CoroutineDispatcher = lifecycleExecutor.asCoroutineDispatcher()
     }
 
     interface Listener {
@@ -510,8 +525,12 @@ class MpvPlayerController(
         vrLookScheduled = false
         MpvWarmPool.notifyReleased(this)
         runCatching { MPVLib.removeObserver(this) }
-        runCatching { MPVLib.detachSurface() }
-        runCatching { MPVLib.destroy() }
+        // released 已置位，此后主线程上的所有调用都会提前返回；Surface 由 ANativeWindow 引用计数保活，
+        // 即使 SurfaceView 先销毁，后台 detach 也只会得到可忽略的 EGL 错误。
+        lifecycleExecutor.execute {
+            runCatching { MPVLib.detachSurface() }
+            runCatching { MPVLib.destroy() }
+        }
     }
 
     override fun eventProperty(property: String) = Unit

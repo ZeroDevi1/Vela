@@ -583,6 +583,129 @@ internal class MediaServerApiClient(
         endpoint = "Items/$itemId"
     )
 
+    override suspend fun remoteSearch(
+        searchType: String,
+        query: com.vela.data.model.RemoteSearchQuery
+    ): ApiResponse<List<com.vela.data.model.RemoteSearchResult>> = post(
+        endpoint = "Items/RemoteSearch/$searchType",
+        requestBody = query
+    )
+
+    override suspend fun applyRemoteSearchResult(
+        itemId: String,
+        result: com.vela.data.model.RemoteSearchResult,
+        replaceAllImages: Boolean
+    ): ApiResponse<Unit> = post(
+        endpoint = "Items/RemoteSearch/Apply/$itemId",
+        requestBody = result,
+        queryParameters = listOf("ReplaceAllImages" to replaceAllImages)
+    )
+
+    override suspend fun getRemoteImages(
+        itemId: String,
+        imageType: String,
+        providerName: String?,
+        includeAllLanguages: Boolean
+    ): ApiResponse<com.vela.data.model.RemoteImageResult> = get(
+        endpoint = "Items/$itemId/RemoteImages",
+        queryParameters = listOf(
+            "Type" to imageType,
+            "ProviderName" to providerName,
+            "IncludeAllLanguages" to includeAllLanguages
+        )
+    )
+
+    override suspend fun downloadRemoteImage(
+        itemId: String,
+        imageType: String,
+        imageUrl: String,
+        providerName: String?
+    ): ApiResponse<Unit> = post(
+        endpoint = "Items/$itemId/RemoteImages/Download",
+        queryParameters = listOf(
+            "Type" to imageType,
+            "ImageUrl" to imageUrl,
+            "ProviderName" to providerName
+        )
+    )
+
+    override suspend fun getExternalIdInfos(itemId: String): ApiResponse<List<com.vela.data.model.ExternalIdInfo>> =
+        get("Items/$itemId/ExternalIdInfos")
+
+    override suspend fun getItemImages(itemId: String): ApiResponse<List<com.vela.data.model.ItemImageInfo>> =
+        get("Items/$itemId/Images")
+
+    override suspend fun deleteItemImage(itemId: String, imageType: String, imageIndex: Int?): ApiResponse<Unit> =
+        execute(
+            method = HttpMethod.Delete,
+            endpoint = if (imageIndex != null) {
+                "Items/$itemId/Images/$imageType/$imageIndex"
+            } else {
+                "Items/$itemId/Images/$imageType"
+            }
+        )
+
+    override suspend fun uploadItemImage(
+        itemId: String,
+        imageType: String,
+        base64Data: String,
+        mimeType: String
+    ): ApiResponse<Unit> {
+        val response = client.request("Items/$itemId/Images/$imageType") {
+            method = HttpMethod.Post
+            contentType(ContentType.parse(mimeType))
+            setBody(base64Data)
+        }
+        return response.toApiResponse()
+    }
+
+    override suspend fun getItemJson(
+        userId: String,
+        itemId: String
+    ): ApiResponse<kotlinx.serialization.json.JsonObject> = get("Users/$userId/Items/$itemId")
+
+    override suspend fun updateItemJson(
+        itemId: String,
+        item: kotlinx.serialization.json.JsonObject
+    ): ApiResponse<Unit> = post(
+        endpoint = "Items/$itemId",
+        requestBody = item
+    )
+
+    override suspend fun searchRemoteSubtitles(
+        itemId: String,
+        language: String,
+        mediaSourceId: String?
+    ): ApiResponse<List<com.vela.data.model.RemoteSubtitleInfo>> = get(
+        endpoint = "Items/$itemId/RemoteSearch/Subtitles/$language",
+        queryParameters = listOf("MediaSourceId" to mediaSourceId)
+    )
+
+    override suspend fun downloadRemoteSubtitle(
+        itemId: String,
+        subtitleId: String,
+        mediaSourceId: String?
+    ): ApiResponse<Unit> = post(
+        endpoint = "Items/$itemId/RemoteSearch/Subtitles/$subtitleId",
+        queryParameters = listOf("MediaSourceId" to mediaSourceId)
+    )
+
+    override suspend fun deleteSubtitle(
+        itemId: String,
+        mediaSourceId: String?,
+        streamIndex: Int
+    ): ApiResponse<Unit> = execute(
+        method = HttpMethod.Delete,
+        endpoint = if (serverType == ServerType.EMBY) {
+            "Videos/$itemId/${mediaSourceId ?: itemId}/Subtitles/$streamIndex"
+        } else {
+            "Videos/$itemId/Subtitles/$streamIndex"
+        }
+    )
+
+    override suspend fun getCultures(): ApiResponse<List<com.vela.data.model.CultureInfo>> =
+        get("Localization/Cultures")
+
     override suspend fun updateItem(
         itemId: String,
         item: BaseItemDto

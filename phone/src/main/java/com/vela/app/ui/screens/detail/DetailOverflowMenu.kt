@@ -23,7 +23,11 @@ import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.PlayCircle
+import androidx.compose.material.icons.outlined.ClosedCaption
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Theaters
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AlertDialog
@@ -54,6 +58,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vela.data.model.BaseItemDto
 import com.vela.data.repository.MediaRepository
+import com.vela.app.ui.screens.metadata.MetadataEditor
+import com.vela.app.ui.screens.metadata.MetadataEditorSheet
+import com.vela.app.ui.screens.metadata.supportsSubtitleSearch
+import com.vela.app.ui.screens.metadata.rememberIsAdministrator
+import com.vela.app.ui.screens.metadata.supportsIdentify
 import com.vela.shared.R
 import com.vela.shared.util.image.JellyfinPosterImage
 import com.vela.shared.util.image.imageTagFor
@@ -79,6 +88,13 @@ internal fun DetailOverflowSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var confirmDelete by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    var editor by remember { mutableStateOf(MetadataEditor.None) }
+    val isAdministrator = rememberIsAdministrator(mediaRepository)
+    // 选中识别/编辑图片后由对应面板接替显示，关闭时整体退出，父级无需额外状态。
+    if (editor != MetadataEditor.None) {
+        MetadataEditorSheet(editor = editor, item = item, mediaRepository = mediaRepository, onDismiss = onDismiss)
+        return
+    }
     val posterUrl = rememberImageUrl(
         itemId = item.id,
         imageType = "Primary",
@@ -215,6 +231,36 @@ internal fun DetailOverflowSheet(
                 modifier = Modifier.padding(vertical = 8.dp),
                 color = Color.White.copy(alpha = 0.08f)
             )
+            if (isAdministrator) {
+                DetailOverflowAction(
+                    icon = Icons.Outlined.Edit,
+                    label = stringResource(R.string.item_action_edit_metadata),
+                    enabled = !busy,
+                    onClick = { editor = MetadataEditor.EditMetadata }
+                )
+                DetailOverflowAction(
+                    icon = Icons.Outlined.Image,
+                    label = stringResource(R.string.item_action_edit_images),
+                    enabled = !busy,
+                    onClick = { editor = MetadataEditor.Images }
+                )
+                if (item.supportsSubtitleSearch()) {
+                    DetailOverflowAction(
+                        icon = Icons.Outlined.ClosedCaption,
+                        label = stringResource(R.string.item_action_edit_subtitles),
+                        enabled = !busy,
+                        onClick = { editor = MetadataEditor.Subtitles }
+                    )
+                }
+                if (item.supportsIdentify()) {
+                    DetailOverflowAction(
+                        icon = Icons.Outlined.Search,
+                        label = stringResource(R.string.item_action_identify),
+                        enabled = !busy,
+                        onClick = { editor = MetadataEditor.Identify }
+                    )
+                }
+            }
             DetailOverflowAction(
                 icon = Icons.Outlined.Refresh,
                 label = stringResource(R.string.item_action_refresh_metadata),

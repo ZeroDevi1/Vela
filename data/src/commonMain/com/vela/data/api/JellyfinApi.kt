@@ -287,6 +287,77 @@ interface MediaServerApi {
 
     suspend fun deleteItem(itemId: String): ApiResponse<Unit>
 
+    /** 识别：按 [searchType]（Movie/Series 等，见 remoteSearchTypeFor）搜索候选。需要管理员权限。 */
+    suspend fun remoteSearch(
+        searchType: String,
+        query: com.vela.data.model.RemoteSearchQuery
+    ): ApiResponse<List<com.vela.data.model.RemoteSearchResult>>
+
+    /** 应用识别结果并同步刷新元数据；[replaceAllImages] 为 true 时同时替换全部图片。 */
+    suspend fun applyRemoteSearchResult(
+        itemId: String,
+        result: com.vela.data.model.RemoteSearchResult,
+        replaceAllImages: Boolean
+    ): ApiResponse<Unit>
+
+    /** 列出某类图片的远程候选；[providerName] 为 null 时返回全部提供方。 */
+    suspend fun getRemoteImages(
+        itemId: String,
+        imageType: String,
+        providerName: String? = null,
+        includeAllLanguages: Boolean = true
+    ): ApiResponse<com.vela.data.model.RemoteImageResult>
+
+    suspend fun getExternalIdInfos(itemId: String): ApiResponse<List<com.vela.data.model.ExternalIdInfo>>
+
+    /** 条目当前的全部图片（含多张背景图的索引）。 */
+    suspend fun getItemImages(itemId: String): ApiResponse<List<com.vela.data.model.ItemImageInfo>>
+
+    suspend fun deleteItemImage(itemId: String, imageType: String, imageIndex: Int?): ApiResponse<Unit>
+
+    /**
+     * 上传本地图片。Emby 与 Jellyfin 都要求请求体是 Base64 文本、Content-Type 为图片的 MIME 类型。
+     * 背景图会追加为新的一张，其余类型替换现有图片。
+     */
+    suspend fun uploadItemImage(
+        itemId: String,
+        imageType: String,
+        base64Data: String,
+        mimeType: String
+    ): ApiResponse<Unit>
+
+    /**
+     * 以原始 JSON 读取条目。编辑元数据必须整份回写，用原始 JSON 才不会丢掉模型里未声明的字段。
+     */
+    suspend fun getItemJson(userId: String, itemId: String): ApiResponse<kotlinx.serialization.json.JsonObject>
+
+    suspend fun updateItemJson(itemId: String, item: kotlinx.serialization.json.JsonObject): ApiResponse<Unit>
+
+    suspend fun searchRemoteSubtitles(
+        itemId: String,
+        language: String,
+        mediaSourceId: String?
+    ): ApiResponse<List<com.vela.data.model.RemoteSubtitleInfo>>
+
+    suspend fun downloadRemoteSubtitle(
+        itemId: String,
+        subtitleId: String,
+        mediaSourceId: String?
+    ): ApiResponse<Unit>
+
+    /** 删除外挂字幕。Jellyfin 与 Emby 路径不同，由实现按服务端类型区分。 */
+    suspend fun deleteSubtitle(itemId: String, mediaSourceId: String?, streamIndex: Int): ApiResponse<Unit>
+
+    suspend fun getCultures(): ApiResponse<List<com.vela.data.model.CultureInfo>>
+
+    /** 让服务端下载远程图片并设为该条目的 [imageType] 图片。 */
+    suspend fun downloadRemoteImage(
+        itemId: String,
+        imageType: String,
+        imageUrl: String,
+        providerName: String?
+    ): ApiResponse<Unit>
+
     suspend fun updateItem(itemId: String, item: BaseItemDto): ApiResponse<Unit>
 
     suspend fun createPlaylist(

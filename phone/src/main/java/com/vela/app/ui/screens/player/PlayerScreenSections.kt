@@ -2,6 +2,7 @@
 
 package com.vela.app.ui.screens.player
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
@@ -75,11 +76,24 @@ import java.util.Locale
 private const val PLAYER_POSITION_UPDATE_ACTIVE_MS = 250L
 private const val PLAYER_POSITION_UPDATE_IDLE_MS = 750L
 
+/**
+ * 低内存设备上起播前清空图片内存缓存，给解码器和 Surface 腾空间。
+ * 内存充裕的设备保留缓存：否则返回详情页时所有图片都要重新解码，表现为闪烁和掉帧；
+ * 真正吃紧时 Coil 会通过 onTrimMemory 自行回收。
+ */
 private fun trimImageMemoryCacheForPlayback(context: Context) {
+    val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+    val constrained = activityManager == null ||
+        activityManager.isLowRamDevice ||
+        activityManager.memoryClass <= LOW_MEMORY_CLASS_MB
+    if (!constrained) return
     runCatching {
         SingletonImageLoader.get(context).memoryCache?.clear()
     }
 }
+
+/** 应用堆上限不超过该值（MB）时视为内存吃紧。 */
+private const val LOW_MEMORY_CLASS_MB = 192
 
 @Composable
 internal fun PlayerScreenEffects(
@@ -117,6 +131,7 @@ internal fun PlayerScreenEffects(
     hideSystemBars: () -> Unit,
     uiStateProvider: () -> PlayerUiState,
     onUiStateChange: (PlayerUiState) -> Unit,
+    playbackProgress: PlaybackProgressState,
     initializedMediaIdProvider: () -> String?,
     onInitializedMediaIdChange: (String?) -> Unit,
     onLifecycleChange: (Lifecycle.Event) -> Unit,
@@ -124,25 +139,34 @@ internal fun PlayerScreenEffects(
     onPreferredStreamIndexesChanged: (Int?, Int?) -> Unit,
     playerOrientation: String = PlayerPreferences.DEFAULT_PLAYER_ORIENTATION
 ) {
-    DisposableEffect(playerOrientation, compactPlayback) {
+    // 方向切换只发一次请求：恢复原方向放在离开播放页时的 onDispose 里，
+    // 不能跟随 playerOrientation 重启，否则每次旋转都会先转回原方向再转到目标方向。
+    LaunchedEffect(playerOrientation, compactPlayback) {
+        if (compactPlayback) return@LaunchedEffect
+        val activity = context.findActivity() ?: return@LaunchedEffect
+        val requested = requestedOrientationFor(playerOrientation)
+        if (activity.requestedOrientation != requested) {
+            activity.requestedOrientation = requested
+        }
+        if (playerOrientation != PlayerPreferences.PLAYER_ORIENTATION_PORTRAIT) {
+            hideSystemBars()
+        }
+    }
+
+    DisposableEffect(Unit) {
         currentView.keepScreenOn = true
         val activity = context.findActivity()
         val originalRequestedOrientation = activity?.requestedOrientation
-        activity?.let { act ->
-            if (!compactPlayback) {
-                act.requestedOrientation = requestedOrientationFor(playerOrientation)
-                if (playerOrientation != PlayerPreferences.PLAYER_ORIENTATION_PORTRAIT) {
-                    hideSystemBars()
-                }
-            }
-            act.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         onDispose {
             currentView.keepScreenOn = false
             activity?.let { act ->
-                act.requestedOrientation =
-                    originalRequestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                // 正在关闭的播放页不再改方向：否则退出动画期间窗口会多转一次，下层页面按自己的方向恢复。
+                if (!act.isFinishing) {
+                    act.requestedOrientation =
+                        originalRequestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
                 act.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 WindowCompat.getInsetsController(act.window, act.window.decorView)
                     .show(WindowInsetsCompat.Type.systemBars())
@@ -234,7 +258,9 @@ internal fun PlayerScreenEffects(
             if (initializedMediaIdProvider() != null) {
                 viewModel.releasePlayer()
             }
-            onUiStateChange(uiStateProvider().copy(currentPosition = 0L, isPlaying = false))
+            playbackProgress.positionMs = 0L
+            playbackProgress.bufferedMs = 0L
+            onUiStateChange(uiStateProvider().copy(isPlaying = false))
             if (!remoteMediaUrl.isNullOrBlank()) {
                 viewModel.initializeRemotePlayer(
                     context = context,
@@ -271,18 +297,11 @@ internal fun PlayerScreenEffects(
             val bufferedPosition = viewModel.getBufferedPosition()
             val isPlayingNow = viewModel.isPlayingNow()
             val uiState = uiStateProvider()
-            if (
-                uiState.currentPosition != currentPosition ||
-                uiState.bufferedPosition != bufferedPosition ||
-                uiState.isPlaying != isPlayingNow
-            ) {
-                onUiStateChange(
-                    uiState.copy(
-                        currentPosition = currentPosition,
-                        bufferedPosition = bufferedPosition,
-                        isPlaying = isPlayingNow
-                    )
-                )
+            // 进度写入独立 state，只有读取它的进度条/时间会刷新；播放状态变化才更新整页 uiState。
+            playbackProgress.positionMs = currentPosition
+            playbackProgress.bufferedMs = bufferedPosition
+            if (uiState.isPlaying != isPlayingNow) {
+                onUiStateChange(uiState.copy(isPlaying = isPlayingNow))
             }
             // 控件显示时保持进度灵敏；隐藏后降低整屏重组频率，跳过片段判断仍保持亚秒级响应。
             delay(
@@ -418,7 +437,13 @@ internal fun BoxScope.PlayerOverlayHost(
     onShowChapters: () -> Unit = {},
     onShowVrProjection: () -> Unit = {},
     onSeekFeedback: (String, SeekSide) -> Unit = { _, _ -> },
-    onPositionChanged: (Long) -> Unit = {}
+    onPositionChanged: (Long) -> Unit = {},
+    playbackProgress: PlaybackProgressState,
+    sleepTimerDeadline: Long? = null,
+    onSetSleepTimer: (Int?) -> Unit = {},
+    onAddLocalSubtitle: () -> Unit = {},
+    onShowSubtitleStyle: () -> Unit = {},
+    onShowSubtitleDelay: () -> Unit = {}
 ): Unit {
     var nextEpisodeButtonProgress by remember(
         activeCreditsSegment?.startMs,
@@ -464,8 +489,9 @@ internal fun BoxScope.PlayerOverlayHost(
         }
     }
 
-    // 控制层整体淡入淡出；内部元素不再各自做出现动画，避免层层叠加的动效。
+    // 控制层整体淡入淡出；顶栏、底栏、两侧和中央按各自方向做位移/缩放，由 ControlsOverlay 内部声明。
     val controlsMotion = MaterialTheme.velaMotion
+    val mpvActive = viewModel.mpvPlayer != null
     AnimatedVisibility(
         visible = uiState.controlsVisible,
         enter = fadeIn(controlsMotion.defaultEffectsSpec()),
@@ -473,17 +499,18 @@ internal fun BoxScope.PlayerOverlayHost(
         modifier = Modifier.fillMaxSize()
     ) {
         ControlsOverlay(
+            visibilityScope = this,
             title = playerState.mediaTitle,
             seasonEpisodeLabel = playerState.seasonEpisodeLabel,
             seriesName = playerState.seriesName,
+            logoUrl = playerState.mediaLogoUrl,
             chapterMarkers = if (chapterMarkersEnabled) playerState.chapterMarkers else emptyList(),
             isPlaying = playerState.playWhenReady,
             isBuffering = showLoadingOverlay,
-            currentPosition = uiState.currentPosition,
+            positionMs = { playbackProgress.positionMs },
+            bufferedMs = { playbackProgress.bufferedMs },
             duration = viewModel.getDuration(),
-            bufferedPosition = uiState.bufferedPosition,
             onBackClick = {
-                viewModel.releasePlayer()
                 onBackPressed?.invoke()
             },
             onPlayPause = {
@@ -543,6 +570,11 @@ internal fun BoxScope.PlayerOverlayHost(
                 resetAutoHideTimer()
                 onAdjustVideoSize()
             },
+            aspectZoomed = playerState.aspectRatioMode == "Zoom",
+            onCycleAspectRatio = {
+                resetAutoHideTimer()
+                viewModel.cycleAspectRatio()
+            },
             onToggleOrientation = {
                 resetAutoHideTimer()
                 onToggleOrientation()
@@ -563,6 +595,8 @@ internal fun BoxScope.PlayerOverlayHost(
                 onPositionChanged(viewModel.getCurrentPosition())
                 onSeekFeedback("+${seekForwardSeconds}s", SeekSide.RIGHT)
             },
+            seekBackwardSeconds = seekBackwardSeconds,
+            seekForwardSeconds = seekForwardSeconds,
             canPlayPreviousEpisode = canWatchPreviousEpisode,
             canPlayNextEpisode = canWatchNextEpisode,
             onPlayPreviousEpisode = {
@@ -573,16 +607,44 @@ internal fun BoxScope.PlayerOverlayHost(
                 resetAutoHideTimer()
                 onWatchNextEpisode()
             },
-            seekBackwardSeconds = seekBackwardSeconds,
-            seekForwardSeconds = seekForwardSeconds,
             onEnterPip = {
                 resetAutoHideTimer()
                 onEnterPip()
             },
+            // 硬解开关和截图只对 MPV 生效；ExoPlayer 下隐藏入口，避免点了没反应。
+            hardwareDecodingLabel = if (mpvActive) hardwareDecodingLabel(playerState.hardwareDecoding) else null,
             onToggleHardwareDecoding = {
                 resetAutoHideTimer()
                 viewModel.toggleHardwareDecoding()
             },
+            onScreenshot = if (mpvActive) {
+                {
+                    resetAutoHideTimer()
+                    viewModel.captureScreenshot()
+                }
+            } else {
+                null
+            },
+            mpvEngineActive = mpvActive,
+            onSwitchPlayerEngine = if (viewModel.canSwitchPlayerEngine()) {
+                {
+                    resetAutoHideTimer()
+                    viewModel.switchPlayerEngine()
+                }
+            } else {
+                null
+            },
+            sleepTimerDeadline = sleepTimerDeadline,
+            onSetSleepTimer = { minutes ->
+                resetAutoHideTimer()
+                onSetSleepTimer(minutes)
+            },
+            onAddLocalSubtitle = {
+                resetAutoHideTimer()
+                onAddLocalSubtitle()
+            },
+            onShowSubtitleStyle = onShowSubtitleStyle,
+            onShowSubtitleDelay = onShowSubtitleDelay,
             onShowChapters = {
                 resetAutoHideTimer()
                 onShowChapters()
@@ -592,8 +654,6 @@ internal fun BoxScope.PlayerOverlayHost(
                 viewModel.setPlaybackSpeed(speed)
             },
             playbackSpeed = playerState.playbackSpeed,
-            hardwareDecodingEnabled = playerState.hardwareDecoding !=
-                PlayerPreferences.MPV_HARDWARE_DECODING_NONE,
             vrDetected = playerState.vrDetected,
             vrFlatEnabled = playerState.vrFlatEnabled,
             onToggleVrFlat = {
@@ -726,7 +786,16 @@ private fun BufferingIndicator() {
     }
 }
 
-private fun formatTransferRate(bytesPerSecond: Double): String {
+/**
+ * mpv 解码方式的简写，沿用 mpv-android 的约定：mediacodec 直出为 HW+，copy 回读为 HW，软解为 SW。
+ */
+private fun hardwareDecodingLabel(mode: String): String = when (mode) {
+    PlayerPreferences.MPV_HARDWARE_DECODING_NONE -> "SW"
+    PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC_COPY -> "HW"
+    else -> "HW+"
+}
+
+internal fun formatTransferRate(bytesPerSecond: Double): String {
     val kb = bytesPerSecond / 1024.0
     return if (kb < 1024.0) {
         String.format(Locale.US, "%.0f KB/s", kb)
@@ -868,7 +937,7 @@ internal fun PlayerDialogsHost(
     )
 }
 
-private fun requestedOrientationFor(orientation: String): Int {
+internal fun requestedOrientationFor(orientation: String): Int {
     return when (orientation) {
         PlayerPreferences.PLAYER_ORIENTATION_LANDSCAPE ->
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    退出播放器：M3 Shared axis Z 后退——缩小并淡出，露出下方保持不动的详情页。
+    淡出比缩放更快结束，竖屏下不会出现黑色视频区半透明压在详情页上的灰雾感。
+-->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shareInterpolator="false">
+    <alpha
+        android:duration="160"
+        android:fromAlpha="1.0"
+        android:interpolator="@android:interpolator/fast_out_linear_in"
+        android:toAlpha="0.0" />
+    <scale
+        android:duration="220"
+        android:fromXScale="1.0"
+        android:fromYScale="1.0"
+        android:interpolator="@android:interpolator/fast_out_slow_in"
+        android:pivotX="50%"
+        android:pivotY="50%"
+        android:toXScale="0.9"
+        android:toYScale="0.9" />
+</set>
