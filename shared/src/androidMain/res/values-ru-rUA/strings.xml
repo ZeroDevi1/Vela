@@ -569,16 +569,6 @@
     <!-- Connections Settings -->
     <string name="settings_connections"></string>
     <string name="settings_connections_subtitle"></string>
-    <!-- Discord Settings -->
-    <string name="settings_discord"></string>
-    <string name="settings_discord_subtitle_connected"></string>
-    <string name="settings_discord_subtitle_disconnected"></string>
-    <string name="settings_discord_status_connected"></string>
-    <string name="settings_discord_show_activity"></string>
-    <string name="settings_discord_show_activity_subtitle"></string>
-    <string name="settings_discord_connect_button"></string>
-    <string name="settings_discord_disconnect_button"></string>
-    <string name="settings_discord_note_app_required"></string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images"></string>
     <string name="cache_settings_cache_images_summary"></string>

@@ -156,7 +156,7 @@ class PlayerViewModel @Inject constructor(
     private var currentItemDetails: BaseItemDto? = null
     val playbackItem: BaseItemDto?
         get() = currentItemDetails
-    var discordPosterUrl: String? = null
+    var posterUrl: String? = null
         private set
     private var nextEpisodePrefetchJob: Job? = null
     private var nextEpisodePrefetchSignature: String? = null
@@ -432,7 +432,7 @@ class PlayerViewModel @Inject constructor(
                 } else {
                     itemDetails?.id
                 }
-                discordPosterUrl = posterItemId?.let { id ->
+                posterUrl = posterItemId?.let { id ->
                     mediaRepository.getImageUrlString(
                         itemId = id,
                         imageType = "Primary",
@@ -794,6 +794,8 @@ class PlayerViewModel @Inject constructor(
                 )
                 if (usesMpv) {
                     updateApiTrackInformation()
+                    // 识别为 VR 时默认转平面；load() 已清掉上一条的着色器，这里重新装载。用户可在控制层关闭。
+                    vrLayout?.let(::enableVrFlatPlayback)
                 }
                 if (itemDetails != null) {
                     applyCommunityPlaybackSegments(mediaId = mediaId, itemDetails = itemDetails)

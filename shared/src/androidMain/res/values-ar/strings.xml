@@ -594,17 +594,7 @@
     <string name="interface_seerr_networks_subtitle">اعرض قسم الشبكات على الشاشة الرئيسية.</string>
     <!-- Connections Settings -->
     <string name="settings_connections">روابط</string>
-    <string name="settings_connections_subtitle">سير، ديسكورد</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">ديسكورد</string>
-    <string name="settings_discord_subtitle_connected">متصل باسم %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">شارك ما تشاهده</string>
-    <string name="settings_discord_status_connected">متصل</string>
-    <string name="settings_discord_show_activity">عرض النشاط</string>
-    <string name="settings_discord_show_activity_subtitle">اعرض ما تشاهده على ملف تعريف Discord الخاص بك</string>
-    <string name="settings_discord_connect_button">اتصل بـ ديسكورد</string>
-    <string name="settings_discord_disconnect_button">قطع الاتصال</string>
-    <string name="settings_discord_note_app_required">يجب تثبيت تطبيق Discord حتى تظهر حالة النشاط في ملف التعريف الخاص بك.</string>
+    <string name="settings_connections_subtitle">سير</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">صور ذاكرة التخزين المؤقت</string>
     <string name="cache_settings_cache_images_summary">احتفظ بالصور في ذاكرة التخزين المؤقت للتحميل بشكل أسرع والتمرير الأكثر سلاسة.</string>

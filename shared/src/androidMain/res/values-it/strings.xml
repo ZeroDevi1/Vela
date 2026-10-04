@@ -555,17 +555,7 @@
     <string name="interface_seerr_networks_subtitle">Mostra la sezione Reti nella schermata Home.</string>
     <!-- Connections Settings -->
     <string name="settings_connections">Connessioni</string>
-    <string name="settings_connections_subtitle">Seerr, Discord</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">Discordia</string>
-    <string name="settings_discord_subtitle_connected">Connesso come %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">Condividi ciò che stai guardando</string>
-    <string name="settings_discord_status_connected">Connesso</string>
-    <string name="settings_discord_show_activity">Mostra attività</string>
-    <string name="settings_discord_show_activity_subtitle">Mostra ciò che stai guardando sul tuo profilo Discord</string>
-    <string name="settings_discord_connect_button">Connettiti a Discord</string>
-    <string name="settings_discord_disconnect_button">Disconnetti</string>
-    <string name="settings_discord_note_app_required">L\'app Discord deve essere installata affinché lo stato dell\'attività venga visualizzato sul tuo profilo.</string>
+    <string name="settings_connections_subtitle">Seerr</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">Immagini della cache</string>
     <string name="cache_settings_cache_images_summary">Mantieni le immagini memorizzate nella cache per un caricamento più rapido e uno scorrimento più fluido.</string>

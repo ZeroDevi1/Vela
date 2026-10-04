@@ -529,17 +529,7 @@
     <string name="interface_seerr_networks_subtitle">ホーム画面にネットワークセクションを表示します。</string>
     <!-- Connections Settings -->
     <string name="settings_connections">接続</string>
-    <string name="settings_connections_subtitle">Seerr、Discord</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">不和</string>
-    <string name="settings_discord_subtitle_connected">%1$s として接続されました</string>
-    <string name="settings_discord_subtitle_disconnected">視聴しているものを共有する</string>
-    <string name="settings_discord_status_connected">接続済み</string>
-    <string name="settings_discord_show_activity">アクティビティを表示</string>
-    <string name="settings_discord_show_activity_subtitle">Discordのプロフィールに視聴中のコンテンツを表示する</string>
-    <string name="settings_discord_connect_button">ディスコードに接続</string>
-    <string name="settings_discord_disconnect_button">接続解除</string>
-    <string name="settings_discord_note_app_required">アクティビティステータスをプロフィールに表示するには、Discordアプリをインストールする必要があります。</string>
+    <string name="settings_connections_subtitle">Seerr</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">キャッシュイメージ</string>
     <string name="cache_settings_cache_images_summary">画像をキャッシュしておくと、読み込みが速くなり、スクロールがスムーズになります。</string>

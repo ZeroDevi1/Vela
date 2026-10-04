@@ -69,7 +69,6 @@
 
 - 同时支持 Jellyfin 与 Emby，并自动解析访问地址
 - 合并版本：在本地选择版本，无需改服务器
-- **Discord Rich Presence**（官方 Social SDK）及连接管理
 - **管理面板**：实时服务器信息、会话与活动日志
 
 ### 平台
@@ -178,7 +177,6 @@ keyPassword=...
 | `VELA_STORE_FILE_BASE64` | release keystore 的 base64 |
 | `VELA_STORE_PASSWORD` | keystore 密码 |
 | `VELA_KEY_PASSWORD` | key 密码 |
-| `DISCORD_SDK_PASSPHRASE` | 解密 `core/libs/discord_partner_sdk.aar.gpg` |
 
 ```bash
 # 先把 build.gradle 的 appVersionName / appVersionCode 改到目标版本
@@ -187,7 +185,7 @@ git tag v1.3.2
 git push origin v1.3.2
 ```
 
-应用内：关于页可检查 GitHub Release，按类型（手机/电视）和架构选择 APK，并可用 gh-proxy 等 CDN 加速下载。
+应用内：关于页可检查 GitHub Release，按类型（手机/电视）和架构选择 APK，下载默认自动测速选择最快的 CDN 节点，失败自动换节点并回退直连。
 
 ---
 

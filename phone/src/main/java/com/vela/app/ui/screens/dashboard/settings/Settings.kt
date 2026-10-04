@@ -54,7 +54,8 @@ fun Settings(
     onNavigateToPlayerSettings: () -> Unit = {},
     onNavigateToInterfaceSettings: () -> Unit = {},
     onNavigateToConnections: () -> Unit = {},
-    onNavigateToServers: () -> Unit = {},
+    /** 未登录根页面传入以切到服务器 tab；为 null（已进入服务器）时原地弹出切换弹窗，不离开当前会话。 */
+    onNavigateToServers: (() -> Unit)? = null,
     onNavigateToDownloads: () -> Unit = {},
     onNavigateToCacheSettings: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
@@ -74,6 +75,7 @@ fun Settings(
     val supportedCodecs = remember(context) { getSupportedCodecsSummary(context) }
     val listState = rememberLazyListState()
     val serverSwitchDialogsState = rememberServerSwitchDialogsState()
+    val openServers = onNavigateToServers ?: serverSwitchDialogsState::openServers
 
     var showNetworkDialog by remember { mutableStateOf(false) }
     var editingNetworkTimeout by remember { mutableStateOf<NetworkTimeoutField?>(null) }
@@ -133,7 +135,7 @@ fun Settings(
                         onUserClick = {
                             serverSwitchDialogsState.openUsers(uiState.serverName, usersForCurrentServer)
                         },
-                        onServerClick = onNavigateToServers,
+                        onServerClick = openServers,
                         onNavigateToDownloads = onNavigateToDownloads,
                         onNavigateToServerInfo = onNavigateToServerInfo,
                         onSeerrLimitClick = viewModel::loadSeerrRequestedItems
@@ -154,7 +156,7 @@ fun Settings(
                         icon = Icons.Rounded.Dns,
                         title = stringResource(R.string.settings_server_label),
                         subtitle = stringResource(R.string.settings_servers_subtitle),
-                        onClick = onNavigateToServers
+                        onClick = openServers
                     )
                     SettingsItem(
                         icon = Icons.Rounded.Link,

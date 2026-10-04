@@ -568,17 +568,7 @@
     <string name="interface_seerr_networks_subtitle">Покажите раздел «Сети» на главном экране.</string>
     <!-- Connections Settings -->
     <string name="settings_connections">Подключения</string>
-    <string name="settings_connections_subtitle">Серр, Дискорд</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">Дискорд</string>
-    <string name="settings_discord_subtitle_connected">Подключено как %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">Поделитесь тем, что смотрите</string>
-    <string name="settings_discord_status_connected">Подключено</string>
-    <string name="settings_discord_show_activity">Показать активность</string>
-    <string name="settings_discord_show_activity_subtitle">Отображайте то, что вы смотрите, в своем профиле Discord</string>
-    <string name="settings_discord_connect_button">Подключение к Discord</string>
-    <string name="settings_discord_disconnect_button">Отключить</string>
-    <string name="settings_discord_note_app_required">Чтобы статус активности отображался в вашем профиле, необходимо установить приложение Discord.</string>
+    <string name="settings_connections_subtitle">Серр</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">Кэшировать изображения</string>
     <string name="cache_settings_cache_images_summary">Храните изображения в кэше для более быстрой загрузки и более плавной прокрутки.</string>

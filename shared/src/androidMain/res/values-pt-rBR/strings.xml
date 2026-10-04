@@ -555,17 +555,7 @@
     <string name="interface_seerr_networks_subtitle">Mostre a seção Redes na tela inicial.</string>
     <!-- Connections Settings -->
     <string name="settings_connections">Conexões</string>
-    <string name="settings_connections_subtitle">Servidor, Discord</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">Discórdia</string>
-    <string name="settings_discord_subtitle_connected">Conectado como %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">Compartilhe o que você está assistindo</string>
-    <string name="settings_discord_status_connected">Conectado</string>
-    <string name="settings_discord_show_activity">Mostrar atividade</string>
-    <string name="settings_discord_show_activity_subtitle">Mostre o que você está assistindo no seu perfil do Discord</string>
-    <string name="settings_discord_connect_button">Conecte-se ao Discord</string>
-    <string name="settings_discord_disconnect_button">Desconectar</string>
-    <string name="settings_discord_note_app_required">O aplicativo Discord deve estar instalado para que o status da atividade apareça em seu perfil.</string>
+    <string name="settings_connections_subtitle">Servidor</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">Imagens em cache</string>
     <string name="cache_settings_cache_images_summary">Mantenha as imagens em cache para um carregamento mais rápido e uma rolagem mais suave.</string>

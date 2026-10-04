@@ -122,6 +122,33 @@ class AppUpdateTest {
     }
 
     @Test
+    fun mirrorCandidatesEndWithDirectAndSkipApiIncapableProxies() {
+        val builtins = listOf(
+            DownloadMirror(AUTO_DOWNLOAD_MIRROR_ID, "Auto", ""),
+            DownloadMirror(DIRECT_DOWNLOAD_MIRROR_ID, "GitHub", ""),
+            DownloadMirror("a", "a", "https://a.example/"),
+            DownloadMirror("b", "b", "https://b.example/", supportsApi = false)
+        )
+        val auto = builtins[0]
+        assertEquals(
+            listOf("https://a.example/", "https://b.example/", ""),
+            mirrorCandidatePrefixes(auto, forApi = false, builtins = builtins)
+        )
+        assertEquals(listOf("https://a.example/", ""), mirrorCandidatePrefixes(auto, forApi = true, builtins = builtins))
+        assertEquals(listOf(""), mirrorCandidatePrefixes(builtins[1], forApi = false, builtins = builtins))
+        assertEquals(listOf(""), mirrorCandidatePrefixes(builtins[3], forApi = true, builtins = builtins))
+        assertEquals(
+            listOf("https://b.example/", ""),
+            mirrorCandidatePrefixes(builtins[3], forApi = false, builtins = builtins)
+        )
+    }
+
+    @Test
+    fun unknownStoredMirrorFallsBackToAuto() {
+        assertEquals(AUTO_DOWNLOAD_MIRROR_ID, resolveDownloadMirror("mirror-ghproxy", "").id)
+    }
+
+    @Test
     fun flavorFromPackageName() {
         assertEquals(AppFlavor.Tv, AppFlavor.fromPackageName("com.vela.tv"))
         assertEquals(AppFlavor.Phone, AppFlavor.fromPackageName("com.vela.app"))

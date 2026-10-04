@@ -542,17 +542,7 @@
     <string name="interface_seerr_networks_subtitle">Kuva avaekraanil jaotis Võrgud.</string>
     <!-- Connections Settings -->
     <string name="settings_connections">Ühendused</string>
-    <string name="settings_connections_subtitle">Seerr, Discord</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">Ebakõla</string>
-    <string name="settings_discord_subtitle_connected">Ühendatud kui %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">Jagage seda, mida vaatate</string>
-    <string name="settings_discord_status_connected">Ühendatud</string>
-    <string name="settings_discord_show_activity">Näita tegevust</string>
-    <string name="settings_discord_show_activity_subtitle">Kuvage oma Discordi profiilis seda, mida vaatate</string>
-    <string name="settings_discord_connect_button">Looge ühendus Discordi</string>
-    <string name="settings_discord_disconnect_button">Ühendage lahti</string>
-    <string name="settings_discord_note_app_required">Tegevuse oleku kuvamiseks teie profiilis tuleb installida rakendus Discord.</string>
+    <string name="settings_connections_subtitle">Seerr</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">Vahemälu pildid</string>
     <string name="cache_settings_cache_images_summary">Hoidke pildid vahemällu salvestatud kiiremaks laadimiseks ja sujuvamaks kerimiseks.</string>

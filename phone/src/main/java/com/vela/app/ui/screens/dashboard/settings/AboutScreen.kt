@@ -64,7 +64,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import com.vela.app.BuildConfig
+import com.vela.data.update.AUTO_DOWNLOAD_MIRROR_ID
 import com.vela.data.update.CUSTOM_DOWNLOAD_MIRROR_ID
+import com.vela.data.update.DIRECT_DOWNLOAD_MIRROR_ID
 import com.vela.shared.R
 import com.vela.shared.update.AppUpdateDialogs
 import com.vela.shared.update.AppUpdateUiState
@@ -435,7 +437,8 @@ private fun checkUpdateSubtitle(state: AppUpdateUiState): String {
 @Composable
 private fun mirrorSubtitle(state: AppUpdateUiState): String {
     return when (state.mirror.id) {
-        "direct" -> stringResource(R.string.about_update_mirror_direct)
+        AUTO_DOWNLOAD_MIRROR_ID -> stringResource(R.string.about_update_mirror_auto)
+        DIRECT_DOWNLOAD_MIRROR_ID -> stringResource(R.string.about_update_mirror_direct)
         CUSTOM_DOWNLOAD_MIRROR_ID ->
             state.customPrefix.trimEnd('/').ifBlank { stringResource(R.string.about_update_mirror_custom) }
         else -> state.mirror.label

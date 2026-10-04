@@ -820,6 +820,7 @@
     <string name="about_update_latest">You have the latest version (%1$s)</string>
     <string name="about_update_none">No GitHub Release published yet</string>
     <string name="about_update_download_mirror">Download acceleration</string>
+    <string name="about_update_mirror_auto">Auto (fastest mirror)</string>
     <string name="about_update_mirror_direct">GitHub (no CDN)</string>
     <string name="about_update_mirror_custom">Custom CDN prefix</string>
     <string name="about_update_mirror_custom_hint">https://gh-proxy.com/</string>
@@ -869,7 +870,7 @@
 
     <!-- Connections Settings -->
     <string name="settings_connections">Connections</string>
-    <string name="settings_connections_subtitle">Server lines, Seerr, Discord</string>
+    <string name="settings_connections_subtitle">Server lines, Seerr</string>
     <string name="settings_server_lines">Server Lines</string>
     <string name="settings_server_lines_subtitle">LAN, WAN, and custom URLs for the same Jellyfin or Emby server</string>
     <string name="settings_server_line_current">Current</string>
@@ -891,19 +892,7 @@
     <string name="search_failed">Search failed</string>
     <string name="admin_panel">Admin Panel</string>
     <string name="admin_update_available">Update available</string>
-    <string name="discord_rpc_notification_title">Discord Rich Presence</string>
-    <string name="discord_rpc_notification_text">Sharing activity with Discord</string>
 
-    <!-- Discord Settings -->
-    <string name="settings_discord">Discord</string>
-    <string name="settings_discord_subtitle_connected">Connected as %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">Share what you\'re watching</string>
-    <string name="settings_discord_status_connected">Connected</string>
-    <string name="settings_discord_show_activity">Show Activity</string>
-    <string name="settings_discord_show_activity_subtitle">Display what you\'re watching on your Discord profile</string>
-    <string name="settings_discord_connect_button">Connect to Discord</string>
-    <string name="settings_discord_disconnect_button">Disconnect</string>
-    <string name="settings_discord_note_app_required">Discord app must be installed for activity status to appear on your profile.</string>
 
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">Cache Images</string>

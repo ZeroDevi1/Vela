@@ -807,6 +807,7 @@
     <string name="about_update_latest">已是最新版本（%1$s）</string>
     <string name="about_update_none">还没有发布 GitHub Release</string>
     <string name="about_update_download_mirror">下载加速</string>
+    <string name="about_update_mirror_auto">自动（测速选最快）</string>
     <string name="about_update_mirror_direct">GitHub 直连</string>
     <string name="about_update_mirror_custom">自定义 CDN 前缀</string>
     <string name="about_update_mirror_custom_hint">https://gh-proxy.com/</string>
@@ -856,7 +857,7 @@
 
     <!-- Connections Settings -->
     <string name="settings_connections">连接</string>
-    <string name="settings_connections_subtitle">服务器线路、Seerr、Discord</string>
+    <string name="settings_connections_subtitle">服务器线路、Seerr</string>
     <string name="settings_server_lines">服务器线路</string>
     <string name="settings_server_lines_subtitle">为同一台 Jellyfin 或 Emby 添加内网、外网或自定义地址</string>
     <string name="settings_server_line_current">当前</string>
@@ -878,19 +879,7 @@
     <string name="search_failed">搜索失败</string>
     <string name="admin_panel">管理面板</string>
     <string name="admin_update_available">有可用更新</string>
-    <string name="discord_rpc_notification_title">Discord 动态</string>
-    <string name="discord_rpc_notification_text">正在向 Discord 分享正在观看的内容</string>
 
-    <!-- Discord Settings -->
-    <string name="settings_discord">Discord</string>
-    <string name="settings_discord_subtitle_connected">连接为 %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">分享你正在观看的内容</string>
-    <string name="settings_discord_status_connected">已连接</string>
-    <string name="settings_discord_show_activity">显示动态</string>
-    <string name="settings_discord_show_activity_subtitle">在 Discord 个人资料中显示正在观看的内容</string>
-    <string name="settings_discord_connect_button">连接到 Discord</string>
-    <string name="settings_discord_disconnect_button">断开连接</string>
-    <string name="settings_discord_note_app_required">必须安装Discord应用程序，活动状态才能显示在您的个人资料中。</string>
 
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">缓存图像</string>

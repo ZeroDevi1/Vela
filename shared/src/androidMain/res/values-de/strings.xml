@@ -542,17 +542,7 @@
     <string name="interface_seerr_networks_subtitle">Zeigen Sie den Abschnitt Netzwerke auf dem Startbildschirm an.</string>
     <!-- Connections Settings -->
     <string name="settings_connections">Verbindungen</string>
-    <string name="settings_connections_subtitle">Server, Discord</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">Zwietracht</string>
-    <string name="settings_discord_subtitle_connected">Verbunden als %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">Teile, was du dir ansiehst</string>
-    <string name="settings_discord_status_connected">Verbunden</string>
-    <string name="settings_discord_show_activity">Aktivität anzeigen</string>
-    <string name="settings_discord_show_activity_subtitle">Zeige auf deinem Discord-Profil an, was du dir gerade ansiehst</string>
-    <string name="settings_discord_connect_button">Verbinde dich mit Discord</string>
-    <string name="settings_discord_disconnect_button">Trennen</string>
-    <string name="settings_discord_note_app_required">Die Discord-App muss installiert sein, damit der Aktivitätsstatus in Ihrem Profil angezeigt wird.</string>
+    <string name="settings_connections_subtitle">Server</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">Bilder zwischenspeichern</string>
     <string name="cache_settings_cache_images_summary">Speichern Sie Bilder im Cache, um sie schneller zu laden und flüssiger zu scrollen.</string>

@@ -609,6 +609,18 @@ class MediaRepository(private val context: Context) {
         }
     }
 
+    /**
+     * 多 CD 影片的完整分段列表（主条目在前），不是分段影片时返回空列表。
+     * 服务器只在主条目上返回 AdditionalParts，[ownerId] 须是主条目；分段条目是附属条目，
+     * 不会出现在继续观看、搜索等列表里，只能从主条目详情页进入，调用方总能拿到主条目 ID。
+     */
+    suspend fun getPartsPlaylist(ownerId: String): List<BaseItemDto> {
+        val parts = getAdditionalParts(ownerId).getOrNull().orEmpty()
+        if (parts.isEmpty()) return emptyList()
+        val owner = getItemById(ownerId).getOrNull() ?: return emptyList()
+        return listOf(owner) + parts
+    }
+
     suspend fun getAdditionalParts(itemId: String): Result<List<BaseItemDto>> {
         return try {
             val api = getApi() ?: return Result.failure(Exception(string(R.string.data_error_api_not_available)))

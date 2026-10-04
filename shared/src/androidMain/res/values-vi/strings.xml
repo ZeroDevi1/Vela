@@ -529,17 +529,7 @@
     <string name="interface_seerr_networks_subtitle">Hiển thị phần Mạng trên Màn hình chính.</string>
     <!-- Connections Settings -->
     <string name="settings_connections">Kết nối</string>
-    <string name="settings_connections_subtitle">Seerr, Discord</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">Bất hòa</string>
-    <string name="settings_discord_subtitle_connected">Kết nối dưới dạng %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">Chia sẻ những gì bạn đang xem</string>
-    <string name="settings_discord_status_connected">Đã kết nối</string>
-    <string name="settings_discord_show_activity">Hiển thị hoạt động</string>
-    <string name="settings_discord_show_activity_subtitle">Hiển thị những gì bạn đang xem trên hồ sơ Discord của mình</string>
-    <string name="settings_discord_connect_button">Kết nối với Discord</string>
-    <string name="settings_discord_disconnect_button">Ngắt kết nối</string>
-    <string name="settings_discord_note_app_required">Ứng dụng Discord phải được cài đặt để trạng thái hoạt động xuất hiện trên hồ sơ của bạn.</string>
+    <string name="settings_connections_subtitle">Seerr</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">Hình ảnh bộ nhớ cache</string>
     <string name="cache_settings_cache_images_summary">Giữ hình ảnh được lưu trong bộ nhớ đệm để tải nhanh hơn và cuộn mượt mà hơn.</string>

@@ -542,17 +542,7 @@
     <string name="interface_seerr_networks_subtitle">Покажете секцията Мрежи на началния екран.</string>
     <!-- Connections Settings -->
     <string name="settings_connections">Връзки</string>
-    <string name="settings_connections_subtitle">Сиер, Дискорд</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">Раздора</string>
-    <string name="settings_discord_subtitle_connected">Свързан като %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">Споделете това, което гледате</string>
-    <string name="settings_discord_status_connected">Свързан</string>
-    <string name="settings_discord_show_activity">Показване на дейността</string>
-    <string name="settings_discord_show_activity_subtitle">Покажете това, което гледате във вашия профил в Discord</string>
-    <string name="settings_discord_connect_button">Свържете се с Discord</string>
-    <string name="settings_discord_disconnect_button">Прекъсване</string>
-    <string name="settings_discord_note_app_required">Приложението Discord трябва да бъде инсталирано, за да се появи състоянието на активността във вашия профил.</string>
+    <string name="settings_connections_subtitle">Сиер</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">Кеш изображения</string>
     <string name="cache_settings_cache_images_summary">Поддържайте изображенията в кеш за по-бързо зареждане и по-плавно превъртане.</string>

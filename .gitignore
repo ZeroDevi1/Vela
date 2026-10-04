@@ -48,8 +48,6 @@ keystore.properties
 .externalNativeBuild
 .cxx/
 
-# Discord Social SDK
-core/libs/discord_partner_sdk.aar
 
 # Freeline
 freeline.py

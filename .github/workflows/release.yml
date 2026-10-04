@@ -77,29 +77,6 @@ jobs:
           VELA_STORE_FILE_BASE64: ${{ secrets.VELA_STORE_FILE_BASE64 }}
         run: echo "$VELA_STORE_FILE_BASE64" | base64 --decode > vela-release.keystore
 
-      - name: Decrypt Discord Social SDK
-        env:
-          DISCORD_SDK_PASSPHRASE: ${{ secrets.DISCORD_SDK_PASSPHRASE }}
-        run: |
-          if [ -z "$DISCORD_SDK_PASSPHRASE" ]; then
-            echo "Missing GitHub secret DISCORD_SDK_PASSPHRASE"
-            exit 1
-          fi
-
-          mkdir -p core/libs
-          # 完整 SDK 超过 GitHub Secret 大小限制，只在 runner 内使用密钥解密。
-          gpg --quiet --batch --yes \
-            --passphrase "$DISCORD_SDK_PASSPHRASE" \
-            --output core/libs/discord_partner_sdk.aar \
-            --decrypt core/libs/discord_partner_sdk.aar.gpg
-
-          echo "a2ea010b8ac26732b63c8345b6eeb711f990f151eaa1b33c6141319ead91dea9  core/libs/discord_partner_sdk.aar" | sha256sum --check
-          unzip -t core/libs/discord_partner_sdk.aar
-          if ! unzip -Z1 core/libs/discord_partner_sdk.aar | grep '^prefab/' > /dev/null; then
-            echo "Discord AAR does not contain Prefab native libraries"
-            exit 1
-          fi
-
       - name: Assemble signed release
         env:
           VELA_STORE_FILE: ${{ github.workspace }}/vela-release.keystore

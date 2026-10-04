@@ -542,17 +542,7 @@
     <string name="interface_seerr_networks_subtitle">De sectie Netwerken op het startscherm weergeven.</string>
     <!-- Connections Settings -->
     <string name="settings_connections">Verbindingen</string>
-    <string name="settings_connections_subtitle">Serre, Discord</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">Onenigheid</string>
-    <string name="settings_discord_subtitle_connected">Verbonden als %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">Deel wat je aan het bekijken bent</string>
-    <string name="settings_discord_status_connected">Verbonden</string>
-    <string name="settings_discord_show_activity">Activiteit tonen</string>
-    <string name="settings_discord_show_activity_subtitle">Laat zien wat je aan het bekijken bent op je Discord-profiel</string>
-    <string name="settings_discord_connect_button">Maak verbinding met Discord</string>
-    <string name="settings_discord_disconnect_button">Verbinding verbreken</string>
-    <string name="settings_discord_note_app_required">De Discord-app moet zijn geïnstalleerd om de activiteitsstatus op je profiel te laten verschijnen.</string>
+    <string name="settings_connections_subtitle">Serre</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">Afbeeldingen in de cache opslaan</string>
     <string name="cache_settings_cache_images_summary">Bewaar afbeeldingen in de cache om ze sneller te laden en soepeler te scrollen.</string>

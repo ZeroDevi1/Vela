@@ -576,7 +576,6 @@ fun DashboardContainer(
                             onNavigateToPlayerSettings = onNavigateToPlayerSettings,
                             onNavigateToInterfaceSettings = onNavigateToInterfaceSettings,
                             onNavigateToConnections = onNavigateToConnections,
-                            onNavigateToServers = onNavigateToServers,
                             onNavigateToDownloads = onNavigateToDownloads,
                             onNavigateToCacheSettings = onNavigateToCacheSettings,
                             onNavigateToAbout = onNavigateToAbout,

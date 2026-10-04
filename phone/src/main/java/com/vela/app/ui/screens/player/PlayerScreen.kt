@@ -50,9 +50,7 @@ import com.vela.data.model.BaseItemDto
 import com.vela.data.repository.MediaRepositoryProvider
 import com.vela.player.core.SkippableSegmentType
 import com.vela.player.core.findActiveSkippableSegment
-import com.vela.player.discord.NowPlayingInfo
 import com.vela.player.preferences.PlayerPreferences
-import com.vela.app.discord.DiscordRpcEffect
 import com.vela.app.playback.SystemMediaSessionEffect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -304,20 +302,6 @@ fun PlayerScreen(
         playerOrientation = playbackOrientation
     )
 
-    // Discord Rich Presence
-    DiscordRpcEffect(
-        playerState = viewModel.playerState,
-        mediaId = currentPlaybackId,
-        seriesName = initialItemDetails?.seriesName,
-        year = initialItemDetails?.productionYear,
-        mediaType = when {
-            initialItemDetails?.type.equals("Episode", ignoreCase = true) -> NowPlayingInfo.MediaType.EPISODE
-            initialItemDetails?.type.equals("Audio", ignoreCase = true) -> NowPlayingInfo.MediaType.MUSIC
-            else -> NowPlayingInfo.MediaType.MOVIE
-        },
-        imageUrlProvider = { viewModel.discordPosterUrl }
-    )
-
     val hasPlaybackSettings = playerState.isVideoTranscodingAllowed ||
         playerState.isAudioTranscodingAllowed
     val playbackDuration = viewModel.getDuration()
@@ -360,7 +344,7 @@ fun PlayerScreen(
             ?: initialItemDetails?.name,
         durationMs = viewModel.getDuration(),
         playing = playerState.isPlaying || playerState.playWhenReady,
-        artworkUrl = viewModel.discordPosterUrl,
+        artworkUrl = viewModel.posterUrl,
         canSkip = canWatchNextEpisode || canWatchPreviousEpisode,
         positionProvider = viewModel::getCurrentPosition,
         onPlay = viewModel::play,

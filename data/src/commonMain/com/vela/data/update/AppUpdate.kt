@@ -24,10 +24,15 @@ enum class AppFlavor(val fileToken: String) {
     }
 }
 
+/**
+ * GitHub 下载镜像。[prefix] 为空表示直连；[supportsApi] 为 false 的代理会对 api.github.com 返回 403，
+ * 只能用于 Release 资产下载。
+ */
 data class DownloadMirror(
     val id: String,
     val label: String,
-    val prefix: String
+    val prefix: String,
+    val supportsApi: Boolean = true
 )
 
 data class AppUpdateAsset(
@@ -63,16 +68,25 @@ internal data class GithubAssetDto(
     @SerialName("browser_download_url") val browserDownloadUrl: String
 )
 
-val BuiltinDownloadMirrors: List<DownloadMirror> = listOf(
-    DownloadMirror(id = "direct", label = "GitHub", prefix = ""),
-    DownloadMirror(id = "gh-proxy", label = "gh-proxy.com", prefix = "https://gh-proxy.com/"),
-    DownloadMirror(id = "ghfast", label = "ghfast.top", prefix = "https://ghfast.top/"),
-    DownloadMirror(id = "ghproxy-net", label = "ghproxy.net", prefix = "https://ghproxy.net/"),
-    DownloadMirror(id = "mirror-ghproxy", label = "mirror.ghproxy.com", prefix = "https://mirror.ghproxy.com/")
-)
-
-const val DEFAULT_DOWNLOAD_MIRROR_ID = "gh-proxy"
+const val AUTO_DOWNLOAD_MIRROR_ID = "auto"
+const val DIRECT_DOWNLOAD_MIRROR_ID = "direct"
+const val DEFAULT_DOWNLOAD_MIRROR_ID = AUTO_DOWNLOAD_MIRROR_ID
 const val CUSTOM_DOWNLOAD_MIRROR_ID = "custom"
+
+/**
+ * 内置镜像。公共代理的可用性和国内速度随时间变化（mirror.ghproxy.com 已失效、gh-proxy.com 子域迁到 .org），
+ * 所以默认用 [AUTO_DOWNLOAD_MIRROR_ID] 在设备上测速择优，而不是固定一个代理。
+ */
+val BuiltinDownloadMirrors: List<DownloadMirror> = listOf(
+    DownloadMirror(id = AUTO_DOWNLOAD_MIRROR_ID, label = "Auto", prefix = ""),
+    DownloadMirror(id = DIRECT_DOWNLOAD_MIRROR_ID, label = "GitHub", prefix = ""),
+    DownloadMirror(id = "gh-proxy", label = "gh-proxy.com", prefix = "https://gh-proxy.com/"),
+    DownloadMirror(id = "gh-proxy-edgeone", label = "edgeone.gh-proxy.org", prefix = "https://edgeone.gh-proxy.org/"),
+    DownloadMirror(id = "gh-proxy-cdn", label = "cdn.gh-proxy.org", prefix = "https://cdn.gh-proxy.org/"),
+    DownloadMirror(id = "gh-proxy-hk", label = "hk.gh-proxy.org", prefix = "https://hk.gh-proxy.org/"),
+    DownloadMirror(id = "ghfast", label = "ghfast.top", prefix = "https://ghfast.top/", supportsApi = false),
+    DownloadMirror(id = "gh-llkk", label = "gh.llkk.cc", prefix = "https://gh.llkk.cc/", supportsApi = false)
+)
 
 private val AssetWithAbi = Regex(
     """^vela-(phone|tv)-release-(.+?)-(armeabi-v7a|arm64-v8a|x86_64|x86)\.apk$""",
@@ -184,6 +198,24 @@ fun resolveDownloadMirror(
         )
     }
     return builtins.firstOrNull { it.id == id } ?: builtins.first { it.id == DEFAULT_DOWNLOAD_MIRROR_ID }
+}
+
+/**
+ * 按尝试顺序返回 URL 前缀，空串表示直连且总在最后作为兜底。
+ * 自动模式返回全部内置代理（下载前再按测速重排）；固定镜像失败时回退直连。
+ * [forApi] 为 true 时跳过不支持 API 的代理。
+ */
+fun mirrorCandidatePrefixes(
+    mirror: DownloadMirror,
+    forApi: Boolean,
+    builtins: List<DownloadMirror> = BuiltinDownloadMirrors
+): List<String> {
+    val proxies = if (mirror.id == AUTO_DOWNLOAD_MIRROR_ID) {
+        builtins.filter { it.prefix.isNotBlank() && (!forApi || it.supportsApi) }
+    } else {
+        listOf(mirror).filter { it.prefix.isNotBlank() && (!forApi || it.supportsApi) }
+    }
+    return (proxies.map { it.prefix } + "").distinct()
 }
 
 private fun parseGithubAsset(dto: GithubAssetDto): AppUpdateAsset? {

@@ -26,7 +26,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.vela.data.update.AppFlavor
 import com.vela.data.update.AppUpdateAsset
+import com.vela.data.update.AUTO_DOWNLOAD_MIRROR_ID
 import com.vela.data.update.CUSTOM_DOWNLOAD_MIRROR_ID
+import com.vela.data.update.DIRECT_DOWNLOAD_MIRROR_ID
 import com.vela.shared.R
 import java.util.Locale
 import kotlin.math.max
@@ -65,10 +67,10 @@ private fun MirrorPickerDialog(viewModel: AppUpdateViewModel, uiState: AppUpdate
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 viewModel.mirrors().forEach { mirror ->
                     val selected = uiState.mirror.id == mirror.id
-                    val label = if (mirror.id == "direct") {
-                        stringResource(R.string.about_update_mirror_direct)
-                    } else {
-                        mirror.label
+                    val label = when (mirror.id) {
+                        AUTO_DOWNLOAD_MIRROR_ID -> stringResource(R.string.about_update_mirror_auto)
+                        DIRECT_DOWNLOAD_MIRROR_ID -> stringResource(R.string.about_update_mirror_direct)
+                        else -> mirror.label
                     }
                     TextButton(onClick = { viewModel.selectMirror(mirror.id) }) {
                         Text(

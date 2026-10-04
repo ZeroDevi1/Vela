@@ -542,17 +542,7 @@
     <string name="interface_seerr_networks_subtitle">Visa avsnittet Nätverk på startskärmen.</string>
     <!-- Connections Settings -->
     <string name="settings_connections">Anslutningar</string>
-    <string name="settings_connections_subtitle">Seerr, Discord</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">Oenighet</string>
-    <string name="settings_discord_subtitle_connected">Ansluten som %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">Dela vad du tittar på</string>
-    <string name="settings_discord_status_connected">Ansluten</string>
-    <string name="settings_discord_show_activity">Visa aktivitet</string>
-    <string name="settings_discord_show_activity_subtitle">Visa vad du tittar på på din Discord-profil</string>
-    <string name="settings_discord_connect_button">Anslut till Discord</string>
-    <string name="settings_discord_disconnect_button">Koppla bort</string>
-    <string name="settings_discord_note_app_required">Discord-appen måste installeras för att aktivitetsstatus ska visas i din profil.</string>
+    <string name="settings_connections_subtitle">Seerr</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">Cache-bilder</string>
     <string name="cache_settings_cache_images_summary">Håll bilderna cachelagrade för snabbare laddning och smidigare rullning.</string>

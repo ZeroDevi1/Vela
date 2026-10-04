@@ -172,16 +172,17 @@ fun DetailScreenContainer(
         castDisplaySubtitleStreamIndex = playbackData.selectedSubtitleStreamIndex
     }
 
-    fun localPlayer(targetItemId: String) {
+    fun localPlayer(targetItemId: String, mediaSourceId: String?, partsOwnerId: String?) {
         castingDisplay = false
         PlayerActivity.start(
             context = context,
             mediaId = targetItemId,
             startFromBeginning = playbackStartFromBeginning,
             seekPositionMs = playbackStartPositionMs,
-            mediaSourceId = preferredMediaSourceId,
+            mediaSourceId = mediaSourceId,
             audioStreamIndex = preferredAudioStreamIndex,
-            subtitleStreamIndex = preferredSubtitleStreamIndex
+            subtitleStreamIndex = preferredSubtitleStreamIndex,
+            partsOwnerId = partsOwnerId
         )
     }
 
@@ -251,7 +252,9 @@ fun DetailScreenContainer(
         audioStreamIndex: Int?,
         subtitleStreamIndex: Int?,
         fromStart: Boolean = false,
-        startPositionMs: Long? = null
+        startPositionMs: Long? = null,
+        mediaSourceId: String? = preferredMediaSourceId,
+        partsOwnerId: String? = null
     ) {
         val activeItemId = targetItem?.id?.takeIf { it.isNotBlank() } ?: fallbackItemId
         preferredAudioStreamIndex = audioStreamIndex
@@ -296,10 +299,10 @@ fun DetailScreenContainer(
                     castingDisplay = true
                     castDisplayState(castItemId = activeItemId)
                 } else {
-                    localPlayer(activeItemId)
+                    localPlayer(activeItemId, mediaSourceId, partsOwnerId)
                 }
             } else {
-                localPlayer(activeItemId)
+                localPlayer(activeItemId, mediaSourceId, partsOwnerId)
             }
         }
     }
@@ -469,7 +472,12 @@ fun DetailScreenContainer(
                             targetItem = part,
                             fallbackItemId = part.id?.takeIf { it.isNotBlank() } ?: fallbackItemId,
                             audioStreamIndex = preferredAudioStreamIndex,
-                            subtitleStreamIndex = preferredSubtitleStreamIndex
+                            subtitleStreamIndex = preferredSubtitleStreamIndex,
+                            // 选中的版本属于当前详情条目；CD2 等分段是独立条目，带上 CD1 的 MediaSourceId 会让
+                            // PlaybackInfo 找不到对应源而无法播放，交给服务器选该分段自己的默认源。
+                            mediaSourceId = preferredMediaSourceId.takeIf { part.id == activeItem.id },
+                            // 分段卡片只出现在主条目详情页，把主条目带给播放器以取完整分段列表。
+                            partsOwnerId = activeItem.id
                         )
                     }
                 )

@@ -542,17 +542,7 @@
     <string name="interface_seerr_networks_subtitle">Ana ekranda Ağlar bölümünü göster.</string>
     <!-- Connections Settings -->
     <string name="settings_connections">Bağlantılar</string>
-    <string name="settings_connections_subtitle">Seerr, Discord</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">Anlaşmazlık</string>
-    <string name="settings_discord_subtitle_connected">%1$s olarak bağlandı</string>
-    <string name="settings_discord_subtitle_disconnected">İzlediklerinizi paylaşın</string>
-    <string name="settings_discord_status_connected">Bağlı</string>
-    <string name="settings_discord_show_activity">Etkinliği Göster</string>
-    <string name="settings_discord_show_activity_subtitle">Discord profilinizde ne izlediğinizi görüntüleyin</string>
-    <string name="settings_discord_connect_button">Discord\'a bağlanın</string>
-    <string name="settings_discord_disconnect_button">Bağlantıyı kes</string>
-    <string name="settings_discord_note_app_required">Etkinlik durumunun profilinizde görünmesi için Discord uygulamasının yüklenmesi gerekir.</string>
+    <string name="settings_connections_subtitle">Seerr</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">Önbellek Görüntüleri</string>
     <string name="cache_settings_cache_images_summary">Daha hızlı yükleme ve daha sorunsuz kaydırma için görüntüleri önbelleğe alın.</string>

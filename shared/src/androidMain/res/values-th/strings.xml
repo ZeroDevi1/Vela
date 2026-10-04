@@ -529,17 +529,7 @@
     <string name="interface_seerr_networks_subtitle">แสดงส่วนเครือข่ายบนหน้าจอหลัก</string>
     <!-- Connections Settings -->
     <string name="settings_connections">การเชื่อมต่อ</string>
-    <string name="settings_connections_subtitle">เซียร์, ดิสคอร์ด</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">ความขัดแย้ง</string>
-    <string name="settings_discord_subtitle_connected">เชื่อมต่อเป็น %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">แบ่งปันสิ่งที่คุณกำลังดู</string>
-    <string name="settings_discord_status_connected">เชื่อมต่อ</string>
-    <string name="settings_discord_show_activity">แสดงกิจกรรม</string>
-    <string name="settings_discord_show_activity_subtitle">แสดงสิ่งที่คุณกำลังดูในโปรไฟล์ Discord ของคุณ</string>
-    <string name="settings_discord_connect_button">เชื่อมต่อกับ Discord</string>
-    <string name="settings_discord_disconnect_button">ตัดการเชื่อมต่อ</string>
-    <string name="settings_discord_note_app_required">ต้องติดตั้งแอป Discord เพื่อให้สถานะกิจกรรมปรากฏในโปรไฟล์ของคุณ</string>
+    <string name="settings_connections_subtitle">เซียร์</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">ภาพแคช</string>
     <string name="cache_settings_cache_images_summary">เก็บรูปภาพไว้ในแคชเพื่อการโหลดเร็วขึ้นและการเลื่อนที่ราบรื่นขึ้น</string>

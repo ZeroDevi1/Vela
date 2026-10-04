@@ -568,17 +568,7 @@
     <string name="interface_seerr_networks_subtitle">Zobrazte sekci Sítě na domovské obrazovce.</string>
     <!-- Connections Settings -->
     <string name="settings_connections">Připojení</string>
-    <string name="settings_connections_subtitle">Seerr, Discord</string>
-    <!-- Discord Settings -->
-    <string name="settings_discord">Discord</string>
-    <string name="settings_discord_subtitle_connected">Připojeno jako %1$s</string>
-    <string name="settings_discord_subtitle_disconnected">Sdílejte, co sledujete</string>
-    <string name="settings_discord_status_connected">Připojeno</string>
-    <string name="settings_discord_show_activity">Zobrazit aktivitu</string>
-    <string name="settings_discord_show_activity_subtitle">Zobrazte, co sledujete, na svém profilu Discord</string>
-    <string name="settings_discord_connect_button">Připojte se k Discordu</string>
-    <string name="settings_discord_disconnect_button">Odpojit</string>
-    <string name="settings_discord_note_app_required">Aby se stav aktivity zobrazil ve vašem profilu, musí být nainstalována aplikace Discord.</string>
+    <string name="settings_connections_subtitle">Seerr</string>
     <!-- Cache Settings -->
     <string name="cache_settings_cache_images">Obrázky mezipaměti</string>
     <string name="cache_settings_cache_images_summary">Udržujte obrázky v mezipaměti pro rychlejší načítání a plynulejší posouvání.</string>
