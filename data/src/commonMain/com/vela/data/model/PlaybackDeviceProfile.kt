@@ -21,7 +21,30 @@ data class DeviceProfile(
     @SerialName("TranscodingProfiles")
     val transcodingProfiles: List<TranscodingProfile>? = null,
     @SerialName("SubtitleProfiles")
-    val subtitleProfiles: List<SubtitleProfile>? = null
+    val subtitleProfiles: List<SubtitleProfile>? = null,
+    /** 编解码条件：不满足时服务器不直放 / 不复制视频流，并按条件缩放转码（如 Width ≤ 上限）。 */
+    @SerialName("CodecProfiles")
+    val codecProfiles: List<CodecProfile>? = null
+)
+
+@Serializable
+data class CodecProfile(
+    @SerialName("Type")
+    val type: String? = null,
+    @SerialName("Conditions")
+    val conditions: List<ProfileCondition>? = null
+)
+
+@Serializable
+data class ProfileCondition(
+    @SerialName("Condition")
+    val condition: String,
+    @SerialName("Property")
+    val property: String,
+    @SerialName("Value")
+    val value: String,
+    @SerialName("IsRequired")
+    val isRequired: Boolean = true
 )
 
 @Serializable

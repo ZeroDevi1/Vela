@@ -42,11 +42,15 @@ import com.vela.shared.R
 /** 溢出菜单里由哪个元数据面板接替显示。 */
 enum class MetadataEditor { None, EditMetadata, Images, Subtitles, Identify }
 
-/** 条目是否支持“识别”（季、集会改为识别所属剧集）。 */
+/**
+ * 条目是否支持“识别”/“取消识别”。
+ *
+ * 剧集只在剧集入口识别：识别结果作用于整部剧（所有季与单集），放在单集或季的菜单里容易误以为只改这一集。
+ * 季、集因此不显示入口。
+ */
 fun BaseItemDto.supportsIdentify(): Boolean {
     if (remoteSearchTypeFor(type) == null) return false
-    val isChild = type.equals("Episode", true) || type.equals("Season", true)
-    return !isChild || !seriesId.isNullOrBlank()
+    return !type.equals("Episode", true) && !type.equals("Season", true)
 }
 
 /** 只有视频条目有字幕可管理。 */

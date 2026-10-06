@@ -2068,7 +2068,8 @@ class MediaRepository(private val context: Context) {
         audioStreamIndex: Int? = null,
         subtitleStreamIndex: Int? = null,
         audioTranscodeMode: AudioTranscodeMode = AudioTranscodeMode.AUTO,
-        mediaSourceId: String? = null
+        mediaSourceId: String? = null,
+        maxVideoWidth: Int? = null
     ): Result<com.vela.data.model.PlaybackInfoResponse> {
         return try {
             val session = getApiSession() ?: return Result.failure(Exception(string(R.string.data_error_session_not_available)))
@@ -2084,7 +2085,8 @@ class MediaRepository(private val context: Context) {
             val enableTranscoding = true
             val deviceProfile = PlaybackDeviceProfileFactory.create(
                 maxStreamingBitrate = maxStreamingBitrate?.toLong(),
-                audioTranscodeMode = audioTranscodeMode
+                audioTranscodeMode = audioTranscodeMode,
+                maxVideoWidth = maxVideoWidth
             )
             // POST 携带 DeviceProfile，是字幕交付方式与直播放能力的唯一事实源；GET 仅用于旧服务端回退。
             val playbackInfoRequest = PlaybackInfoRequest(

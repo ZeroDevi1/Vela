@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MergeType
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoFixHigh
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Business
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.SkipNext
@@ -47,9 +48,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.vela.data.model.MediaVersionPreference
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -106,6 +109,10 @@ fun InterfaceSettingsScreen(
     val mergeVersionsEnabled by preferences.MergeVersionsEnabled()
         .collectAsStateWithLifecycle(
             initialValue = preferences.isMergeVersionsEnabled()
+        )
+    val preferredVersion by preferences.PreferredVersion()
+        .collectAsStateWithLifecycle(
+            initialValue = preferences.getPreferredVersion()
         )
     val seerrStudiosEnabled by preferences.SeerrStudiosEnabled()
         .collectAsStateWithLifecycle(
@@ -213,6 +220,15 @@ fun InterfaceSettingsScreen(
                         subtitle = stringResource(R.string.interface_merge_versions_subtitle),
                         checked = mergeVersionsEnabled,
                         onCheckedChange = preferences::setMergeVersionsEnabled,
+                        accentColor = Color(0xFF14B8A6)
+                    )
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                    )
+                    PreferredVersionItem(
+                        selectedId = preferredVersion,
+                        onSelected = preferences::setPreferredVersion,
                         accentColor = Color(0xFF14B8A6)
                     )
                     if (isEmbyServer) {
@@ -445,6 +461,77 @@ private fun CarouselHeightSelector(
                         .width(1.dp)
                         .fillMaxHeight()
                         .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                )
+            }
+        }
+    }
+}
+
+/** 「视频首选版本」：多版本条目未手动选择时起播哪一个（规则见 [MediaVersionPreference]，与 iOS 版一致）。 */
+@Composable
+private fun PreferredVersionItem(
+    selectedId: String,
+    onSelected: (String) -> Unit,
+    accentColor: Color
+) {
+    val labels = mapOf(
+        MediaVersionPreference.DEFAULT to stringResource(R.string.interface_version_default),
+        MediaVersionPreference.BEST_RESOLUTION to stringResource(R.string.interface_version_best_resolution),
+        MediaVersionPreference.BEST_BITRATE to stringResource(R.string.interface_version_best_bitrate),
+        MediaVersionPreference.BEST_DYNAMIC_RANGE to stringResource(R.string.interface_version_best_dynamic_range),
+        MediaVersionPreference.UHD_4K to "4K",
+        MediaVersionPreference.FULL_HD_1080 to "1080P",
+        MediaVersionPreference.HD_720 to "720P"
+    )
+    val selected = MediaVersionPreference.fromId(selectedId)
+    var expanded by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = true }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.MergeType,
+                contentDescription = null,
+                tint = accentColor,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.interface_preferred_version),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White
+                )
+                Text(
+                    text = stringResource(R.string.interface_preferred_version_subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.72f)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = labels.getValue(selected),
+                style = MaterialTheme.typography.labelLarge,
+                color = accentColor
+            )
+        }
+        androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            MediaVersionPreference.entries.forEach { option ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(labels.getValue(option)) },
+                    trailingIcon = if (option == selected) {
+                        { Icon(Icons.Rounded.Check, contentDescription = null) }
+                    } else {
+                        null
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelected(option.id)
+                    }
                 )
             }
         }

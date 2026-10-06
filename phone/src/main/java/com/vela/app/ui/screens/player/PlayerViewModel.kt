@@ -24,6 +24,9 @@ import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import dagger.hilt.android.lifecycle.HiltViewModel
 import com.vela.app.playback.ActivePlayback
+import com.vela.data.model.MediaVersionPreference
+import com.vela.data.model.preferredVersion
+import com.vela.shared.preferences.Preferences
 import com.vela.app.player.mpv.MPVPlayer
 import com.vela.app.player.mpv.MpvRenderLoad
 import com.vela.app.player.mpv.MpvPlayerController
@@ -86,6 +89,8 @@ class PlayerViewModel @Inject constructor(
     companion object {
         private const val TAG = "PlayerViewModel"
         private const val MPV_FALLBACK_FIRST_FRAME_TIMEOUT_MS = 2_500L
+        /** 「服务器转码为 4K」的宽度上限。VR 片源多为 2:1，3840 宽即 3840×1920。 */
+        const val SERVER_DOWNSCALE_WIDTH = 3840
     }
 
     private data class ScrubPreviewRequest(
@@ -161,6 +166,8 @@ class PlayerViewModel @Inject constructor(
     private var nextEpisodePrefetchJob: Job? = null
     private var nextEpisodePrefetchSignature: String? = null
     private var mpvWatchdogJob: Job? = null
+    /** 用户选择「服务器转码为 4K」的条目；只对该条目生效，换集后恢复正常选流。 */
+    private var serverDownscaleMediaId: String? = null
     private var cachePolicyJob: Job? = null
     private var hasRenderedFirstFrame = false
     private var mpvExternalSubtitleUrls: Map<Int, String> = emptyMap()
@@ -500,7 +507,8 @@ class PlayerViewModel @Inject constructor(
                         // MPV 在原容器内按 sid 选轨；向服务端提交 ASS index 会触发 External/Encode 并改变时间基准。
                         subtitleStreamIndex = if (isMpvPlayback()) null else activePreferredSubtitleStreamIndex,
                         audioTranscodeMode = audioTranscodeMode,
-                        mediaSourceId = requestedMediaSourceId
+                        mediaSourceId = requestedMediaSourceId,
+                        maxVideoWidth = SERVER_DOWNSCALE_WIDTH.takeIf { serverDownscaleMediaId == mediaId }
                     )
                     if (playbackInfoResult.isFailure) {
                         val error = playbackInfoResult.exceptionOrNull()?.message ?: "Failed to get playback info"
@@ -514,6 +522,12 @@ class PlayerViewModel @Inject constructor(
                         return@launch
                     }
 
+                    // 多版本条目未指定版本时按「视频首选版本」挑选（与 iOS 版规则一致）；之后切换引擎 / 重试沿用同一版本。
+                    if (requestedMediaSourceId == null) {
+                        val preference = MediaVersionPreference.fromId(Preferences(context).getPreferredVersion())
+                        requestedMediaSourceId = playbackInfo.mediaSources.orEmpty().preferredVersion(preference)?.id
+                            ?.takeIf { (playbackInfo.mediaSources?.size ?: 0) > 1 }
+                    }
                     primaryMediaSource = playbackInfo.selectedMediaSource(requestedMediaSourceId)
                     logPlaybackDecision(primaryMediaSource, maxStreamingBitrate)
 
@@ -1045,6 +1059,61 @@ class PlayerViewModel @Inject constructor(
             initialSeekPositionMs = resumePositionMs,
             startPlayback = shouldResumePlaying,
             forcedPlayerEngine = targetEngine,
+            mediaSourceId = requestedMediaSourceId
+        )
+    }
+
+    /** 源视频宽度（像素）；未知时为 null。 */
+    fun getSourceVideoWidth(): Int? =
+        apiMediaStreams.orEmpty().firstOrNull { it.type.equals("Video", ignoreCase = true) }?.width
+
+    /**
+     * 是否提供「服务器转码为 4K」：片源宽于 4K（常见于 8K VR，超出多数设备的硬解上限）、
+     * 账号允许视频转码、当前条目尚未降分辨率。
+     */
+    fun canRetryWithServerDownscale(): Boolean =
+        canSwitchPlayerEngine() &&
+            playbackSession.mediaId != serverDownscaleMediaId &&
+            (getSourceVideoWidth() ?: 0) > SERVER_DOWNSCALE_WIDTH &&
+            _playerState.value.isVideoTranscodingAllowed
+
+    /**
+     * 让服务器缩小到 4K 重新编码，从当前位置重试。DeviceProfile 声明 `Width ≤ 3840`，服务器据此不直放并缩放转码；
+     * 需要服务器开启视频转码，8K 实时转码对服务器性能要求较高。
+     */
+    fun retryWithServerDownscale() {
+        if (!canRetryWithServerDownscale()) return
+        serverDownscaleMediaId = playbackSession.mediaId
+        restartCurrentPlayback(forcedPlayerEngine = currentPlayerEngine())
+    }
+
+    /** 播放出错后从当前位置用同一引擎重试（服务器转码进程可能已被回收）。 */
+    fun retryPlayback() {
+        if (!canSwitchPlayerEngine()) return
+        restartCurrentPlayback(forcedPlayerEngine = currentPlayerEngine())
+    }
+
+    private fun currentPlayerEngine(): String =
+        if (isMpvPlayback()) PlayerPreferences.PLAYER_ENGINE_MPV else PlayerPreferences.PLAYER_ENGINE_EXO
+
+    private fun restartCurrentPlayback(forcedPlayerEngine: String) {
+        val context = playerContext ?: return
+        val mediaId = playbackSession.mediaId ?: return
+        cancelMpvWatchdog()
+        val itemDetails = currentItemDetails
+        val resumePositionMs = getCurrentPosition()
+        val preferredAudioStreamIndex = _preferredStreamIndexes.value.audioStreamIndex
+        val preferredSubtitleStreamIndex = _preferredStreamIndexes.value.subtitleStreamIndex
+        releasePlayer()
+        initializePlayer(
+            context = context,
+            mediaId = mediaId,
+            initialItemDetails = itemDetails,
+            preferredAudioStreamIndex = preferredAudioStreamIndex,
+            preferredSubtitleStreamIndex = preferredSubtitleStreamIndex,
+            initialSeekPositionMs = resumePositionMs,
+            startPlayback = true,
+            forcedPlayerEngine = forcedPlayerEngine,
             mediaSourceId = requestedMediaSourceId
         )
     }

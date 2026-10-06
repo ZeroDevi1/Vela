@@ -353,13 +353,13 @@ fun ItemOverflowSheet(
                         enabled = !busy,
                         onClick = { editor = MetadataEditor.Identify }
                     )
+                    OverflowAction(
+                        icon = Icons.Outlined.Replay,
+                        label = stringResource(R.string.item_action_remove_identify),
+                        enabled = !busy,
+                        onClick = { confirmRemoveIdentify = true }
+                    )
                 }
-                OverflowAction(
-                    icon = Icons.Outlined.Replay,
-                    label = stringResource(R.string.item_action_remove_identify),
-                    enabled = !busy,
-                    onClick = { confirmRemoveIdentify = true }
-                )
                 OverflowAction(
                     icon = Icons.Outlined.Refresh,
                     label = stringResource(R.string.item_action_refresh_metadata),

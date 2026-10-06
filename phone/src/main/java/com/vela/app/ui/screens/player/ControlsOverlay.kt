@@ -29,6 +29,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -291,6 +293,8 @@ fun ControlsOverlay(
     onScreenshot: (() -> Unit)? = null,
     mpvEngineActive: Boolean = true,
     onSwitchPlayerEngine: (() -> Unit)? = null,
+    onServerDownscale: (() -> Unit)? = null,
+    onPlayPauseLongPress: (() -> Unit)? = null,
     sleepTimerDeadline: Long? = null,
     onSetSleepTimer: (Int?) -> Unit = {},
     onAddLocalSubtitle: () -> Unit = {},
@@ -389,6 +393,7 @@ fun ControlsOverlay(
             onToggleOrientation = onToggleOrientation,
             onShowChapters = onShowChapters,
             onSwitchPlayerEngine = onSwitchPlayerEngine,
+            onServerDownscale = onServerDownscale,
             onSetSleepTimer = onSetSleepTimer,
             onAdjustVideoSize = onAdjustVideoSize,
             onAddLocalSubtitle = onAddLocalSubtitle,
@@ -460,6 +465,7 @@ fun ControlsOverlay(
             spacing = transportSpacing(landscape),
             onSeekBackward = onSeekBackward,
             onPlayPause = onPlayPause,
+            onPlayPauseLongPress = onPlayPauseLongPress,
             onSeekForward = onSeekForward,
             modifier = Modifier
                 .align(Alignment.Center)
@@ -577,6 +583,7 @@ private fun OverlayTopSection(
     onToggleOrientation: () -> Unit,
     onShowChapters: () -> Unit,
     onSwitchPlayerEngine: (() -> Unit)?,
+    onServerDownscale: (() -> Unit)?,
     onSetSleepTimer: (Int?) -> Unit,
     onAdjustVideoSize: () -> Unit,
     onAddLocalSubtitle: () -> Unit,
@@ -694,6 +701,7 @@ private fun OverlayTopSection(
                     vrDetected = vrDetected,
                     vrFlatEnabled = vrFlatEnabled,
                     onSwitchPlayerEngine = onSwitchPlayerEngine,
+                    onServerDownscale = onServerDownscale,
                     onSetSleepTimer = onSetSleepTimer,
                     onShowMediaInfo = onShowMediaInfo,
                     onAdjustVideoSize = onAdjustVideoSize,
@@ -872,6 +880,7 @@ private fun OverlayMoreMenu(
     vrDetected: Boolean,
     vrFlatEnabled: Boolean,
     onSwitchPlayerEngine: (() -> Unit)?,
+    onServerDownscale: (() -> Unit)?,
     onSetSleepTimer: (Int?) -> Unit,
     onShowMediaInfo: () -> Unit,
     onAdjustVideoSize: () -> Unit,
@@ -899,6 +908,14 @@ private fun OverlayMoreMenu(
                         ),
                         icon = Icons.Outlined.SwapHoriz,
                         onClick = { dismissThen(onSwitchPlayerEngine) }
+                    )
+                }
+                if (onServerDownscale != null) {
+                    // 片源宽于 4K 时提供：本机解码吃力或解不出画面时让服务器缩放转码。
+                    OverlayMenuItem(
+                        text = stringResource(R.string.player_server_downscale_4k),
+                        icon = Icons.Outlined.HighQuality,
+                        onClick = { dismissThen(onServerDownscale) }
                     )
                 }
                 OverlayMenuItem(
@@ -1080,7 +1097,8 @@ private fun OverlayTransportControls(
     onSeekBackward: () -> Unit,
     onPlayPause: () -> Unit,
     onSeekForward: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onPlayPauseLongPress: (() -> Unit)? = null
 ) {
     val motion = MaterialTheme.velaMotion
     Row(
@@ -1095,7 +1113,7 @@ private fun OverlayTransportControls(
                 modifier = Modifier.size(32.dp)
             )
         }
-        OverlayCircleButton(onClick = onPlayPause, size = TransportPlayButtonSize) {
+        OverlayCircleButton(onClick = onPlayPause, size = TransportPlayButtonSize, onLongClick = onPlayPauseLongPress) {
             // 缓冲时加载圈直接占据播放键的位置，与控制层隐藏时的独立加载圈同心同尺寸。
             val centerState = when {
                 isBuffering -> TransportCenterState.Buffering
@@ -1554,6 +1572,7 @@ private fun OverlayCircleButton(
     size: Dp,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -1569,19 +1588,43 @@ private fun OverlayCircleButton(
         animationSpec = motion.fastSpatialSpec(),
         label = "overlayButtonCorner"
     )
+    val shape = RoundedCornerShape(cornerRadius)
+    val sizedModifier = modifier
+        .size(size)
+        .graphicsLayer {
+            scaleX = scale.value
+            scaleY = scale.value
+        }
+    if (onLongClick != null) {
+        // 需要长按（长按播放键退出）时 Surface 的 onClick 重载不支持，改用 combinedClickable。
+        Surface(
+            shape = shape,
+            color = OverlayButtonFill,
+            contentColor = if (enabled) OverlayContent else OverlayContentDisabled,
+            modifier = sizedModifier
+                .clip(shape)
+                .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = LocalIndication.current,
+                    enabled = enabled,
+                    onClick = onClick,
+                    onLongClick = onLongClick
+                )
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                content()
+            }
+        }
+        return
+    }
     Surface(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(cornerRadius),
+        shape = shape,
         color = OverlayButtonFill,
         contentColor = if (enabled) OverlayContent else OverlayContentDisabled,
         interactionSource = interactionSource,
-        modifier = modifier
-            .size(size)
-            .graphicsLayer {
-                scaleX = scale.value
-                scaleY = scale.value
-            }
+        modifier = sizedModifier
     ) {
         Box(contentAlignment = Alignment.Center) {
             content()

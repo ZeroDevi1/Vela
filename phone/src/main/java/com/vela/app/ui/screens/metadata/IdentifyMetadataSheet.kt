@@ -67,38 +67,21 @@ import com.vela.shared.R
 import com.vela.shared.playback.UserDataRefreshSignals
 import kotlinx.coroutines.launch
 
-/**
- * 识别目标。季、集没有独立的识别接口，改为识别所属剧集；[viaSeries] 用于在界面上说明这一点。
- */
+/** 识别目标：电影、剧集等顶层条目自身（季、集不提供识别入口，见 [supportsIdentify]）。 */
 private data class IdentifyTarget(
     val itemId: String,
     val searchType: String,
-    val seriesName: String?,
-    val path: String?,
-    val viaSeries: Boolean
+    val path: String?
 )
 
 private fun identifyTargetFor(item: BaseItemDto): IdentifyTarget? {
-    val searchType = remoteSearchTypeFor(item.type) ?: return null
-    val isChild = item.type.equals("Episode", true) || item.type.equals("Season", true)
-    return if (isChild) {
-        IdentifyTarget(
-            itemId = item.seriesId?.takeIf { it.isNotBlank() } ?: return null,
-            searchType = searchType,
-            seriesName = item.seriesName,
-            path = null,
-            viaSeries = true
-        )
-    } else {
-        IdentifyTarget(
-            itemId = item.id?.takeIf { it.isNotBlank() } ?: return null,
-            searchType = searchType,
-            seriesName = null,
-            path = item.path?.takeIf { it.isNotBlank() }
-                ?: item.mediaSources?.firstOrNull()?.path?.takeIf { it.isNotBlank() },
-            viaSeries = false
-        )
-    }
+    if (!item.supportsIdentify()) return null
+    return IdentifyTarget(
+        itemId = item.id?.takeIf { it.isNotBlank() } ?: return null,
+        searchType = remoteSearchTypeFor(item.type) ?: return null,
+        path = item.path?.takeIf { it.isNotBlank() }
+            ?: item.mediaSources?.firstOrNull()?.path?.takeIf { it.isNotBlank() }
+    )
 }
 
 /**
@@ -191,13 +174,6 @@ fun IdentifyMetadataSheet(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (target.viaSeries) {
-                        Text(
-                            text = stringResource(R.string.metadata_identify_series_hint, target.seriesName.orEmpty()),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                     target.path?.let { path ->
                         Text(
                             text = stringResource(R.string.metadata_path),

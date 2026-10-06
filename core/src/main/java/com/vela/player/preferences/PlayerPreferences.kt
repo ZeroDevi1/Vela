@@ -50,6 +50,7 @@ class PlayerPreferences(context: Context) {
         private const val KEY_ZOOM_GESTURE_ENABLED = "zoom_gesture_enabled"
         private const val KEY_START_MAXIMIZED = "start_maximized"
         private const val KEY_CACHE_NEXT_EPISODE = "cache_next_episode"
+        private const val KEY_LONG_PRESS_PLAY_PAUSE_EXITS = "long_press_play_pause_exits"
         private const val KEY_PLAYER_CACHE_SIZE_MB = "player_cache_size_mb"
         private const val KEY_PLAYER_CACHE_TIME_SECONDS = "player_cache_time_seconds"
         private const val KEY_SEEK_BACKWARD_INTERVAL_SECONDS = "seek_backward_interval_seconds"
@@ -949,6 +950,13 @@ class PlayerPreferences(context: Context) {
      */
     fun setStartMaximizedEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_START_MAXIMIZED, enabled).apply()
+    }
+
+    /** 长按播放 / 暂停键退出播放器（默认关闭，与 iOS 版一致）。 */
+    fun isLongPressPlayPauseExitEnabled(): Boolean = prefs.getBoolean(KEY_LONG_PRESS_PLAY_PAUSE_EXITS, false)
+
+    fun setLongPressPlayPauseExitEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_LONG_PRESS_PLAY_PAUSE_EXITS, enabled).apply()
     }
 
     fun isCacheNextEpisodeEnabled(): Boolean {

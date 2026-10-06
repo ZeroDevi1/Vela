@@ -21,6 +21,7 @@ class Preferences(context: Context) {
         private const val KEY_NEXT_UP_ENABLED = "next_up_enabled"
         private const val KEY_USE_MY_MEDIA_TAB = "use_my_media_tab"
         private const val KEY_MERGE_VERSIONS_ENABLED = "merge_versions_enabled"
+        private const val KEY_PREFERRED_VERSION = "preferred_media_version"
         private const val KEY_SEERR_STUDIOS_ENABLED = "seerr_studios_enabled"
         private const val KEY_SEERR_NETWORKS_ENABLED = "seerr_networks_enabled"
         private const val KEY_FEATURE_CAROUSEL_AUTOPLAY_TRAILERS = "feature_carousel_autoplay_trailers"
@@ -185,6 +186,22 @@ class Preferences(context: Context) {
             }
         }
 
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }.distinctUntilChanged()
+
+    /** 「视频首选版本」的持久化 id（见 `com.vela.data.model.MediaVersionPreference`）；默认 "default"。 */
+    fun getPreferredVersion(): String = prefs.getString(KEY_PREFERRED_VERSION, "default") ?: "default"
+
+    fun setPreferredVersion(id: String) {
+        prefs.edit().putString(KEY_PREFERRED_VERSION, id).apply()
+    }
+
+    fun PreferredVersion(): Flow<String> = callbackFlow {
+        trySend(getPreferredVersion())
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_PREFERRED_VERSION) trySend(getPreferredVersion())
+        }
         prefs.registerOnSharedPreferenceChangeListener(listener)
         awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }.distinctUntilChanged()

@@ -47,6 +47,7 @@ data class PlayerSettingsUiState(
     val progressSeekGestureEnabled: Boolean = true,
     val zoomGestureEnabled: Boolean = true,
     val startMaximized: Boolean = false,
+    val longPressPlayPauseExits: Boolean = false,
     val cacheNextEpisodeEnabled: Boolean = false,
     val playerCacheSizeMb: Int = PlayerPreferences.DEFAULT_PLAYER_CACHE_SIZE_MB,
     val playerCacheTimeSeconds: Int = PlayerPreferences.DEFAULT_PLAYER_CACHE_TIME_SECONDS,
@@ -127,6 +128,7 @@ class PlayerSettingsViewModel(private val context: Context) : ViewModel() {
                 progressSeekGestureEnabled = playerPreferences.isProgressSeekGestureEnabled(),
                 zoomGestureEnabled = playerPreferences.isZoomGestureEnabled(),
                 startMaximized = playerPreferences.isStartMaximizedEnabled(),
+                longPressPlayPauseExits = playerPreferences.isLongPressPlayPauseExitEnabled(),
                 cacheNextEpisodeEnabled = playerPreferences.isCacheNextEpisodeEnabled(),
                 playerCacheSizeMb = playerPreferences.getPlayerCacheSizeMb(),
                 playerCacheTimeSeconds = playerPreferences.getPlayerCacheTimeSeconds(),
@@ -339,6 +341,13 @@ class PlayerSettingsViewModel(private val context: Context) : ViewModel() {
     fun setStartMaximized(enabled: Boolean) {
         playerPreferences.setStartMaximizedEnabled(enabled)
         updateGestureState()
+    }
+
+    fun setLongPressPlayPauseExits(enabled: Boolean) {
+        playerPreferences.setLongPressPlayPauseExitEnabled(enabled)
+        _uiState.value = _uiState.value.copy(
+            longPressPlayPauseExits = playerPreferences.isLongPressPlayPauseExitEnabled()
+        )
     }
 
     fun setCacheNextEpisodeEnabled(enabled: Boolean) {

@@ -493,6 +493,8 @@ internal fun BoxScope.PlayerOverlayHost(
     // 控制层整体淡入淡出；顶栏、底栏、两侧和中央按各自方向做位移/缩放，由 ControlsOverlay 内部声明。
     val controlsMotion = MaterialTheme.velaMotion
     val mpvActive = viewModel.mpvPlayer != null
+    val overlayContext = androidx.compose.ui.platform.LocalContext.current
+    val longPressExits = remember { PlayerPreferences(overlayContext).isLongPressPlayPauseExitEnabled() }
     AnimatedVisibility(
         visible = uiState.controlsVisible,
         enter = fadeIn(controlsMotion.defaultEffectsSpec()),
@@ -636,6 +638,16 @@ internal fun BoxScope.PlayerOverlayHost(
             } else {
                 null
             },
+            onServerDownscale = if (viewModel.canRetryWithServerDownscale()) {
+                {
+                    resetAutoHideTimer()
+                    viewModel.retryWithServerDownscale()
+                }
+            } else {
+                null
+            },
+            // 「长按播放 / 暂停键退出播放器」（播放设置中开启，默认关闭）。
+            onPlayPauseLongPress = if (longPressExits && onBackPressed != null) onBackPressed else null,
             sleepTimerDeadline = sleepTimerDeadline,
             onSetSleepTimer = { minutes ->
                 resetAutoHideTimer()
@@ -735,6 +747,21 @@ internal fun BoxScope.PlayerOverlayHost(
         controlsVisible = uiState.controlsVisible
     )
 
+    // 播放出错：说明原因并给出出路（此前只记录错误、界面一直黑屏）。
+    playerState.error?.let { message ->
+        PlayerErrorCard(
+            message = message,
+            canRetry = viewModel.canSwitchPlayerEngine(),
+            mpvActive = mpvActive,
+            canServerDownscale = viewModel.canRetryWithServerDownscale(),
+            onRetry = viewModel::retryPlayback,
+            onSwitchEngine = viewModel::switchPlayerEngine,
+            onServerDownscale = viewModel::retryWithServerDownscale,
+            onClose = { onBackPressed?.invoke() },
+            modifier = Modifier.align(Alignment.Center)
+        )
+    }
+
     // 控制层可见时加载圈显示在播放键内，这里只负责控制层隐藏时的独立加载圈。
     AnimatedVisibility(
         visible = showLoadingOverlay && !uiState.controlsVisible,
@@ -743,6 +770,64 @@ internal fun BoxScope.PlayerOverlayHost(
         modifier = Modifier.fillMaxSize()
     ) {
         BufferingIndicator()
+    }
+}
+
+/**
+ * 播放错误卡片：重试（同一引擎、当前位置）、切换引擎、片源宽于 4K 时「服务器转码为 4K」、关闭。与 iOS 版的错误界面一致。
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun PlayerErrorCard(
+    message: String,
+    canRetry: Boolean,
+    mpvActive: Boolean,
+    canServerDownscale: Boolean,
+    onRetry: () -> Unit,
+    onSwitchEngine: () -> Unit,
+    onServerDownscale: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val buttonColors = ButtonDefaults.buttonColors(
+        containerColor = Color.White.copy(alpha = 0.16f),
+        contentColor = Color.White
+    )
+    androidx.compose.foundation.layout.Column(
+        modifier = modifier
+            .padding(24.dp)
+            .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(20.dp))
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.player_error_title),
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White
+        )
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.78f)
+        )
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (canRetry) {
+                Button(onClick = onRetry, colors = buttonColors) { Text(stringResource(R.string.player_error_retry)) }
+                Button(onClick = onSwitchEngine, colors = buttonColors) {
+                    Text(stringResource(if (mpvActive) R.string.player_use_exoplayer else R.string.player_use_mpv))
+                }
+            }
+            if (canServerDownscale) {
+                Button(onClick = onServerDownscale, colors = buttonColors) {
+                    Text(stringResource(R.string.player_server_downscale_4k))
+                }
+            }
+            Button(onClick = onClose, colors = buttonColors) { Text(stringResource(R.string.player_error_close)) }
+        }
     }
 }
 

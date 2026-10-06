@@ -516,7 +516,6 @@
     <string name="metadata_subtitles_download">下载</string>
     <string name="metadata_subtitles_delete_title">删除字幕</string>
     <string name="metadata_subtitles_hash_match">哈希匹配</string>
-    <string name="metadata_identify_series_hint">将识别整部剧集：%1$s</string>
     <string name="metadata_field_name">名称</string>
     <string name="metadata_field_year">年份</string>
     <string name="metadata_search">搜索</string>
@@ -998,4 +997,16 @@
     <string name="server_private_locked">解锁后才能访问此私密服务器。</string>
     <string name="server_private_unlock">解锁</string>
     <string name="server_private_use_public">访问 %1$s</string>
+    <string name="player_error_title">播放出错</string>
+    <string name="player_error_retry">从当前位置重试</string>
+    <string name="player_error_close">关闭</string>
+    <string name="player_server_downscale_4k">服务器转码为 4K</string>
+    <string name="player_settings_long_press_exit">长按播放键退出播放器</string>
+    <string name="player_settings_long_press_exit_subtitle">长按播放 / 暂停按钮关闭播放器。</string>
+    <string name="interface_preferred_version">视频首选版本</string>
+    <string name="interface_preferred_version_subtitle">同一条目有多个版本且未手动选择时，起播哪一个。</string>
+    <string name="interface_version_default">默认</string>
+    <string name="interface_version_best_resolution">最佳分辨率</string>
+    <string name="interface_version_best_bitrate">最佳码率</string>
+    <string name="interface_version_best_dynamic_range">最佳动态范围</string>
 </resources>

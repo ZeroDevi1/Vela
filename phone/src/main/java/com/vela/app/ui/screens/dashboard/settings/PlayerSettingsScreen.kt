@@ -498,6 +498,16 @@ fun PlayerSettingsScreen(
 
                     SettingsDivider()
                     SwitchSettingsItem(
+                        icon = Icons.Rounded.Fullscreen,
+                        title = stringResource(R.string.player_settings_long_press_exit),
+                        subtitle = stringResource(R.string.player_settings_long_press_exit_subtitle),
+                        checked = uiState.longPressPlayPauseExits,
+                        onCheckedChange = viewModel::setLongPressPlayPauseExits,
+                        accentColor = videoColor
+                    )
+
+                    SettingsDivider()
+                    SwitchSettingsItem(
                         icon = Icons.Rounded.Devices,
                         title = stringResource(R.string.player_settings_use_device_volume_in_player),
                         subtitle = stringResource(R.string.player_settings_use_device_volume_in_player_summary),

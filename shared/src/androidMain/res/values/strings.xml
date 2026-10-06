@@ -517,7 +517,6 @@
     <string name="metadata_subtitles_download">Download</string>
     <string name="metadata_subtitles_delete_title">Delete subtitle</string>
     <string name="metadata_subtitles_hash_match">Hash match</string>
-    <string name="metadata_identify_series_hint">Identifies the whole series: %1$s</string>
     <string name="metadata_field_name">Name</string>
     <string name="metadata_field_year">Year</string>
     <string name="metadata_search">Search</string>
@@ -1011,4 +1010,16 @@
     <string name="server_private_locked">Unlock to access this private server.</string>
     <string name="server_private_unlock">Unlock</string>
     <string name="server_private_use_public">Use %1$s</string>
+    <string name="player_error_title">Playback error</string>
+    <string name="player_error_retry">Retry</string>
+    <string name="player_error_close">Close</string>
+    <string name="player_server_downscale_4k">Server transcode to 4K</string>
+    <string name="player_settings_long_press_exit">Long-press play/pause to exit</string>
+    <string name="player_settings_long_press_exit_subtitle">Long-press the play/pause button to close the player.</string>
+    <string name="interface_preferred_version">Preferred video version</string>
+    <string name="interface_preferred_version_subtitle">Which version to play when an item has several and none was chosen.</string>
+    <string name="interface_version_default">Default</string>
+    <string name="interface_version_best_resolution">Best resolution</string>
+    <string name="interface_version_best_bitrate">Best bitrate</string>
+    <string name="interface_version_best_dynamic_range">Best dynamic range</string>
 </resources>

@@ -213,6 +213,7 @@ class MpvPlayerController(
             surfaceHeight = height
             MPVLib.setPropertyString("android-surface-size", "${width}x$height")
             applySubtitleLayout()
+            applyVrAspect()
         }
     }
 
@@ -222,7 +223,23 @@ class MpvPlayerController(
             surfaceHeight = height
             MPVLib.setPropertyString("android-surface-size", "${width}x$height")
             applySubtitleLayout()
+            applyVrAspect()
         }
+    }
+
+    /**
+     * VR 转平面时让画面铺满播放区域（与 iOS 版一致）：着色器按输出尺寸（`OUTPUT.w/h`）渲染视口，
+     * 但 mpv 仍按源视频宽高比摆放画面，竖屏时只剩中间一条。把显示宽高比覆盖为播放区域的宽高比即可铺满；
+     * 关闭 VR 时恢复按源视频宽高比（"no"）。
+     */
+    private fun applyVrAspect() {
+        if (released) return
+        val aspect = if (vrShaderActive && surfaceWidth > 0 && surfaceHeight > 0) {
+            "%.6f".format(Locale.US, surfaceWidth.toDouble() / surfaceHeight)
+        } else {
+            "no"
+        }
+        setMpv("video-aspect-override", aspect)
     }
 
     fun screenshotToFile(path: String) {
@@ -407,6 +424,7 @@ class MpvPlayerController(
             setMpv("glsl-shader-opts", VrFlattenFilter.lookShaderOpts(yaw, pitch, outputFov))
         }
         reloadVrShader(source)
+        applyVrAspect()
     }
 
     fun setVrLook(
@@ -446,6 +464,7 @@ class MpvPlayerController(
         lastVrShaderSource = null
         vrShaderActive = false
         if (!released) {
+            applyVrAspect()
             MPVLib.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
             setMpv("glsl-shader-opts", "")
             if (vrForcedGpuNext) {

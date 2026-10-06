@@ -1,8 +1,10 @@
 package com.vela.data.repository
 
 import com.vela.data.model.AudioTranscodeMode
+import com.vela.data.model.CodecProfile
 import com.vela.data.model.DeviceProfile
 import com.vela.data.model.DirectPlayProfile
+import com.vela.data.model.ProfileCondition
 import com.vela.data.model.SubtitleProfile
 import com.vela.data.model.TranscodingProfile
 
@@ -29,9 +31,14 @@ internal object PlaybackDeviceProfileFactory {
         return value.orEmpty().split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
     }
 
+    /**
+     * @param maxVideoWidth 视频宽度上限；非 null 时声明 `Width ≤ 上限` 的必需条件，超过的片源由服务器缩放重编码。
+     * 用于本机解码器打不开的超高分辨率片源（如 8192 宽的 8K VR）的「服务器转码为 4K」。
+     */
     fun create(
         maxStreamingBitrate: Long? = null,
-        audioTranscodeMode: AudioTranscodeMode = AudioTranscodeMode.AUTO
+        audioTranscodeMode: AudioTranscodeMode = AudioTranscodeMode.AUTO,
+        maxVideoWidth: Int? = null
     ): DeviceProfile {
         val bitrate = maxStreamingBitrate?.takeIf { it > 0L }
         val maxAudioChannels = audioTranscodeMode.maxAudioChannels
@@ -85,7 +92,17 @@ internal object PlaybackDeviceProfileFactory {
                     maxAudioChannels = "2"
                 )
             ),
-            subtitleProfiles = subtitleProfiles()
+            subtitleProfiles = subtitleProfiles(),
+            codecProfiles = maxVideoWidth?.takeIf { it > 0 }?.let { width ->
+                listOf(
+                    CodecProfile(
+                        type = "Video",
+                        conditions = listOf(
+                            ProfileCondition(condition = "LessThanEqual", property = "Width", value = width.toString())
+                        )
+                    )
+                )
+            }
         )
     }
 
