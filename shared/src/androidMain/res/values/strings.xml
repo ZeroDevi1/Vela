@@ -1022,4 +1022,23 @@
     <string name="interface_version_best_resolution">Best resolution</string>
     <string name="interface_version_best_bitrate">Best bitrate</string>
     <string name="interface_version_best_dynamic_range">Best dynamic range</string>
+    <!-- 设置首页（与 iOS 版统一的结构） -->
+    <string name="settings_section_explore">Explore</string>
+    <string name="settings_subscription_calendar">Subscription calendar</string>
+    <string name="settings_section_playback">Playback</string>
+    <string name="settings_library_config">Library</string>
+    <string name="settings_dolby_vision">Dolby Vision</string>
+    <string name="settings_hdr10">HDR10</string>
+    <string name="settings_av1_hardware">AV1 hardware decoding</string>
+    <string name="settings_supported">Supported</string>
+    <string name="settings_unsupported">Not supported</string>
+    <string name="settings_section_storage">Storage</string>
+    <string name="settings_downloads_count">%1$d items</string>
+    <string name="settings_section_privacy">Privacy</string>
+    <string name="settings_lock_private_servers">Lock private servers now</string>
+    <string name="settings_private_servers_locked">Private servers locked; verification is required next time</string>
+    <string name="settings_version">Version</string>
+    <string name="settings_project_home">Project homepage</string>
+    <string name="settings_footer_license">Vela is open source under GPLv3.</string>
+    <string name="settings_library_title">Library</string>
 </resources>

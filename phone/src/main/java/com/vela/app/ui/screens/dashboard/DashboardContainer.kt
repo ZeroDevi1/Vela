@@ -162,6 +162,7 @@ fun DashboardContainer(
     onNavigateToSearchCategory: (String, String, String) -> Unit = { _, _, _ -> },
     onNavigateToPlayer: (String) -> Unit = {},
     onNavigateToPlayerSettings: () -> Unit = {},
+    onNavigateToSubtitleSettings: () -> Unit = {},
     onNavigateToInterfaceSettings: () -> Unit = {},
     onNavigateToConnections: () -> Unit = {},
     onNavigateToServers: () -> Unit = {},
@@ -574,6 +575,7 @@ fun DashboardContainer(
                         Settings(
                             onLogout = onLogout,
                             onNavigateToPlayerSettings = onNavigateToPlayerSettings,
+                            onNavigateToSubtitleSettings = onNavigateToSubtitleSettings,
                             onNavigateToInterfaceSettings = onNavigateToInterfaceSettings,
                             onNavigateToConnections = onNavigateToConnections,
                             onNavigateToDownloads = onNavigateToDownloads,

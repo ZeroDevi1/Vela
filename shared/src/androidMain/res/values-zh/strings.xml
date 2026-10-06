@@ -1009,4 +1009,23 @@
     <string name="interface_version_best_resolution">最佳分辨率</string>
     <string name="interface_version_best_bitrate">最佳码率</string>
     <string name="interface_version_best_dynamic_range">最佳动态范围</string>
+    <!-- 设置首页（与 iOS 版统一的结构） -->
+    <string name="settings_section_explore">探索</string>
+    <string name="settings_subscription_calendar">订阅日历</string>
+    <string name="settings_section_playback">播放</string>
+    <string name="settings_library_config">媒体库配置</string>
+    <string name="settings_dolby_vision">杜比视界</string>
+    <string name="settings_hdr10">HDR10</string>
+    <string name="settings_av1_hardware">AV1 硬件解码</string>
+    <string name="settings_supported">支持</string>
+    <string name="settings_unsupported">不支持</string>
+    <string name="settings_section_storage">存储</string>
+    <string name="settings_downloads_count">%1$d 项</string>
+    <string name="settings_section_privacy">隐私</string>
+    <string name="settings_lock_private_servers">立即锁定私密服务器</string>
+    <string name="settings_private_servers_locked">已锁定私密服务器，下次进入需要重新验证</string>
+    <string name="settings_version">版本</string>
+    <string name="settings_project_home">项目主页</string>
+    <string name="settings_footer_license">Vela 遵循 GPLv3 开源。</string>
+    <string name="settings_library_title">媒体库配置</string>
 </resources>

@@ -129,7 +129,7 @@ fun InterfaceSettingsScreen(
             CenterAlignedTopAppBar(
                 title = {
                     Text(
-                        stringResource(R.string.settings_interface),
+                        stringResource(R.string.settings_library_title),
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )

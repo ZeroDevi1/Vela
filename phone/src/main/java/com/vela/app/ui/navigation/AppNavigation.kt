@@ -425,6 +425,9 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                     onNavigateToPlayerSettings = {
                         navController.navigate("player_settings")
                     },
+                    onNavigateToSubtitleSettings = {
+                        navController.navigate("subtitle_settings")
+                    },
                     onNavigateToInterfaceSettings = {
                         navController.navigate("interface_settings")
                     },
@@ -799,6 +802,9 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                     },
                     onNavigateToPlayerSettings = {
                         navController.navigate("player_settings")
+                    },
+                    onNavigateToSubtitleSettings = {
+                        navController.navigate("subtitle_settings")
                     },
                     onNavigateToInterfaceSettings = {
                         navController.navigate("interface_settings")

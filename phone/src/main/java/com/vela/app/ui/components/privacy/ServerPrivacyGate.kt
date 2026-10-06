@@ -51,6 +51,17 @@ internal object PrivateServerSession {
     fun unlock(serverId: String) {
         if (serverId.isNotBlank()) unlockedServerIds.add(serverId)
     }
+
+    /** 是否有已解锁的私密服务器（设置页「立即锁定」是否可用）。 */
+    fun hasUnlocked(): Boolean = unlockedServerIds.isNotEmpty()
+
+    /**
+     * 清除本进程内全部解锁记录（设置页「立即锁定私密服务器」，与 iOS 版一致）。
+     * 只影响之后的进入：已经打开的页面不会被立即遮挡，下次进入私密服务器时重新验证。
+     */
+    fun lockAll() {
+        unlockedServerIds.clear()
+    }
 }
 
 /** 只接受系统返回的验证成功；取消、未设置锁屏或无法启动验证都保持关闭。 */
