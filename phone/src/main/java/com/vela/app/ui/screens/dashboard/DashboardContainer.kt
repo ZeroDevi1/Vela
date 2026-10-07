@@ -1,5 +1,6 @@
 package com.vela.app.ui.screens.dashboard
 import android.content.res.Configuration
+import com.vela.app.ui.screens.dashboard.settings.PlayerSettingsPage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -161,7 +162,7 @@ fun DashboardContainer(
     onNavigateToRecentlyAdded: (String, String?, String) -> Unit = onNavigateToViewAll,
     onNavigateToSearchCategory: (String, String, String) -> Unit = { _, _, _ -> },
     onNavigateToPlayer: (String) -> Unit = {},
-    onNavigateToPlayerSettings: () -> Unit = {},
+    onNavigateToPlayerSettings: (PlayerSettingsPage) -> Unit = {},
     onNavigateToSubtitleSettings: () -> Unit = {},
     onNavigateToInterfaceSettings: () -> Unit = {},
     onNavigateToConnections: () -> Unit = {},

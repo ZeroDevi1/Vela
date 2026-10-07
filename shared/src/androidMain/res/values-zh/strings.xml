@@ -173,7 +173,7 @@
     </plurals>
 
     <!-- Player Settings -->
-    <string name="player_settings_title">播放器设置</string>
+    <string name="player_settings_title">播放设置</string>
     <string name="player_settings_section_player">播放器</string>
     <string name="player_settings_player_engine">播放器引擎</string>
     <string name="player_settings_orientation">播放方向</string>
@@ -313,7 +313,7 @@
     <string name="player_settings_decoder_priority_software_first">软件解码器</string>
 
     <!-- Subtitle Settings -->
-    <string name="subtitle_settings_title">字幕</string>
+    <string name="subtitle_settings_title">字幕设置</string>
     <string name="subtitle_settings_section_style">样式</string>
     <string name="subtitle_settings_section_position">位置</string>
     <string name="subtitle_settings_text_size">文字大小</string>
@@ -1028,4 +1028,26 @@
     <string name="settings_project_home">项目主页</string>
     <string name="settings_footer_license">Vela 遵循 GPLv3 开源。</string>
     <string name="settings_library_title">媒体库配置</string>
+
+    <!-- 播放设置子页面（与 iOS 版分组一致） -->
+    <string name="video_settings_title">视频设置</string>
+    <string name="audio_settings_title">音频设置</string>
+    <string name="gesture_settings_title">播放手势</string>
+    <string name="player_ui_settings_title">界面偏好</string>
+    <string name="player_settings_section_engine">播放内核</string>
+    <string name="player_settings_section_episodes">剧集</string>
+    <string name="player_settings_section_mpv_options">内核选项（MPV）</string>
+    <string name="player_settings_section_audio_output">音频输出</string>
+    <string name="player_settings_section_screen">屏幕</string>
+    <string name="player_settings_mpv_upscale_filter">放大滤镜</string>
+    <string name="player_settings_mpv_downscale_filter">缩小滤镜</string>
+    <string name="player_settings_mpv_tone_mapping">色调映射</string>
+    <string name="player_settings_mpv_smooth_motion">平滑运动</string>
+    <string name="player_settings_mpv_smooth_motion_summary">在高刷新率屏幕上插帧</string>
+    <string name="player_settings_mpv_deband">去色带</string>
+    <string name="player_settings_mpv_deband_summary">减少暗部渐变中的色带</string>
+    <string name="player_settings_mpv_dynamic_brightness">动态亮度</string>
+    <string name="player_settings_mpv_dynamic_brightness_summary">按场景调整色调映射</string>
+    <string name="player_settings_mpv_hdr_to_sdr">HDR 转 SDR 色调映射</string>
+    <string name="player_settings_mpv_hdr_to_sdr_summary">将 HDR 内容色调映射到 SDR，以获得准确色彩</string>
 </resources>

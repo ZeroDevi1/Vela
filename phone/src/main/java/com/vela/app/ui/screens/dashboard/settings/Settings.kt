@@ -71,7 +71,7 @@ import com.vela.player.preferences.PlayerPreferences
 @Composable
 fun Settings(
     onLogout: () -> Unit = {},
-    onNavigateToPlayerSettings: () -> Unit = {},
+    onNavigateToPlayerSettings: (PlayerSettingsPage) -> Unit = {},
     onNavigateToSubtitleSettings: () -> Unit = {},
     onNavigateToInterfaceSettings: () -> Unit = {},
     onNavigateToConnections: () -> Unit = {},
@@ -221,8 +221,13 @@ fun Settings(
                 SettingsGroup(
                     title = stringResource(R.string.settings_section_playback),
                     rows = listOf(
-                        { SettingsRow(title = stringResource(R.string.player_settings_title), onClick = onNavigateToPlayerSettings) },
+                        // 与 iOS「设置 → 播放」相同的入口与顺序：播放 / 视频 / 音频 / 字幕 / 手势 / 界面，然后是媒体库配置。
+                        { SettingsRow(title = stringResource(R.string.player_settings_title), onClick = { onNavigateToPlayerSettings(PlayerSettingsPage.PLAYBACK) }) },
+                        { SettingsRow(title = stringResource(R.string.video_settings_title), onClick = { onNavigateToPlayerSettings(PlayerSettingsPage.VIDEO) }) },
+                        { SettingsRow(title = stringResource(R.string.audio_settings_title), onClick = { onNavigateToPlayerSettings(PlayerSettingsPage.AUDIO) }) },
                         { SettingsRow(title = stringResource(R.string.subtitle_settings_title), onClick = onNavigateToSubtitleSettings) },
+                        { SettingsRow(title = stringResource(R.string.gesture_settings_title), onClick = { onNavigateToPlayerSettings(PlayerSettingsPage.GESTURES) }) },
+                        { SettingsRow(title = stringResource(R.string.player_ui_settings_title), onClick = { onNavigateToPlayerSettings(PlayerSettingsPage.INTERFACE) }) },
                         { SettingsRow(title = stringResource(R.string.settings_library_config), onClick = onNavigateToInterfaceSettings) },
                         { SettingsRow(title = stringResource(R.string.player_settings_player_engine), value = playerEngine) },
                         { SettingsRow(title = stringResource(R.string.settings_dolby_vision), value = supportText(capabilities.dolbyVision)) },

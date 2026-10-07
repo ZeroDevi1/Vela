@@ -90,11 +90,27 @@ import com.vela.player.preferences.PlayerPreferences
 import com.vela.shared.R
 import kotlin.math.roundToInt
 
+/**
+ * 播放相关设置的子页面，分组、命名与顺序与 iOS 版「设置 → 播放」一致（见 iOS 仓库 docs/PLAN.md 第 4 节）。
+ * 只调整界面组织，`PlayerPreferences` 的键与默认值不变，已有设置不受影响。字幕设置是独立页面（[SubtitleSettingsScreen]）。
+ */
+enum class PlayerSettingsPage(val route: String, val titleRes: Int) {
+    PLAYBACK("playback", R.string.player_settings_title),
+    VIDEO("video", R.string.video_settings_title),
+    AUDIO("audio", R.string.audio_settings_title),
+    GESTURES("gestures", R.string.gesture_settings_title),
+    INTERFACE("interface", R.string.player_ui_settings_title);
+
+    companion object {
+        fun fromRoute(route: String?): PlayerSettingsPage = entries.firstOrNull { it.route == route } ?: PLAYBACK
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerSettingsScreen(
-    onBackPressed: () -> Unit = {},
-    onNavigateToSubtitleSettings: () -> Unit = {}
+    page: PlayerSettingsPage = PlayerSettingsPage.PLAYBACK,
+    onBackPressed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val viewModel: PlayerSettingsViewModel = viewModel { PlayerSettingsViewModel(context) }
@@ -106,11 +122,12 @@ fun PlayerSettingsScreen(
     val seekingColor = Color(0xFFEF4444)
     val performanceColor = Color(0xFF22C55E)
     val cacheColor = Color(0xFF06B6D4)
+    val renderingColor = Color(0xFFF59E0B)
 
     Scaffold(
         topBar = {
             topbar(
-                title = stringResource(R.string.player_settings_title),
+                title = stringResource(page.titleRes),
                 onBackPressed = onBackPressed
             )
         }
@@ -123,625 +140,625 @@ fun PlayerSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             contentPadding = paddingValues.bottomContentPadding()
         ) {
-            item { SectionLabel(stringResource(R.string.player_settings_section_player)) }
-            item {
-                SettingsSection {
-                    SelectionDialogSettingsItem(
-                        icon = Icons.Rounded.VideoSettings,
-                        title = stringResource(R.string.player_settings_player_engine),
-                        subtitle = uiState.playerEngine,
-                        selectedValue = uiState.playerEngine,
-                        options = listOf(
-                            SelectionOption("ExoPlayer", "ExoPlayer", "Android native, battery efficient", isDefault = true),
-                            SelectionOption("MPV", "MPV", "Advanced rendering, custom shaders, better HDR")
-                        ),
-                        onOptionSelected = viewModel::setPlayerEngine,
-                        accentColor = videoColor
-                    )
-                    SettingsDivider()
-                    SelectionDialogSettingsItem(
-                        icon = Icons.Rounded.ScreenRotation,
-                        title = stringResource(R.string.player_settings_orientation),
-                        subtitle = when (uiState.playerOrientation) {
-                            PlayerPreferences.PLAYER_ORIENTATION_LANDSCAPE ->
-                                stringResource(R.string.player_settings_orientation_landscape)
-                            PlayerPreferences.PLAYER_ORIENTATION_AUTO ->
-                                stringResource(R.string.player_settings_orientation_auto)
-                            else -> stringResource(R.string.player_settings_orientation_portrait)
-                        },
-                        selectedValue = uiState.playerOrientation,
-                        options = listOf(
-                            SelectionOption(
-                                PlayerPreferences.PLAYER_ORIENTATION_PORTRAIT,
-                                stringResource(R.string.player_settings_orientation_portrait),
-                                stringResource(R.string.player_settings_orientation_portrait),
-                                isDefault = true
-                            ),
-                            SelectionOption(
-                                PlayerPreferences.PLAYER_ORIENTATION_LANDSCAPE,
-                                stringResource(R.string.player_settings_orientation_landscape),
-                                stringResource(R.string.player_settings_orientation_landscape)
-                            ),
-                            SelectionOption(
-                                PlayerPreferences.PLAYER_ORIENTATION_AUTO,
-                                stringResource(R.string.player_settings_orientation_auto),
-                                stringResource(R.string.player_settings_orientation_auto)
-                            )
-                        ),
-                        onOptionSelected = viewModel::setPlayerOrientation,
-                        accentColor = videoColor
-                    )
-
-                    if (uiState.playerEngine == PlayerPreferences.PLAYER_ENGINE_MPV) {
-                        SettingsDivider()
-                        SelectionDialogSettingsItem(
-                            icon = Icons.Rounded.Speed,
-                            title = stringResource(R.string.player_settings_mpv_hardware_decoding),
-                            subtitle = uiState.mpvHardwareDecoding,
-                            selectedValue = uiState.mpvHardwareDecoding,
-                            options = listOf(
-                                SelectionOption("mediacodec", "MediaCodec", "Direct hardware decode, best performance", isDefault = true),
-                                SelectionOption("mediacodec-copy", "MediaCodec (copy)", "Hardware decode with CPU copy, wider format support"),
-                                SelectionOption("no", "Software", "CPU decode, highest compatibility")
-                            ),
-                            onOptionSelected = viewModel::setMpvHardwareDecoding,
-                            accentColor = videoColor
-                        )
-
-                        SettingsDivider()
-                        SelectionDialogSettingsItem(
-                            icon = Icons.Rounded.VideoSettings,
-                            title = stringResource(R.string.player_settings_mpv_video_output),
-                            subtitle = uiState.mpvVideoOutput,
-                            selectedValue = uiState.mpvVideoOutput,
-                            options = listOf(
-                                SelectionOption("gpu-next", "GPU Next", "libplacebo renderer", isDefault = false),
-                                SelectionOption("gpu", "GPU", "mpv-android / Hills default", isDefault = true)
-                            ),
-                            onOptionSelected = viewModel::setMpvVideoOutput,
-                            accentColor = videoColor
-                        )
-
-                        SettingsDivider()
-                        SelectionDialogSettingsItem(
-                            icon = Icons.Rounded.AudioFile,
-                            title = stringResource(R.string.player_settings_mpv_audio_output),
-                            subtitle = uiState.mpvAudioOutput,
-                            selectedValue = uiState.mpvAudioOutput,
-                            options = listOf(
-                                SelectionOption("audiotrack", "AudioTrack", "Standard Android audio, most compatible", isDefault = true),
-                                SelectionOption("aaudio", "AAudio", "Low-latency audio, Android 8.1+"),
-                                SelectionOption("opensles", "OpenSL ES", "Legacy low-latency audio")
-                            ),
-                            onOptionSelected = viewModel::setMpvAudioOutput,
-                            accentColor = videoColor
-                        )
-                    }
-                }
-            }
-
-            if (uiState.playerEngine == PlayerPreferences.PLAYER_ENGINE_MPV) {
-                val renderingColor = Color(0xFFF59E0B)
-                item { SectionLabel("RENDERING") }
-                item {
-                    SettingsSection {
-                        SelectionDialogSettingsItem(
-                            icon = Icons.Rounded.Tune,
-                            title = "Upscale Filter",
-                            subtitle = uiState.mpvUpscaleFilter,
-                            selectedValue = uiState.mpvUpscaleFilter,
-                            options = listOf(
-                                SelectionOption("bilinear", "Bilinear", "Fast, smooth, slightly soft"),
-                                SelectionOption("spline36", "Spline36", "Balanced sharpness and smoothness"),
-                                SelectionOption("lanczos", "Lanczos", "Sharp and detailed", isDefault = true),
-                                SelectionOption("ewa_lanczos", "EWA Lanczos", "Sharpest quality, GPU intensive")
-                            ),
-                            onOptionSelected = viewModel::setMpvUpscaleFilter,
-                            accentColor = renderingColor
-                        )
-
-                        SettingsDivider()
-                        SelectionDialogSettingsItem(
-                            icon = Icons.Rounded.Tune,
-                            title = "Downscale Filter",
-                            subtitle = uiState.mpvDownscaleFilter,
-                            selectedValue = uiState.mpvDownscaleFilter,
-                            options = listOf(
-                                SelectionOption("hermite", "Hermite", "Smooth and soft, reduces aliasing", isDefault = true),
-                                SelectionOption("mitchell", "Mitchell", "Balanced, slight sharpness"),
-                                SelectionOption("catmull_rom", "Catmull-Rom", "Sharper, preserves edges"),
-                                SelectionOption("lanczos", "Lanczos", "Sharpest downscale, may ring slightly")
-                            ),
-                            onOptionSelected = viewModel::setMpvDownscaleFilter,
-                            accentColor = renderingColor
-                        )
-
-                        SettingsDivider()
-                        SelectionDialogSettingsItem(
-                            icon = Icons.Rounded.Contrast,
-                            title = "Tone Mapping",
-                            subtitle = uiState.mpvToneMapping,
-                            selectedValue = uiState.mpvToneMapping,
-                            options = listOf(
-                                SelectionOption("auto", "Auto", "Dynamically picks best algorithm per scene", isDefault = true),
-                                SelectionOption("bt.2390", "BT.2390", "Broadcast standard, natural highlights"),
-                                SelectionOption("spline", "Spline", "Smooth curve, preserves mid-tones"),
-                                SelectionOption("hable", "Filmic", "Cinematic roll-off, softer highlights"),
-                                SelectionOption("mobius", "Mobius", "Soft roll-off, preserves dark detail"),
-                                SelectionOption("reinhard", "Reinhard", "Simple, slightly desaturated highlights")
-                            ),
-                            onOptionSelected = viewModel::setMpvToneMapping,
-                            enabled = uiState.mpvHdrToSdrTonemapping,
-                            accentColor = renderingColor
-                        )
-
-                        SettingsDivider()
-                        SelectionDialogSettingsItem(
-                            icon = Icons.Rounded.Palette,
-                            title = stringResource(R.string.player_settings_mpv_target_prim),
-                            subtitle = stringResource(R.string.player_settings_mpv_color_restart_hint),
-                            selectedValue = uiState.mpvTargetPrim,
-                            options = listOf(
-                                SelectionOption("auto", "auto", "Leave to mpv", isDefault = true),
-                                SelectionOption("bt.709", "bt.709", "SDR Rec.709"),
-                                SelectionOption("bt.2020", "bt.2020", "HDR Rec.2020")
-                            ),
-                            onOptionSelected = viewModel::setMpvTargetPrim,
-                            accentColor = renderingColor
-                        )
-
-                        SettingsDivider()
-                        SelectionDialogSettingsItem(
-                            icon = Icons.Rounded.Contrast,
-                            title = stringResource(R.string.player_settings_mpv_target_trc),
-                            subtitle = stringResource(R.string.player_settings_mpv_color_restart_hint),
-                            selectedValue = uiState.mpvTargetTrc,
-                            options = listOf(
-                                SelectionOption("auto", "auto", "Leave to mpv", isDefault = true),
-                                SelectionOption("bt.1886", "bt.1886", "TV / Exo-like"),
-                                SelectionOption("srgb", "srgb", "PC sRGB"),
-                                SelectionOption("gamma2.2", "gamma2.2", "Simple 2.2")
-                            ),
-                            onOptionSelected = viewModel::setMpvTargetTrc,
-                            accentColor = renderingColor
-                        )
-
-                        SettingsDivider()
-                        SelectionDialogSettingsItem(
-                            icon = Icons.Rounded.Tune,
-                            title = stringResource(R.string.player_settings_mpv_output_levels),
-                            subtitle = stringResource(R.string.player_settings_mpv_color_restart_hint),
-                            selectedValue = uiState.mpvOutputLevels,
-                            options = listOf(
-                                SelectionOption("auto", "auto", "Leave to mpv", isDefault = true),
-                                SelectionOption("full", "full", "0–255 RGB"),
-                                SelectionOption("limited", "limited", "16–235")
-                            ),
-                            onOptionSelected = viewModel::setMpvOutputLevels,
-                            accentColor = renderingColor
-                        )
-
-                        SettingsDivider()
-                        SwitchSettingsItem(
-                            icon = Icons.Rounded.SlowMotionVideo,
-                            title = "Smooth Motion",
-                            subtitle = "Interpolate frames on high refresh displays",
-                            checked = uiState.mpvSmoothMotion,
-                            onCheckedChange = viewModel::setMpvSmoothMotion,
-                            accentColor = renderingColor
-                        )
-
-                        SettingsDivider()
-                        SwitchSettingsItem(
-                            icon = Icons.Rounded.Gradient,
-                            title = "Deband",
-                            subtitle = "Reduce color banding in dark gradients",
-                            checked = uiState.mpvDeband,
-                            onCheckedChange = viewModel::setMpvDeband,
-                            accentColor = renderingColor
-                        )
-
-                        SettingsDivider()
-                        SwitchSettingsItem(
-                            icon = Icons.Rounded.WbSunny,
-                            title = "Dynamic Brightness",
-                            subtitle = "Adapt tone mapping per scene",
-                            checked = uiState.mpvDynamicPeak,
-                            onCheckedChange = viewModel::setMpvDynamicPeak,
-                            enabled = uiState.mpvHdrToSdrTonemapping,
-                            accentColor = renderingColor
-                        )
-                        SettingsDivider()
-                        SwitchSettingsItem(
-                            icon = Icons.Rounded.HdrOn,
-                            title = "HDR to SDR Tonemapping",
-                            subtitle = "Tone map HDR content to SDR for accurate colors",
-                            checked = uiState.mpvHdrToSdrTonemapping,
-                            onCheckedChange = viewModel::setMpvHdrToSdrTonemapping,
-                            accentColor = renderingColor
-                        )
-                        SettingsDivider()
-                        SwitchSettingsItem(
-                            icon = Icons.Rounded.BrightnessHigh,
-                            title = stringResource(R.string.player_settings_dolby_brightness),
-                            subtitle = stringResource(R.string.player_settings_dolby_brightness_summary),
-                            checked = uiState.dolbyBrightnessEnhancement,
-                            onCheckedChange = viewModel::setDolbyBrightnessEnhancement,
-                            accentColor = renderingColor
-                        )
-                        SettingsDivider()
-                        SwitchSettingsItem(
-                            icon = Icons.Rounded.Sync,
-                            title = stringResource(R.string.player_settings_dolby_dv7_to_dv81),
-                            subtitle = stringResource(R.string.player_settings_dolby_dv7_to_dv81_summary),
-                            checked = uiState.dolbyDv7ToDv81,
-                            onCheckedChange = viewModel::setDolbyDv7ToDv81,
-                            accentColor = renderingColor
-                        )
-                    }
-                }
-            }
-
-            item { SectionLabel(stringResource(R.string.player_settings_section_decoding)) }
-            item {
-                SettingsSection {
-                    SwitchSettingsItem(
-                        icon = Icons.Rounded.Speed,
-                        title = stringResource(R.string.player_settings_hardware_acceleration),
-                        subtitle = stringResource(R.string.player_settings_hardware_acceleration_summary),
-                        checked = uiState.hardwareDecodingEnabled,
-                        onCheckedChange = viewModel::setHardwareDecodingEnabled,
-                        accentColor = decodingColor
-                    )
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        SettingsDivider()
-                        SwitchSettingsItem(
-                            icon = Icons.Rounded.Tune,
-                            title = stringResource(R.string.player_settings_async_mediacodec),
-                            subtitle = stringResource(R.string.player_settings_async_mediacodec_summary),
-                            checked = uiState.asyncMediaCodecEnabled,
-                            onCheckedChange = viewModel::setAsyncMediaCodecEnabled,
-                            enabled = uiState.hardwareDecodingEnabled,
-                            accentColor = decodingColor
-                        )
-                    }
-                }
-            }
-
-            item { SectionLabel(stringResource(R.string.player_settings_section_subtitles)) }
-            item {
-                SettingsSection {
-                    ClickableSettingsItem(
-                        icon = Icons.Rounded.VideoSettings,
-                        title = stringResource(R.string.player_settings_subtitles),
-                        subtitle = stringResource(R.string.player_settings_subtitles_summary),
-                        onClick = onNavigateToSubtitleSettings,
-                        accentColor = Color(0xFF6366F1)
-                    )
-                }
-            }
-
-            if (uiState.isVideoTranscodingAllowed || uiState.isAudioTranscodingAllowed) {
-                item { SectionLabel(stringResource(R.string.player_settings_section_transcoding)) }
-                item {
-                    SettingsSection {
-                        if (uiState.isVideoTranscodingAllowed) {
+            when (page) {
+                PlayerSettingsPage.PLAYBACK -> {
+                    item { SectionLabel(stringResource(R.string.player_settings_section_engine)) }
+                    item {
+                        SettingsSection {
                             SelectionDialogSettingsItem(
-                                icon = Icons.Rounded.HighQuality,
-                                title = stringResource(R.string.player_settings_streaming_quality),
-                                subtitle = uiState.streamingQuality,
-                                selectedValue = uiState.streamingQuality,
-                                options = PlayerPreferences.STREAMING_QUALITY_OPTIONS.map { quality ->
-                                    SelectionOption(
-                                        value = quality,
-                                        label = quality,
-                                        description = "",
-                                        isDefault = quality == PlayerPreferences.DEFAULT_STREAMING_QUALITY
+                                icon = Icons.Rounded.VideoSettings,
+                                title = stringResource(R.string.player_settings_player_engine),
+                                subtitle = uiState.playerEngine,
+                                selectedValue = uiState.playerEngine,
+                                options = listOf(
+                                    SelectionOption("ExoPlayer", "ExoPlayer", "Android native, battery efficient", isDefault = true),
+                                    SelectionOption("MPV", "MPV", "Advanced rendering, custom shaders, better HDR")
+                                ),
+                                onOptionSelected = viewModel::setPlayerEngine,
+                                accentColor = videoColor
+                            )
+                        }
+                    }
+                    item { SectionLabel(stringResource(R.string.player_settings_section_seeking)) }
+                    item {
+                        SettingsSection {
+                            SelectionDialogSettingsItem(
+                                icon = Icons.Rounded.FastRewind,
+                                title = stringResource(R.string.player_settings_seek_backward),
+                                subtitle = stringResource(
+                                    R.string.player_settings_seek_interval_value,
+                                    uiState.seekBackwardIntervalSeconds
+                                ),
+                                selectedValue = uiState.seekBackwardIntervalSeconds.toString(),
+                                options = (PlayerPreferences.MIN_SEEK_INTERVAL_SECONDS..PlayerPreferences.MAX_SEEK_INTERVAL_SECONDS step PlayerPreferences.SEEK_INTERVAL_STEP_SECONDS)
+                                    .map { seconds ->
+                                        SelectionOption(
+                                            value = seconds.toString(),
+                                            label = "${seconds}s",
+                                            description = "",
+                                            isDefault = seconds == PlayerPreferences.DEFAULT_SEEK_INTERVAL_SECONDS
+                                        )
+                                    },
+                                onOptionSelected = { seconds ->
+                                    viewModel.setSeekBackwardIntervalSeconds(seconds.toInt())
+                                },
+                                accentColor = seekingColor
+                            )
+                            SettingsDivider()
+                            SelectionDialogSettingsItem(
+                                icon = Icons.Rounded.FastForward,
+                                title = stringResource(R.string.player_settings_seek_forward),
+                                subtitle = stringResource(
+                                    R.string.player_settings_seek_interval_value,
+                                    uiState.seekForwardIntervalSeconds
+                                ),
+                                selectedValue = uiState.seekForwardIntervalSeconds.toString(),
+                                options = (PlayerPreferences.MIN_SEEK_INTERVAL_SECONDS..PlayerPreferences.MAX_SEEK_INTERVAL_SECONDS step PlayerPreferences.SEEK_INTERVAL_STEP_SECONDS)
+                                    .map { seconds ->
+                                        SelectionOption(
+                                            value = seconds.toString(),
+                                            label = "${seconds}s",
+                                            description = "",
+                                            isDefault = seconds == PlayerPreferences.DEFAULT_SEEK_INTERVAL_SECONDS
+                                        )
+                                    },
+                                onOptionSelected = { seconds ->
+                                    viewModel.setSeekForwardIntervalSeconds(seconds.toInt())
+                                },
+                                accentColor = seekingColor
+                            )
+                        }
+                    }
+                    item { SectionLabel(stringResource(R.string.player_settings_section_player_cache)) }
+                    item {
+                        SettingsSection {
+                            ValueSliderSettingsItem(
+                                icon = Icons.Rounded.Storage,
+                                title = stringResource(R.string.player_settings_player_cache_size),
+                                subtitle = stringResource(R.string.player_settings_player_cache_size_summary),
+                                value = uiState.playerCacheSizeMb,
+                                defaultValue = PlayerPreferences.DEFAULT_PLAYER_CACHE_SIZE_MB,
+                                minValue = PlayerPreferences.MIN_PLAYER_CACHE_SIZE_MB,
+                                maxValue = PlayerPreferences.MAX_PLAYER_CACHE_SIZE_MB,
+                                stepSize = PlayerPreferences.PLAYER_CACHE_SIZE_STEP_MB,
+                                onValueChanged = viewModel::setPlayerCacheSizeMb,
+                                valueLabel = { sizeMb ->
+                                    stringResource(R.string.player_settings_player_cache_size_value, sizeMb)
+                                },
+                                defaultLabel = { sizeMb ->
+                                    stringResource(
+                                        R.string.player_settings_default_value,
+                                        stringResource(R.string.player_settings_player_cache_size_value, sizeMb)
                                     )
                                 },
-                                onOptionSelected = viewModel::setStreamingQuality,
-                                accentColor = transcodingColor
+                                accentColor = cacheColor
+                            )
+
+                            SettingsDivider()
+                            ValueSliderSettingsItem(
+                                icon = Icons.Rounded.Schedule,
+                                title = stringResource(R.string.player_settings_player_cache_time),
+                                subtitle = stringResource(R.string.player_settings_player_cache_time_summary),
+                                value = uiState.playerCacheTimeSeconds,
+                                defaultValue = PlayerPreferences.DEFAULT_PLAYER_CACHE_TIME_SECONDS,
+                                minValue = PlayerPreferences.MIN_PLAYER_CACHE_TIME_SECONDS,
+                                maxValue = PlayerPreferences.MAX_PLAYER_CACHE_TIME_SECONDS,
+                                stepSize = PlayerPreferences.PLAYER_CACHE_TIME_STEP_SECONDS,
+                                onValueChanged = viewModel::setPlayerCacheTimeSeconds,
+                                valueLabel = { seconds ->
+                                    stringResource(R.string.player_settings_player_cache_time_value, seconds)
+                                },
+                                defaultLabel = { seconds ->
+                                    stringResource(
+                                        R.string.player_settings_default_value,
+                                        stringResource(R.string.player_settings_player_cache_time_value, seconds)
+                                    )
+                                },
+                                accentColor = cacheColor
                             )
                         }
-
-                        if (uiState.isVideoTranscodingAllowed && uiState.isAudioTranscodingAllowed) {
+                    }
+                    item { SectionLabel(stringResource(R.string.player_settings_section_episodes)) }
+                    item {
+                        SettingsSection {
+                            SwitchSettingsItem(
+                                icon = Icons.Rounded.SkipNext,
+                                title = stringResource(R.string.cache_settings_cache_next_episode),
+                                subtitle = stringResource(R.string.cache_settings_cache_next_episode_summary),
+                                checked = uiState.cacheNextEpisodeEnabled,
+                                onCheckedChange = viewModel::setCacheNextEpisodeEnabled,
+                                accentColor = cacheColor
+                            )
                             SettingsDivider()
+                            SwitchSettingsItem(
+                                icon = Icons.Rounded.SkipNext,
+                                title = stringResource(R.string.player_settings_skip_intro),
+                                subtitle = stringResource(R.string.player_settings_skip_intro_summary),
+                                checked = uiState.skipIntroEnabled,
+                                onCheckedChange = viewModel::setSkipIntroEnabled,
+                                accentColor = seekingColor
+                            )
                         }
+                    }
+                    if (uiState.isVideoTranscodingAllowed) {
+                        item { SectionLabel(stringResource(R.string.player_settings_section_transcoding)) }
+                        item {
+                            SettingsSection {
+                                SelectionDialogSettingsItem(
+                                    icon = Icons.Rounded.HighQuality,
+                                    title = stringResource(R.string.player_settings_streaming_quality),
+                                    subtitle = uiState.streamingQuality,
+                                    selectedValue = uiState.streamingQuality,
+                                    options = PlayerPreferences.STREAMING_QUALITY_OPTIONS.map { quality ->
+                                        SelectionOption(
+                                            value = quality,
+                                            label = quality,
+                                            description = "",
+                                            isDefault = quality == PlayerPreferences.DEFAULT_STREAMING_QUALITY
+                                        )
+                                    },
+                                    onOptionSelected = viewModel::setStreamingQuality,
+                                    accentColor = transcodingColor
+                                )
+                            }
+                        }
+                    }
+                }
 
-                        if (uiState.isAudioTranscodingAllowed) {
+                PlayerSettingsPage.VIDEO -> {
+                    item { SectionLabel(stringResource(R.string.player_settings_section_decoding)) }
+                    item {
+                        SettingsSection {
+                            SwitchSettingsItem(
+                                icon = Icons.Rounded.Speed,
+                                title = stringResource(R.string.player_settings_hardware_acceleration),
+                                subtitle = stringResource(R.string.player_settings_hardware_acceleration_summary),
+                                checked = uiState.hardwareDecodingEnabled,
+                                onCheckedChange = viewModel::setHardwareDecodingEnabled,
+                                accentColor = decodingColor
+                            )
+
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                SettingsDivider()
+                                SwitchSettingsItem(
+                                    icon = Icons.Rounded.Tune,
+                                    title = stringResource(R.string.player_settings_async_mediacodec),
+                                    subtitle = stringResource(R.string.player_settings_async_mediacodec_summary),
+                                    checked = uiState.asyncMediaCodecEnabled,
+                                    onCheckedChange = viewModel::setAsyncMediaCodecEnabled,
+                                    enabled = uiState.hardwareDecodingEnabled,
+                                    accentColor = decodingColor
+                                )
+                            }
+                            SettingsDivider()
                             SelectionDialogSettingsItem(
-                                icon = Icons.Rounded.AudioFile,
-                                title = stringResource(R.string.player_settings_audio_quality),
-                                subtitle = uiState.audioTranscodeMode,
-                                selectedValue = uiState.audioTranscodeMode,
+                                icon = Icons.Rounded.VideoSettings,
+                                title = stringResource(R.string.player_settings_decoder_priority),
+                                subtitle = decoderPriorityLabel(uiState.decoderPriority),
+                                selectedValue = uiState.decoderPriority,
                                 options = listOf(
-                                    SelectionOption("Auto", "Auto", "Server decides based on client capability", isDefault = true),
-                                    SelectionOption("Stereo", "Stereo", "2-channel audio, most compatible"),
-                                    SelectionOption("5.1 Surround", "5.1 Surround", "6-channel surround sound"),
-                                    SelectionOption("Passthrough", "Passthrough", "Original audio, no transcoding")
+                                    SelectionOption(PlayerPreferences.DECODER_PRIORITY_AUTO, "Auto", "Let the player decide based on content", isDefault = true),
+                                    SelectionOption(PlayerPreferences.DECODER_PRIORITY_HARDWARE, "Hardware First", "Prefer GPU decoding, lower battery usage"),
+                                    SelectionOption(PlayerPreferences.DECODER_PRIORITY_SOFTWARE, "Software First", "Prefer CPU decoding, wider codec support")
                                 ),
-                                onOptionSelected = viewModel::setAudioTranscodeMode,
-                                accentColor = transcodingColor
+                                onOptionSelected = viewModel::setDecoderPriority,
+                                accentColor = videoColor
+                            )
+                            if (uiState.playerEngine == PlayerPreferences.PLAYER_ENGINE_MPV) {
+                                SettingsDivider()
+                                SelectionDialogSettingsItem(
+                                    icon = Icons.Rounded.Speed,
+                                    title = stringResource(R.string.player_settings_mpv_hardware_decoding),
+                                    subtitle = uiState.mpvHardwareDecoding,
+                                    selectedValue = uiState.mpvHardwareDecoding,
+                                    options = listOf(
+                                        SelectionOption("mediacodec", "MediaCodec", "Direct hardware decode, best performance", isDefault = true),
+                                        SelectionOption("mediacodec-copy", "MediaCodec (copy)", "Hardware decode with CPU copy, wider format support"),
+                                        SelectionOption("no", "Software", "CPU decode, highest compatibility")
+                                    ),
+                                    onOptionSelected = viewModel::setMpvHardwareDecoding,
+                                    accentColor = videoColor
+                                )
+                            }
+                        }
+                    }
+                    if (uiState.playerEngine == PlayerPreferences.PLAYER_ENGINE_MPV) {
+                        item { SectionLabel(stringResource(R.string.player_settings_section_mpv_options)) }
+                        item {
+                            SettingsSection {
+                                SelectionDialogSettingsItem(
+                                    icon = Icons.Rounded.VideoSettings,
+                                    title = stringResource(R.string.player_settings_mpv_video_output),
+                                    subtitle = uiState.mpvVideoOutput,
+                                    selectedValue = uiState.mpvVideoOutput,
+                                    options = listOf(
+                                        SelectionOption("gpu-next", "GPU Next", "libplacebo renderer", isDefault = false),
+                                        SelectionOption("gpu", "GPU", "mpv-android / Hills default", isDefault = true)
+                                    ),
+                                    onOptionSelected = viewModel::setMpvVideoOutput,
+                                    accentColor = videoColor
+                                )
+                                SettingsDivider()
+                                SelectionDialogSettingsItem(
+                                    icon = Icons.Rounded.Tune,
+                                    title = stringResource(R.string.player_settings_mpv_upscale_filter),
+                                    subtitle = uiState.mpvUpscaleFilter,
+                                    selectedValue = uiState.mpvUpscaleFilter,
+                                    options = listOf(
+                                        SelectionOption("bilinear", "Bilinear", "Fast, smooth, slightly soft"),
+                                        SelectionOption("spline36", "Spline36", "Balanced sharpness and smoothness"),
+                                        SelectionOption("lanczos", "Lanczos", "Sharp and detailed", isDefault = true),
+                                        SelectionOption("ewa_lanczos", "EWA Lanczos", "Sharpest quality, GPU intensive")
+                                    ),
+                                    onOptionSelected = viewModel::setMpvUpscaleFilter,
+                                    accentColor = renderingColor
+                                )
+
+                                SettingsDivider()
+                                SelectionDialogSettingsItem(
+                                    icon = Icons.Rounded.Tune,
+                                    title = stringResource(R.string.player_settings_mpv_downscale_filter),
+                                    subtitle = uiState.mpvDownscaleFilter,
+                                    selectedValue = uiState.mpvDownscaleFilter,
+                                    options = listOf(
+                                        SelectionOption("hermite", "Hermite", "Smooth and soft, reduces aliasing", isDefault = true),
+                                        SelectionOption("mitchell", "Mitchell", "Balanced, slight sharpness"),
+                                        SelectionOption("catmull_rom", "Catmull-Rom", "Sharper, preserves edges"),
+                                        SelectionOption("lanczos", "Lanczos", "Sharpest downscale, may ring slightly")
+                                    ),
+                                    onOptionSelected = viewModel::setMpvDownscaleFilter,
+                                    accentColor = renderingColor
+                                )
+
+                                SettingsDivider()
+                                SelectionDialogSettingsItem(
+                                    icon = Icons.Rounded.Contrast,
+                                    title = stringResource(R.string.player_settings_mpv_tone_mapping),
+                                    subtitle = uiState.mpvToneMapping,
+                                    selectedValue = uiState.mpvToneMapping,
+                                    options = listOf(
+                                        SelectionOption("auto", "Auto", "Dynamically picks best algorithm per scene", isDefault = true),
+                                        SelectionOption("bt.2390", "BT.2390", "Broadcast standard, natural highlights"),
+                                        SelectionOption("spline", "Spline", "Smooth curve, preserves mid-tones"),
+                                        SelectionOption("hable", "Filmic", "Cinematic roll-off, softer highlights"),
+                                        SelectionOption("mobius", "Mobius", "Soft roll-off, preserves dark detail"),
+                                        SelectionOption("reinhard", "Reinhard", "Simple, slightly desaturated highlights")
+                                    ),
+                                    onOptionSelected = viewModel::setMpvToneMapping,
+                                    enabled = uiState.mpvHdrToSdrTonemapping,
+                                    accentColor = renderingColor
+                                )
+
+                                SettingsDivider()
+                                SelectionDialogSettingsItem(
+                                    icon = Icons.Rounded.Palette,
+                                    title = stringResource(R.string.player_settings_mpv_target_prim),
+                                    subtitle = stringResource(R.string.player_settings_mpv_color_restart_hint),
+                                    selectedValue = uiState.mpvTargetPrim,
+                                    options = listOf(
+                                        SelectionOption("auto", "auto", "Leave to mpv", isDefault = true),
+                                        SelectionOption("bt.709", "bt.709", "SDR Rec.709"),
+                                        SelectionOption("bt.2020", "bt.2020", "HDR Rec.2020")
+                                    ),
+                                    onOptionSelected = viewModel::setMpvTargetPrim,
+                                    accentColor = renderingColor
+                                )
+
+                                SettingsDivider()
+                                SelectionDialogSettingsItem(
+                                    icon = Icons.Rounded.Contrast,
+                                    title = stringResource(R.string.player_settings_mpv_target_trc),
+                                    subtitle = stringResource(R.string.player_settings_mpv_color_restart_hint),
+                                    selectedValue = uiState.mpvTargetTrc,
+                                    options = listOf(
+                                        SelectionOption("auto", "auto", "Leave to mpv", isDefault = true),
+                                        SelectionOption("bt.1886", "bt.1886", "TV / Exo-like"),
+                                        SelectionOption("srgb", "srgb", "PC sRGB"),
+                                        SelectionOption("gamma2.2", "gamma2.2", "Simple 2.2")
+                                    ),
+                                    onOptionSelected = viewModel::setMpvTargetTrc,
+                                    accentColor = renderingColor
+                                )
+
+                                SettingsDivider()
+                                SelectionDialogSettingsItem(
+                                    icon = Icons.Rounded.Tune,
+                                    title = stringResource(R.string.player_settings_mpv_output_levels),
+                                    subtitle = stringResource(R.string.player_settings_mpv_color_restart_hint),
+                                    selectedValue = uiState.mpvOutputLevels,
+                                    options = listOf(
+                                        SelectionOption("auto", "auto", "Leave to mpv", isDefault = true),
+                                        SelectionOption("full", "full", "0–255 RGB"),
+                                        SelectionOption("limited", "limited", "16–235")
+                                    ),
+                                    onOptionSelected = viewModel::setMpvOutputLevels,
+                                    accentColor = renderingColor
+                                )
+
+                                SettingsDivider()
+                                SwitchSettingsItem(
+                                    icon = Icons.Rounded.SlowMotionVideo,
+                                    title = stringResource(R.string.player_settings_mpv_smooth_motion),
+                                    subtitle = stringResource(R.string.player_settings_mpv_smooth_motion_summary),
+                                    checked = uiState.mpvSmoothMotion,
+                                    onCheckedChange = viewModel::setMpvSmoothMotion,
+                                    accentColor = renderingColor
+                                )
+
+                                SettingsDivider()
+                                SwitchSettingsItem(
+                                    icon = Icons.Rounded.Gradient,
+                                    title = stringResource(R.string.player_settings_mpv_deband),
+                                    subtitle = stringResource(R.string.player_settings_mpv_deband_summary),
+                                    checked = uiState.mpvDeband,
+                                    onCheckedChange = viewModel::setMpvDeband,
+                                    accentColor = renderingColor
+                                )
+
+                                SettingsDivider()
+                                SwitchSettingsItem(
+                                    icon = Icons.Rounded.WbSunny,
+                                    title = stringResource(R.string.player_settings_mpv_dynamic_brightness),
+                                    subtitle = stringResource(R.string.player_settings_mpv_dynamic_brightness_summary),
+                                    checked = uiState.mpvDynamicPeak,
+                                    onCheckedChange = viewModel::setMpvDynamicPeak,
+                                    enabled = uiState.mpvHdrToSdrTonemapping,
+                                    accentColor = renderingColor
+                                )
+                                SettingsDivider()
+                                SwitchSettingsItem(
+                                    icon = Icons.Rounded.HdrOn,
+                                    title = stringResource(R.string.player_settings_mpv_hdr_to_sdr),
+                                    subtitle = stringResource(R.string.player_settings_mpv_hdr_to_sdr_summary),
+                                    checked = uiState.mpvHdrToSdrTonemapping,
+                                    onCheckedChange = viewModel::setMpvHdrToSdrTonemapping,
+                                    accentColor = renderingColor
+                                )
+                                SettingsDivider()
+                                SwitchSettingsItem(
+                                    icon = Icons.Rounded.BrightnessHigh,
+                                    title = stringResource(R.string.player_settings_dolby_brightness),
+                                    subtitle = stringResource(R.string.player_settings_dolby_brightness_summary),
+                                    checked = uiState.dolbyBrightnessEnhancement,
+                                    onCheckedChange = viewModel::setDolbyBrightnessEnhancement,
+                                    accentColor = renderingColor
+                                )
+                                SettingsDivider()
+                                SwitchSettingsItem(
+                                    icon = Icons.Rounded.Sync,
+                                    title = stringResource(R.string.player_settings_dolby_dv7_to_dv81),
+                                    subtitle = stringResource(R.string.player_settings_dolby_dv7_to_dv81_summary),
+                                    checked = uiState.dolbyDv7ToDv81,
+                                    onCheckedChange = viewModel::setDolbyDv7ToDv81,
+                                    accentColor = renderingColor
+                                )
+                            }
+                        }
+                    }
+                    item { SectionLabel(stringResource(R.string.player_settings_section_performance)) }
+                    item {
+                        SettingsSection {
+                            SwitchSettingsItem(
+                                icon = Icons.Rounded.BatteryStd,
+                                title = stringResource(R.string.player_settings_battery_optimization),
+                                subtitle = stringResource(R.string.player_settings_battery_optimization_summary),
+                                checked = uiState.batteryOptimizationEnabled,
+                                onCheckedChange = viewModel::setBatteryOptimizationEnabled,
+                                accentColor = performanceColor
+                            )
+                        }
+                    }
+                }
+
+                PlayerSettingsPage.AUDIO -> {
+                    if (uiState.isAudioTranscodingAllowed) {
+                        item { SectionLabel(stringResource(R.string.player_settings_section_transcoding)) }
+                        item {
+                            SettingsSection {
+                                SelectionDialogSettingsItem(
+                                    icon = Icons.Rounded.AudioFile,
+                                    title = stringResource(R.string.player_settings_audio_quality),
+                                    subtitle = uiState.audioTranscodeMode,
+                                    selectedValue = uiState.audioTranscodeMode,
+                                    options = listOf(
+                                        SelectionOption("Auto", "Auto", "Server decides based on client capability", isDefault = true),
+                                        SelectionOption("Stereo", "Stereo", "2-channel audio, most compatible"),
+                                        SelectionOption("5.1 Surround", "5.1 Surround", "6-channel surround sound"),
+                                        SelectionOption("Passthrough", "Passthrough", "Original audio, no transcoding")
+                                    ),
+                                    onOptionSelected = viewModel::setAudioTranscodeMode,
+                                    accentColor = transcodingColor
+                                )
+                            }
+                        }
+                    }
+                    if (uiState.playerEngine == PlayerPreferences.PLAYER_ENGINE_MPV) {
+                        item { SectionLabel(stringResource(R.string.player_settings_section_audio_output)) }
+                        item {
+                            SettingsSection {
+                                SelectionDialogSettingsItem(
+                                    icon = Icons.Rounded.AudioFile,
+                                    title = stringResource(R.string.player_settings_mpv_audio_output),
+                                    subtitle = uiState.mpvAudioOutput,
+                                    selectedValue = uiState.mpvAudioOutput,
+                                    options = listOf(
+                                        SelectionOption("audiotrack", "AudioTrack", "Standard Android audio, most compatible", isDefault = true),
+                                        SelectionOption("aaudio", "AAudio", "Low-latency audio, Android 8.1+"),
+                                        SelectionOption("opensles", "OpenSL ES", "Legacy low-latency audio")
+                                    ),
+                                    onOptionSelected = viewModel::setMpvAudioOutput,
+                                    accentColor = videoColor
+                                )
+                            }
+                        }
+                    }
+                }
+
+                PlayerSettingsPage.GESTURES -> {
+                    item { SectionLabel(stringResource(R.string.player_settings_section_gestures)) }
+                    item {
+                        SettingsSection {
+                            SwitchSettingsItem(
+                                icon = Icons.Rounded.Tune,
+                                title = stringResource(R.string.player_settings_gestures),
+                                subtitle = stringResource(R.string.player_settings_gestures_summary),
+                                checked = uiState.playerGesturesEnabled,
+                                onCheckedChange = viewModel::setPlayerGesturesEnabled,
+                                accentColor = gesturesColor
+                            )
+
+                            SettingsDivider()
+                            SwitchSettingsItem(
+                                icon = Icons.Rounded.Brush,
+                                title = stringResource(R.string.player_settings_volume_brightness_gestures),
+                                subtitle = stringResource(R.string.player_settings_volume_brightness_gestures_summary),
+                                checked = uiState.volumeBrightnessGesturesEnabled,
+                                onCheckedChange = viewModel::setVolumeBrightnessGesturesEnabled,
+                                enabled = uiState.playerGesturesEnabled,
+                                accentColor = gesturesColor
+                            )
+
+                            SettingsDivider()
+                            SwitchSettingsItem(
+                                icon = Icons.Rounded.FastForward,
+                                title = stringResource(R.string.player_settings_progress_seek_gesture),
+                                subtitle = stringResource(R.string.player_settings_progress_seek_gesture_summary),
+                                checked = uiState.progressSeekGestureEnabled,
+                                onCheckedChange = viewModel::setProgressSeekGestureEnabled,
+                                enabled = uiState.playerGesturesEnabled,
+                                accentColor = gesturesColor
+                            )
+
+                            SettingsDivider()
+                            SwitchSettingsItem(
+                                icon = Icons.Rounded.Fullscreen,
+                                title = stringResource(R.string.player_settings_zoom_gesture),
+                                subtitle = stringResource(R.string.player_settings_zoom_gesture_summary),
+                                checked = uiState.zoomGestureEnabled,
+                                onCheckedChange = viewModel::setZoomGestureEnabled,
+                                enabled = uiState.playerGesturesEnabled,
+                                accentColor = gesturesColor
+                            )
+                        }
+                    }
+                    item { SectionLabel(stringResource(R.string.player_settings_section_interaction)) }
+                    item {
+                        SettingsSection {
+                            SelectionDialogSettingsItem(
+                                icon = Icons.Rounded.Speed,
+                                title = stringResource(R.string.player_settings_long_press_speed),
+                                subtitle = stringResource(R.string.player_settings_long_press_speed_summary),
+                                selectedValue = uiState.longPressPlaybackSpeed.toString(),
+                                options = PlayerPreferences.LONG_PRESS_PLAYBACK_SPEED_OPTIONS.map { speed ->
+                                    SelectionOption(
+                                        value = speed.toString(),
+                                        label = String.format(java.util.Locale.US, "%.1fx", speed),
+                                        description = "",
+                                        isDefault = speed == PlayerPreferences.DEFAULT_LONG_PRESS_PLAYBACK_SPEED
+                                    )
+                                },
+                                onOptionSelected = { value ->
+                                    viewModel.setLongPressPlaybackSpeed(value.toFloat())
+                                },
+                                accentColor = seekingColor
+                            )
+                            SettingsDivider()
+                            SwitchSettingsItem(
+                                icon = Icons.Rounded.Fullscreen,
+                                title = stringResource(R.string.player_settings_long_press_exit),
+                                subtitle = stringResource(R.string.player_settings_long_press_exit_subtitle),
+                                checked = uiState.longPressPlayPauseExits,
+                                onCheckedChange = viewModel::setLongPressPlayPauseExits,
+                                accentColor = videoColor
+                            )
+                        }
+                    }
+                }
+
+                PlayerSettingsPage.INTERFACE -> {
+                    item { SectionLabel(stringResource(R.string.player_settings_section_screen)) }
+                    item {
+                        SettingsSection {
+                            SelectionDialogSettingsItem(
+                                icon = Icons.Rounded.ScreenRotation,
+                                title = stringResource(R.string.player_settings_orientation),
+                                subtitle = when (uiState.playerOrientation) {
+                                    PlayerPreferences.PLAYER_ORIENTATION_LANDSCAPE ->
+                                        stringResource(R.string.player_settings_orientation_landscape)
+                                    PlayerPreferences.PLAYER_ORIENTATION_AUTO ->
+                                        stringResource(R.string.player_settings_orientation_auto)
+                                    else -> stringResource(R.string.player_settings_orientation_portrait)
+                                },
+                                selectedValue = uiState.playerOrientation,
+                                options = listOf(
+                                    SelectionOption(
+                                        PlayerPreferences.PLAYER_ORIENTATION_PORTRAIT,
+                                        stringResource(R.string.player_settings_orientation_portrait),
+                                        stringResource(R.string.player_settings_orientation_portrait),
+                                        isDefault = true
+                                    ),
+                                    SelectionOption(
+                                        PlayerPreferences.PLAYER_ORIENTATION_LANDSCAPE,
+                                        stringResource(R.string.player_settings_orientation_landscape),
+                                        stringResource(R.string.player_settings_orientation_landscape)
+                                    ),
+                                    SelectionOption(
+                                        PlayerPreferences.PLAYER_ORIENTATION_AUTO,
+                                        stringResource(R.string.player_settings_orientation_auto),
+                                        stringResource(R.string.player_settings_orientation_auto)
+                                    )
+                                ),
+                                onOptionSelected = viewModel::setPlayerOrientation,
+                                accentColor = videoColor
+                            )
+                            SettingsDivider()
+                            SwitchSettingsItem(
+                                icon = Icons.Rounded.Fullscreen,
+                                title = stringResource(R.string.player_settings_start_maximized),
+                                subtitle = stringResource(R.string.player_settings_start_maximized_summary),
+                                checked = uiState.startMaximized,
+                                onCheckedChange = viewModel::setStartMaximized,
+                                accentColor = videoColor
+                            )
+                        }
+                    }
+                    item { SectionLabel(stringResource(R.string.player_settings_section_video)) }
+                    item {
+                        SettingsSection {
+                            SwitchSettingsItem(
+                                icon = Icons.Rounded.Devices,
+                                title = stringResource(R.string.player_settings_use_device_volume_in_player),
+                                subtitle = stringResource(R.string.player_settings_use_device_volume_in_player_summary),
+                                checked = uiState.useDeviceVolumeInPlayer,
+                                onCheckedChange = viewModel::setUseDeviceVolumeInPlayer,
+                                accentColor = videoColor
+                            )
+                            SettingsDivider()
+                            SwitchSettingsItem(
+                                icon = Icons.Rounded.DisplaySettings,
+                                title = stringResource(R.string.player_settings_use_device_brightness_in_player),
+                                subtitle = stringResource(R.string.player_settings_use_device_brightness_in_player_summary),
+                                checked = uiState.useDeviceBrightnessInPlayer,
+                                onCheckedChange = viewModel::setUseDeviceBrightnessInPlayer,
+                                accentColor = videoColor
+                            )
+                        }
+                    }
+                    item { SectionLabel(stringResource(R.string.player_settings_section_seeking)) }
+                    item {
+                        SettingsSection {
+                            SwitchSettingsItem(
+                                icon = Icons.Rounded.Schedule,
+                                title = stringResource(R.string.player_settings_chapter_markers),
+                                subtitle = stringResource(R.string.player_settings_chapter_markers_summary),
+                                checked = uiState.chapterMarkersEnabled,
+                                onCheckedChange = viewModel::setChapterMarkersEnabled,
+                                accentColor = seekingColor
                             )
                         }
                     }
                 }
             }
-
-            item { SectionLabel(stringResource(R.string.player_settings_section_video)) }
-            item {
-                SettingsSection {
-                    SelectionDialogSettingsItem(
-                        icon = Icons.Rounded.VideoSettings,
-                        title = stringResource(R.string.player_settings_decoder_priority),
-                        subtitle = decoderPriorityLabel(uiState.decoderPriority),
-                        selectedValue = uiState.decoderPriority,
-                        options = listOf(
-                            SelectionOption(PlayerPreferences.DECODER_PRIORITY_AUTO, "Auto", "Let the player decide based on content", isDefault = true),
-                            SelectionOption(PlayerPreferences.DECODER_PRIORITY_HARDWARE, "Hardware First", "Prefer GPU decoding, lower battery usage"),
-                            SelectionOption(PlayerPreferences.DECODER_PRIORITY_SOFTWARE, "Software First", "Prefer CPU decoding, wider codec support")
-                        ),
-                        onOptionSelected = viewModel::setDecoderPriority,
-                        accentColor = videoColor
-                    )
-
-                    SettingsDivider()
-                    SwitchSettingsItem(
-                        icon = Icons.Rounded.Fullscreen,
-                        title = stringResource(R.string.player_settings_start_maximized),
-                        subtitle = stringResource(R.string.player_settings_start_maximized_summary),
-                        checked = uiState.startMaximized,
-                        onCheckedChange = viewModel::setStartMaximized,
-                        accentColor = videoColor
-                    )
-
-                    SettingsDivider()
-                    SwitchSettingsItem(
-                        icon = Icons.Rounded.Fullscreen,
-                        title = stringResource(R.string.player_settings_long_press_exit),
-                        subtitle = stringResource(R.string.player_settings_long_press_exit_subtitle),
-                        checked = uiState.longPressPlayPauseExits,
-                        onCheckedChange = viewModel::setLongPressPlayPauseExits,
-                        accentColor = videoColor
-                    )
-
-                    SettingsDivider()
-                    SwitchSettingsItem(
-                        icon = Icons.Rounded.Devices,
-                        title = stringResource(R.string.player_settings_use_device_volume_in_player),
-                        subtitle = stringResource(R.string.player_settings_use_device_volume_in_player_summary),
-                        checked = uiState.useDeviceVolumeInPlayer,
-                        onCheckedChange = viewModel::setUseDeviceVolumeInPlayer,
-                        accentColor = videoColor
-                    )
-
-                    SettingsDivider()
-                    SwitchSettingsItem(
-                        icon = Icons.Rounded.DisplaySettings,
-                        title = stringResource(R.string.player_settings_use_device_brightness_in_player),
-                        subtitle = stringResource(R.string.player_settings_use_device_brightness_in_player_summary),
-                        checked = uiState.useDeviceBrightnessInPlayer,
-                        onCheckedChange = viewModel::setUseDeviceBrightnessInPlayer,
-                        accentColor = videoColor
-                    )
-                }
-            }
-
-            item { SectionLabel(stringResource(R.string.player_settings_section_interaction)) }
-            item {
-                SettingsSection {
-                    SwitchSettingsItem(
-                        icon = Icons.Rounded.Tune,
-                        title = stringResource(R.string.player_settings_gestures),
-                        subtitle = stringResource(R.string.player_settings_gestures_summary),
-                        checked = uiState.playerGesturesEnabled,
-                        onCheckedChange = viewModel::setPlayerGesturesEnabled,
-                        accentColor = gesturesColor
-                    )
-
-                    SettingsDivider()
-                    SwitchSettingsItem(
-                        icon = Icons.Rounded.Brush,
-                        title = stringResource(R.string.player_settings_volume_brightness_gestures),
-                        subtitle = stringResource(R.string.player_settings_volume_brightness_gestures_summary),
-                        checked = uiState.volumeBrightnessGesturesEnabled,
-                        onCheckedChange = viewModel::setVolumeBrightnessGesturesEnabled,
-                        enabled = uiState.playerGesturesEnabled,
-                        accentColor = gesturesColor
-                    )
-
-                    SettingsDivider()
-                    SwitchSettingsItem(
-                        icon = Icons.Rounded.FastForward,
-                        title = stringResource(R.string.player_settings_progress_seek_gesture),
-                        subtitle = stringResource(R.string.player_settings_progress_seek_gesture_summary),
-                        checked = uiState.progressSeekGestureEnabled,
-                        onCheckedChange = viewModel::setProgressSeekGestureEnabled,
-                        enabled = uiState.playerGesturesEnabled,
-                        accentColor = gesturesColor
-                    )
-
-                    SettingsDivider()
-                    SwitchSettingsItem(
-                        icon = Icons.Rounded.Fullscreen,
-                        title = stringResource(R.string.player_settings_zoom_gesture),
-                        subtitle = stringResource(R.string.player_settings_zoom_gesture_summary),
-                        checked = uiState.zoomGestureEnabled,
-                        onCheckedChange = viewModel::setZoomGestureEnabled,
-                        enabled = uiState.playerGesturesEnabled,
-                        accentColor = gesturesColor
-                    )
-
-                }
-            }
-
-            item { SectionLabel(stringResource(R.string.player_settings_section_seeking)) }
-            item {
-                SettingsSection {
-                    SwitchSettingsItem(
-                        icon = Icons.Rounded.SkipNext,
-                        title = stringResource(R.string.player_settings_skip_intro),
-                        subtitle = stringResource(R.string.player_settings_skip_intro_summary),
-                        checked = uiState.skipIntroEnabled,
-                        onCheckedChange = viewModel::setSkipIntroEnabled,
-                        accentColor = seekingColor
-                    )
-
-                    SettingsDivider()
-                    SwitchSettingsItem(
-                        icon = Icons.Rounded.Schedule,
-                        title = stringResource(R.string.player_settings_chapter_markers),
-                        subtitle = stringResource(R.string.player_settings_chapter_markers_summary),
-                        checked = uiState.chapterMarkersEnabled,
-                        onCheckedChange = viewModel::setChapterMarkersEnabled,
-                        accentColor = seekingColor
-                    )
-
-                    SettingsDivider()
-                    SelectionDialogSettingsItem(
-                        icon = Icons.Rounded.FastRewind,
-                        title = stringResource(R.string.player_settings_seek_backward),
-                        subtitle = stringResource(
-                            R.string.player_settings_seek_interval_value,
-                            uiState.seekBackwardIntervalSeconds
-                        ),
-                        selectedValue = uiState.seekBackwardIntervalSeconds.toString(),
-                        options = (PlayerPreferences.MIN_SEEK_INTERVAL_SECONDS..PlayerPreferences.MAX_SEEK_INTERVAL_SECONDS step PlayerPreferences.SEEK_INTERVAL_STEP_SECONDS)
-                            .map { seconds ->
-                                SelectionOption(
-                                    value = seconds.toString(),
-                                    label = "${seconds}s",
-                                    description = "",
-                                    isDefault = seconds == PlayerPreferences.DEFAULT_SEEK_INTERVAL_SECONDS
-                                )
-                            },
-                        onOptionSelected = { seconds ->
-                            viewModel.setSeekBackwardIntervalSeconds(seconds.toInt())
-                        },
-                        accentColor = seekingColor
-                    )
-
-                    SettingsDivider()
-                    SelectionDialogSettingsItem(
-                        icon = Icons.Rounded.FastForward,
-                        title = stringResource(R.string.player_settings_seek_forward),
-                        subtitle = stringResource(
-                            R.string.player_settings_seek_interval_value,
-                            uiState.seekForwardIntervalSeconds
-                        ),
-                        selectedValue = uiState.seekForwardIntervalSeconds.toString(),
-                        options = (PlayerPreferences.MIN_SEEK_INTERVAL_SECONDS..PlayerPreferences.MAX_SEEK_INTERVAL_SECONDS step PlayerPreferences.SEEK_INTERVAL_STEP_SECONDS)
-                            .map { seconds ->
-                                SelectionOption(
-                                    value = seconds.toString(),
-                                    label = "${seconds}s",
-                                    description = "",
-                                    isDefault = seconds == PlayerPreferences.DEFAULT_SEEK_INTERVAL_SECONDS
-                                )
-                            },
-                        onOptionSelected = { seconds ->
-                            viewModel.setSeekForwardIntervalSeconds(seconds.toInt())
-                        },
-                        accentColor = seekingColor
-                    )
-
-                    SettingsDivider()
-                    SelectionDialogSettingsItem(
-                        icon = Icons.Rounded.Speed,
-                        title = stringResource(R.string.player_settings_long_press_speed),
-                        subtitle = stringResource(R.string.player_settings_long_press_speed_summary),
-                        selectedValue = uiState.longPressPlaybackSpeed.toString(),
-                        options = PlayerPreferences.LONG_PRESS_PLAYBACK_SPEED_OPTIONS.map { speed ->
-                            SelectionOption(
-                                value = speed.toString(),
-                                label = String.format(java.util.Locale.US, "%.1fx", speed),
-                                description = "",
-                                isDefault = speed == PlayerPreferences.DEFAULT_LONG_PRESS_PLAYBACK_SPEED
-                            )
-                        },
-                        onOptionSelected = { value ->
-                            viewModel.setLongPressPlaybackSpeed(value.toFloat())
-                        },
-                        accentColor = seekingColor
-                    )
-                }
-            }
-
-            item { SectionLabel(stringResource(R.string.player_settings_section_player_cache)) }
-            item {
-                SettingsSection {
-                    SwitchSettingsItem(
-                        icon = Icons.Rounded.SkipNext,
-                        title = stringResource(R.string.cache_settings_cache_next_episode),
-                        subtitle = stringResource(R.string.cache_settings_cache_next_episode_summary),
-                        checked = uiState.cacheNextEpisodeEnabled,
-                        onCheckedChange = viewModel::setCacheNextEpisodeEnabled,
-                        accentColor = cacheColor
-                    )
-
-                    SettingsDivider()
-                    ValueSliderSettingsItem(
-                        icon = Icons.Rounded.Storage,
-                        title = stringResource(R.string.player_settings_player_cache_size),
-                        subtitle = stringResource(R.string.player_settings_player_cache_size_summary),
-                        value = uiState.playerCacheSizeMb,
-                        defaultValue = PlayerPreferences.DEFAULT_PLAYER_CACHE_SIZE_MB,
-                        minValue = PlayerPreferences.MIN_PLAYER_CACHE_SIZE_MB,
-                        maxValue = PlayerPreferences.MAX_PLAYER_CACHE_SIZE_MB,
-                        stepSize = PlayerPreferences.PLAYER_CACHE_SIZE_STEP_MB,
-                        onValueChanged = viewModel::setPlayerCacheSizeMb,
-                        valueLabel = { sizeMb ->
-                            stringResource(R.string.player_settings_player_cache_size_value, sizeMb)
-                        },
-                        defaultLabel = { sizeMb ->
-                            stringResource(
-                                R.string.player_settings_default_value,
-                                stringResource(R.string.player_settings_player_cache_size_value, sizeMb)
-                            )
-                        },
-                        accentColor = cacheColor
-                    )
-
-                    SettingsDivider()
-                    ValueSliderSettingsItem(
-                        icon = Icons.Rounded.Schedule,
-                        title = stringResource(R.string.player_settings_player_cache_time),
-                        subtitle = stringResource(R.string.player_settings_player_cache_time_summary),
-                        value = uiState.playerCacheTimeSeconds,
-                        defaultValue = PlayerPreferences.DEFAULT_PLAYER_CACHE_TIME_SECONDS,
-                        minValue = PlayerPreferences.MIN_PLAYER_CACHE_TIME_SECONDS,
-                        maxValue = PlayerPreferences.MAX_PLAYER_CACHE_TIME_SECONDS,
-                        stepSize = PlayerPreferences.PLAYER_CACHE_TIME_STEP_SECONDS,
-                        onValueChanged = viewModel::setPlayerCacheTimeSeconds,
-                        valueLabel = { seconds ->
-                            stringResource(R.string.player_settings_player_cache_time_value, seconds)
-                        },
-                        defaultLabel = { seconds ->
-                            stringResource(
-                                R.string.player_settings_default_value,
-                                stringResource(R.string.player_settings_player_cache_time_value, seconds)
-                            )
-                        },
-                        accentColor = cacheColor
-                    )
-                }
-            }
-
-            item { SectionLabel(stringResource(R.string.player_settings_section_performance)) }
-            item {
-                SettingsSection {
-                    SwitchSettingsItem(
-                        icon = Icons.Rounded.BatteryStd,
-                        title = stringResource(R.string.player_settings_battery_optimization),
-                        subtitle = stringResource(R.string.player_settings_battery_optimization_summary),
-                        checked = uiState.batteryOptimizationEnabled,
-                        onCheckedChange = viewModel::setBatteryOptimizationEnabled,
-                        accentColor = performanceColor
-                    )
-                }
-            }
-
         }
     }
 }

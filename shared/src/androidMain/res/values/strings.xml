@@ -1041,4 +1041,26 @@
     <string name="settings_project_home">Project homepage</string>
     <string name="settings_footer_license">Vela is open source under GPLv3.</string>
     <string name="settings_library_title">Library</string>
+
+    <!-- 播放设置子页面（与 iOS 版分组一致） -->
+    <string name="video_settings_title">Video</string>
+    <string name="audio_settings_title">Audio</string>
+    <string name="gesture_settings_title">Gestures</string>
+    <string name="player_ui_settings_title">Interface</string>
+    <string name="player_settings_section_engine">Engine</string>
+    <string name="player_settings_section_episodes">Episodes</string>
+    <string name="player_settings_section_mpv_options">Engine options (MPV)</string>
+    <string name="player_settings_section_audio_output">Audio output</string>
+    <string name="player_settings_section_screen">Screen</string>
+    <string name="player_settings_mpv_upscale_filter">Upscale filter</string>
+    <string name="player_settings_mpv_downscale_filter">Downscale filter</string>
+    <string name="player_settings_mpv_tone_mapping">Tone mapping</string>
+    <string name="player_settings_mpv_smooth_motion">Smooth motion</string>
+    <string name="player_settings_mpv_smooth_motion_summary">Interpolate frames on high refresh displays</string>
+    <string name="player_settings_mpv_deband">Deband</string>
+    <string name="player_settings_mpv_deband_summary">Reduce color banding in dark gradients</string>
+    <string name="player_settings_mpv_dynamic_brightness">Dynamic brightness</string>
+    <string name="player_settings_mpv_dynamic_brightness_summary">Adapt tone mapping per scene</string>
+    <string name="player_settings_mpv_hdr_to_sdr">HDR to SDR tone mapping</string>
+    <string name="player_settings_mpv_hdr_to_sdr_summary">Tone map HDR content to SDR for accurate colors</string>
 </resources>

@@ -1,6 +1,7 @@
 package com.vela.app.ui.screens.home
 
 import androidx.compose.animation.AnimatedContent
+import com.vela.app.ui.screens.dashboard.settings.PlayerSettingsPage
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -57,7 +58,7 @@ fun AppHomeContainer(
     onNavigateToDetail: (BaseItemDto) -> Unit,
     onNavigateToViewAll: (String, String?, String) -> Unit = { _, _, _ -> },
     onLogout: () -> Unit = {},
-    onNavigateToPlayerSettings: () -> Unit = {},
+    onNavigateToPlayerSettings: (PlayerSettingsPage) -> Unit = {},
     onNavigateToSubtitleSettings: () -> Unit = {},
     onNavigateToInterfaceSettings: () -> Unit = {},
     onNavigateToConnections: () -> Unit = {},

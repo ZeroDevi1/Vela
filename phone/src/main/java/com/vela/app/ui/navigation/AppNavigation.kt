@@ -1,6 +1,7 @@
 package com.vela.app.ui.navigation
 
 import android.widget.Toast
+import com.vela.app.ui.screens.dashboard.settings.PlayerSettingsPage
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContentScope
@@ -422,8 +423,8 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                     onLogout = {
                         navController.openServerPicker()
                     },
-                    onNavigateToPlayerSettings = {
-                        navController.navigate("player_settings")
+                    onNavigateToPlayerSettings = { page ->
+                        navController.navigate("player_settings/${page.route}")
                     },
                     onNavigateToSubtitleSettings = {
                         navController.navigate("subtitle_settings")
@@ -737,16 +738,15 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                "player_settings",
+                "player_settings/{page}",
+                arguments = listOf(navArgument("page") { type = NavType.StringType }),
                 enterTransition = { NavTransitions.enter() },
                 exitTransition = { NavTransitions.exit() }
-            ) {
+            ) { entry ->
                 PlayerSettingsScreen(
+                    page = PlayerSettingsPage.fromRoute(entry.arguments?.getString("page")),
                     onBackPressed = {
                         navController.popBackStack()
-                    },
-                    onNavigateToSubtitleSettings = {
-                        navController.navigate("subtitle_settings")
                     }
                 )
             }
@@ -800,8 +800,8 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                     onNavigateToViewAll = { contentType, parentId, title ->
                         navController.openViewAll(contentType, parentId, title)
                     },
-                    onNavigateToPlayerSettings = {
-                        navController.navigate("player_settings")
+                    onNavigateToPlayerSettings = { page ->
+                        navController.navigate("player_settings/${page.route}")
                     },
                     onNavigateToSubtitleSettings = {
                         navController.navigate("subtitle_settings")
