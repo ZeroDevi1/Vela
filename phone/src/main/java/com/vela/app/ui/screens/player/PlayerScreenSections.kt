@@ -68,6 +68,7 @@ import com.vela.player.core.PlayerConstants.NEXT_EPISODE_PROGRESS_UPDATE_DELAY
 import com.vela.player.core.PlayerState
 import com.vela.player.core.SkippableSegmentAction
 import com.vela.player.core.SkippableSegmentType
+import com.vela.player.preferences.PlayerBehaviorPreferences
 import com.vela.player.preferences.PlayerPreferences
 import com.vela.app.ui.player.findActivity
 import kotlinx.coroutines.delay
@@ -398,8 +399,10 @@ internal fun PlayerScreenEffects(
         autoHideKey,
         autoHideHeld
     ) {
-        if (uiStateProvider().controlsVisible && playerState.hasStartedPlayback && !autoHideHeld) {
-            delay(CONTROLS_AUTO_HIDE_DELAY)
+        // 「自动隐藏」设置（秒，0 为从不）。
+        val autoHideSeconds = PlayerBehaviorPreferences(context).controlsAutoHideSeconds
+        if (uiStateProvider().controlsVisible && playerState.hasStartedPlayback && !autoHideHeld && autoHideSeconds > 0) {
+            delay(autoHideSeconds * 1000L)
             onUiStateChange(uiStateProvider().copy(controlsVisible = false))
         }
     }
@@ -446,6 +449,14 @@ internal fun BoxScope.PlayerOverlayHost(
     onShowSubtitleStyle: () -> Unit = {},
     onShowSubtitleDelay: () -> Unit = {}
 ): Unit {
+    val behaviorContext = androidx.compose.ui.platform.LocalContext.current
+    val behaviorPreferences = remember { PlayerBehaviorPreferences(behaviorContext) }
+    PlayerOsdOverlay(
+        playbackSpeed = playerState.playbackSpeed,
+        positionMs = viewModel::getCurrentPosition,
+        durationMs = viewModel::getDuration,
+        sampleFrameRate = viewModel::sampleRenderedFrameRate
+    )
     var nextEpisodeButtonProgress by remember(
         activeCreditsSegment?.startMs,
         activeCreditsSegment?.endMs,
@@ -466,6 +477,8 @@ internal fun BoxScope.PlayerOverlayHost(
         if (activeCreditsSegment == null || !canWatchNextEpisode || dismissedCreditsPrompt) {
             return@LaunchedEffect
         }
+        // 「自动播放下一集」关闭时只显示「下一集」按钮，不倒计时自动切换。
+        if (!behaviorPreferences.autoPlayNext) return@LaunchedEffect
 
         var elapsedMs = 0L
         while (elapsedMs < NEXT_EPISODE_AUTOPLAY_DELAY) {

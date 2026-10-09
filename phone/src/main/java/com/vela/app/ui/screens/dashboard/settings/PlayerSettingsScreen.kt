@@ -159,6 +159,7 @@ fun PlayerSettingsScreen(
                             )
                         }
                     }
+                    playbackBehaviorItems()
                     item { SectionLabel(stringResource(R.string.player_settings_section_seeking)) }
                     item {
                         SettingsSection {
@@ -673,6 +674,7 @@ fun PlayerSettingsScreen(
                             )
                         }
                     }
+                    gestureBehaviorItems()
                 }
 
                 PlayerSettingsPage.INTERFACE -> {
@@ -757,6 +759,7 @@ fun PlayerSettingsScreen(
                             )
                         }
                     }
+                    interfaceBehaviorItems()
                 }
             }
         }
@@ -985,8 +988,12 @@ private fun SectionLabel(title: String) {
     )
 }
 
+/** 供同包其他文件（`PlayerBehaviorSettings.kt`）使用；`SectionLabel` 与其他设置页的同名私有函数冲突，单独起名。 */
 @Composable
-private fun SettingsSection(
+internal fun PlayerSettingsSectionLabel(title: String) = SectionLabel(title)
+
+@Composable
+internal fun SettingsSection(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -995,11 +1002,11 @@ private fun SettingsSection(
 }
 
 @Composable
-private fun SettingsDivider() {
+internal fun SettingsDivider() {
 }
 
 @Composable
-private fun SwitchSettingsItem(
+internal fun SwitchSettingsItem(
     icon: ImageVector,
     title: String,
     subtitle: String,
@@ -1297,7 +1304,7 @@ private fun PercentageSliderSettingsItem(
 
 
 @Composable
-private fun SelectionDialogSettingsItem(
+internal fun SelectionDialogSettingsItem(
     icon: ImageVector,
     title: String,
     subtitle: String,

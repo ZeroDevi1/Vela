@@ -17,6 +17,7 @@ import com.vela.player.core.PlayerConstants.GESTURE_EXCLUSION_AREA_VERTICAL
 import com.vela.player.core.PlayerConstants.FULL_SWIPE_RANGE_SCREEN_RATIO
 import com.vela.player.core.PlayerConstants.ZOOM_SCALE_BASE
 import com.vela.player.core.PlayerConstants.ZOOM_SCALE_THRESHOLD
+import com.vela.player.preferences.PlayerBehaviorPreferences
 import com.vela.player.preferences.PlayerPreferences
 
 /** VR 转平面时保留滑动调进度的底部区域占视图高度的比例。 */
@@ -42,9 +43,12 @@ class GestureHelper(
     private val isVrLookAround: () -> Boolean = { false },
     private val onLookAround: (Float, Float) -> Unit = { _, _ -> },
     private val onFovScale: (Float) -> Unit = {},
-    private val getVrSurface: () -> View? = { null }
+    private val getVrSurface: () -> View? = { null },
+    /** 点击动作「倍速播放」：切换到长按倍速的速度，再次触发恢复原速。 */
+    private val onToggleSpeedBoost: () -> Unit = {}
 ) {
     private val playerPreferences = PlayerPreferences(context)
+    private val behaviorPreferences = PlayerBehaviorPreferences(context)
     // Gesture state tracking
     private var swipeGestureValueTrackerVolume = -1f
     private var swipeGestureValueTrackerBrightness = -1f
@@ -78,33 +82,32 @@ class GestureHelper(
         object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
 
-            // 中央区域没有双击跳转，单击立即显隐控制层，不必等双击超时（约 300ms）。
+            // 单击默认是显隐控制层，可以在按下抬起时立即执行，不必等双击超时（约 300ms）；
+            // 其他动作（或该区域双击无动作时）也立即执行，否则要等确认不是双击。
             override fun onSingleTapUp(e: MotionEvent): Boolean {
-                if (tapZone(e.x) == 0) onShowControls()
+                val zone = tapZone(e.x)
+                if (singleTapRunsImmediately(zone)) perform(singleTapAction(zone), zone)
                 return true
             }
 
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                // 两侧区域要等确认不是双击跳转后才显隐控制层；中央已在 onSingleTapUp 处理。
-                if (tapZone(e.x) != 0) onShowControls()
+                val zone = tapZone(e.x)
+                if (!singleTapRunsImmediately(zone)) perform(singleTapAction(zone), zone)
                 return true
             }
 
             override fun onDoubleTap(e: MotionEvent): Boolean {
                 val zone = tapZone(e.x)
-                if (zone == 0) {
-                    // 中央双击：播放/暂停（第一次单击已唤出控制层，可直接看到状态变化）。
-                    onTogglePlayPause()
-                    touchView.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
-                    return true
-                }
-                if (!playerPreferences.arePlayerGesturesEnabled() ||
-                    !playerPreferences.isProgressSeekGestureEnabled()
+                val action = if (zone == 0) behaviorPreferences.doubleTapCenter else behaviorPreferences.doubleTapSides
+                if (action == PlayerBehaviorPreferences.TAP_NONE) return true
+                // 两侧双击快进快退属于手势：关闭手势或「滑动调节进度」时退回显隐控制层（与原行为一致）。
+                if (zone != 0 && action == PlayerBehaviorPreferences.TAP_SEEK &&
+                    (!playerPreferences.arePlayerGesturesEnabled() || !playerPreferences.isProgressSeekGestureEnabled())
                 ) {
                     onShowControls()
                     return true
                 }
-                onSeek(if (zone < 0) -seekBackwardDeltaMs() else seekForwardDeltaMs())
+                perform(action, zone)
                 touchView.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
                 return true
             }
@@ -115,11 +118,37 @@ class GestureHelper(
                 if (isVrLookAround()) return
                 if (swipeGestureProgressOpen || swipeGestureVolumeOpen || swipeGestureBrightnessOpen) return
                 speedHoldActive = true
-                touchView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                if (behaviorPreferences.hapticLongPress) {
+                    touchView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                }
                 onHoldSpeed(true)
             }
         }
     )
+
+    private fun singleTapAction(zone: Int): String =
+        if (zone == 0) behaviorPreferences.singleTapCenter else behaviorPreferences.singleTapSides
+
+    private fun singleTapRunsImmediately(zone: Int): Boolean {
+        val doubleAction = if (zone == 0) behaviorPreferences.doubleTapCenter else behaviorPreferences.doubleTapSides
+        return singleTapAction(zone) == PlayerBehaviorPreferences.TAP_TOGGLE_CONTROLS && zone == 0 ||
+            doubleAction == PlayerBehaviorPreferences.TAP_NONE
+    }
+
+    /** 执行点击动作（取值见 [PlayerBehaviorPreferences.TAP_ACTIONS]，语义与 iOS `PlayerController.perform` 相同）。 */
+    private fun perform(action: String, zone: Int) {
+        when (action) {
+            PlayerBehaviorPreferences.TAP_TOGGLE_CONTROLS -> onShowControls()
+            PlayerBehaviorPreferences.TAP_PLAY_PAUSE -> onTogglePlayPause()
+            // 中央没有方向，按播放 / 暂停处理。
+            PlayerBehaviorPreferences.TAP_SEEK -> when {
+                zone < 0 -> onSeek(-seekBackwardDeltaMs())
+                zone > 0 -> onSeek(seekForwardDeltaMs())
+                else -> onTogglePlayPause()
+            }
+            PlayerBehaviorPreferences.TAP_SPEED -> onToggleSpeedBoost()
+        }
+    }
 
     private fun tapZone(x: Float): Int {
         val viewWidth = touchView.measuredWidth
@@ -178,6 +207,9 @@ class GestureHelper(
                     ) {
                         if (!swipeGestureProgressOpen) {
                             swipeSeekStartPosition = getPlaybackPosition()
+                            if (behaviorPreferences.hapticSwipeSeek) {
+                                touchView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            }
                         }
                         val duration = getPlaybackDuration()
                         val width = touchView.measuredWidth.coerceAtLeast(1)

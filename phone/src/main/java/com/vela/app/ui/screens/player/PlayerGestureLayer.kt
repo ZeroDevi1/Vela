@@ -28,6 +28,7 @@ private class GestureLayerCallbacks {
     var onLookAround: (Float, Float) -> Unit = { _, _ -> }
     var onFovScale: (Float) -> Unit = {}
     var getVrSurface: () -> View? = { null }
+    var onToggleSpeedBoost: () -> Unit = {}
 }
 
 @SuppressLint("ClickableViewAccessibility")
@@ -52,6 +53,7 @@ fun PlayerGestureLayer(
     onLookAround: (Float, Float) -> Unit = { _, _ -> },
     onFovScale: (Float) -> Unit = {},
     getVrSurface: () -> View? = { null },
+    onToggleSpeedBoost: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     AndroidView(
@@ -84,7 +86,8 @@ fun PlayerGestureLayer(
                     isVrLookAround = { callbacks.vrLookAround },
                     onLookAround = { yaw, pitch -> callbacks.onLookAround(yaw, pitch) },
                     onFovScale = { callbacks.onFovScale(it) },
-                    getVrSurface = { callbacks.getVrSurface() }
+                    getVrSurface = { callbacks.getVrSurface() },
+                    onToggleSpeedBoost = { callbacks.onToggleSpeedBoost() }
                 )
                 setOnTouchListener { _, event ->
                     if (!callbacks.enabled) return@setOnTouchListener false
@@ -111,6 +114,7 @@ fun PlayerGestureLayer(
             callbacks.onLookAround = onLookAround
             callbacks.onFovScale = onFovScale
             callbacks.getVrSurface = getVrSurface
+            callbacks.onToggleSpeedBoost = onToggleSpeedBoost
         },
         modifier = modifier.fillMaxSize()
     )

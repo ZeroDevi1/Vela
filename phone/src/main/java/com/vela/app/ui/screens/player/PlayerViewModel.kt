@@ -55,6 +55,7 @@ import com.vela.player.core.TrackDetails
 import com.vela.player.core.DEFAULT_VIDEO_WIDTH_FRACTION
 import com.vela.player.core.MAX_VIDEO_WIDTH_FRACTION
 import com.vela.player.core.MIN_VIDEO_WIDTH_FRACTION
+import com.vela.player.preferences.PlayerBehaviorPreferences
 import com.vela.player.preferences.PlayerPreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -412,7 +413,8 @@ class PlayerViewModel @Inject constructor(
                     subtitleStreamIndex = activePreferredSubtitleStreamIndex
                 )
                 val resumePositionTicks = itemDetails?.userData?.playbackPositionTicks
-                val storedResumePositionMs = if (startFromBeginning) {
+                // 「从上次进度播放」关闭时总是从头开始（与 iOS 设置一致）。
+                val storedResumePositionMs = if (startFromBeginning || !PlayerBehaviorPreferences(context).resumePlayback) {
                     null
                 } else if (resumePositionTicks != null && resumePositionTicks > 0) {
                     resumePositionTicks / 10000L
@@ -1201,9 +1203,13 @@ class PlayerViewModel @Inject constructor(
     fun seekToProgress(progress: Float, exact: Boolean = true) {
         val duration = getDuration()
         if (duration > 0L) {
-            seekTo((duration * progress).toLong(), exact)
+            seekTo((duration * progress).toLong(), exact && isPreciseSeekEnabled())
         }
     }
+
+    /** 「精准定位」设置：用户拖动 / 快进快退的跳转是否对准帧（起播与恢复位置始终精确）。 */
+    private fun isPreciseSeekEnabled(): Boolean =
+        playerContext?.let { PlayerBehaviorPreferences(it).preciseSeek } ?: true
 
     fun seekBy(deltaMs: Long) {
         val currentPosition = getCurrentPosition()
@@ -1213,7 +1219,7 @@ class PlayerViewModel @Inject constructor(
         } else {
             (currentPosition + deltaMs).coerceAtLeast(0L)
         }
-        seekTo(targetPosition)
+        seekTo(targetPosition, isPreciseSeekEnabled())
     }
 
     fun setPlaybackSpeed(speed: Float, retunePerformance: Boolean = true) {
@@ -1340,6 +1346,38 @@ class PlayerViewModel @Inject constructor(
 
     fun endHoldSpeed() {
         setPlaybackSpeed(speedBeforeHold, retunePerformance = false)
+    }
+
+    /** 点击动作「倍速播放」：切到 [speed]，已是该速度时恢复之前的速度（之前也是它时回到 1x）。返回切换后的速度。 */
+    fun toggleSpeedBoost(speed: Float): Float {
+        if (playbackSpeed == speed) {
+            setPlaybackSpeed(if (speedBeforeHold == speed) 1f else speedBeforeHold)
+        } else {
+            speedBeforeHold = playbackSpeed
+            setPlaybackSpeed(speed)
+        }
+        return playbackSpeed
+    }
+
+    private var lastRenderedFrames = -1
+    private var lastRenderedAt = 0L
+
+    /**
+     * OSD「实时帧率」：MPV 用其估算值；ExoPlayer 按两次调用间解码器输出到屏幕的帧数计算（每秒调用一次），
+     * 首次调用或计数重置时返回 null。
+     */
+    fun sampleRenderedFrameRate(): Double? {
+        mpvPlayer?.let { return it.estimatedFrameRate() }
+        val counters = exoPlayer?.videoDecoderCounters ?: return null
+        counters.ensureUpdated()
+        val frames = counters.renderedOutputBufferCount
+        val now = android.os.SystemClock.elapsedRealtime()
+        val previous = lastRenderedFrames
+        val elapsed = now - lastRenderedAt
+        lastRenderedFrames = frames
+        lastRenderedAt = now
+        if (previous < 0 || frames < previous || elapsed <= 0) return null
+        return (frames - previous) * 1000.0 / elapsed
     }
 
     fun getCurrentPosition(): Long = exoPlayer?.currentPosition ?: mpvPlayer?.currentPosition ?: 0L

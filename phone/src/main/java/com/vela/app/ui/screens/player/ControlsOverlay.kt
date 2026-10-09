@@ -137,7 +137,11 @@ import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import com.vela.player.preferences.PlayerBehaviorPreferences
+import com.vela.player.preferences.PlayerButtons
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -337,6 +341,11 @@ fun ControlsOverlay(
         WindowInsets(0, 0, 0, 0)
     }
     val accent = overlayAccentColor()
+    // 「自定义播放器按钮」设置（与 iOS 相同的可隐藏按钮）；进入播放器时读取一次。
+    val overlayContext = LocalContext.current
+    val buttons = remember { PlayerBehaviorPreferences(overlayContext).buttons }
+    val hapticScrubBar = remember { PlayerBehaviorPreferences(overlayContext).hapticScrubBar }
+    val hapticFeedback = LocalHapticFeedback.current
     // 竖屏两侧按钮收小，窄屏上也不会碰到中央三键。
     val sideButtonSize = if (landscape) 52.dp else 44.dp
 
@@ -376,7 +385,8 @@ fun ControlsOverlay(
             landscape = landscape,
             edgeInset = edgeInset,
             logoUrl = logoUrl,
-            hasChapters = chapterMarkers.isNotEmpty(),
+            hasChapters = chapterMarkers.isNotEmpty() && buttons.chapters,
+            buttons = buttons,
             hardwareDecodingLabel = hardwareDecodingLabel,
             aspectZoomed = aspectZoomed,
             mpvEngineActive = mpvEngineActive,
@@ -424,7 +434,7 @@ fun ControlsOverlay(
                 .graphicsLayer { alpha = secondaryChromeAlpha.value },
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            if (onScreenshot != null) {
+            if (onScreenshot != null && buttons.screenshot) {
                 OverlayCircleButton(onClick = onScreenshot, size = sideButtonSize) {
                     Icon(
                         imageVector = Icons.Outlined.PhotoCamera,
@@ -442,7 +452,7 @@ fun ControlsOverlay(
             }
         }
 
-        PlaybackSpeedControl(
+        if (buttons.speed) PlaybackSpeedControl(
             speed = playbackSpeed,
             buttonSize = if (landscape) 48.dp else 40.dp,
             menuOpen = speedMenuOpen,
@@ -463,6 +473,8 @@ fun ControlsOverlay(
             seekBackwardSeconds = seekBackwardSeconds,
             seekForwardSeconds = seekForwardSeconds,
             spacing = transportSpacing(landscape),
+            showSeek = buttons.seek,
+            showPlayPause = buttons.playPause,
             onSeekBackward = onSeekBackward,
             onPlayPause = onPlayPause,
             onPlayPauseLongPress = onPlayPauseLongPress,
@@ -489,8 +501,8 @@ fun ControlsOverlay(
             accent = accent,
             isPlaying = isPlaying && !isBuffering && animateProgressWave,
             showPlaybackSettingsButton = showPlaybackSettingsButton,
-            canPlayPreviousEpisode = canPlayPreviousEpisode,
-            canPlayNextEpisode = canPlayNextEpisode,
+            canPlayPreviousEpisode = canPlayPreviousEpisode && buttons.switchMedia,
+            canPlayNextEpisode = canPlayNextEpisode && buttons.switchMedia,
             skipActionLabel = skipActionLabel,
             headline = episodeHeadline(seasonEpisodeLabel) ?: title,
             // 横屏有 Logo 时剧名已经显示在顶部，不再重复。
@@ -502,7 +514,13 @@ fun ControlsOverlay(
             onTitleClick = onTitleClick,
             onShowPlaylist = onShowPlaylist,
             onSeek = onSeek,
-            onScrubProgressChange = { progress -> scrubProgress = progress },
+            onScrubProgressChange = { progress ->
+                // 「拖动进度条」震动：开始拖动时轻震一次（与 iOS 设置对应）。
+                if (scrubProgress == null && progress != null && hapticScrubBar) {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
+                scrubProgress = progress
+            },
             onScrubPreviewProgressChange = { progress ->
                 onScrubPreviewPositionChange(
                     progress?.takeIf { duration > 0L }?.let { (duration * it).toLong() }
@@ -567,6 +585,7 @@ private fun OverlayTopSection(
     edgeInset: Dp,
     logoUrl: String?,
     hasChapters: Boolean,
+    buttons: PlayerButtons,
     hardwareDecodingLabel: String?,
     aspectZoomed: Boolean,
     mpvEngineActive: Boolean,
@@ -640,7 +659,7 @@ private fun OverlayTopSection(
             if (hardwareDecodingLabel != null) {
                 DecoderChip(label = hardwareDecodingLabel, onClick = onToggleHardwareDecoding)
             }
-            OverlayCircleButton(onClick = onEnterPip, size = buttonSize) {
+            if (buttons.pictureInPicture) OverlayCircleButton(onClick = onEnterPip, size = buttonSize) {
                 Icon(
                     imageVector = Icons.Outlined.PictureInPictureAlt,
                     contentDescription = stringResource(R.string.player_pip),
@@ -656,14 +675,14 @@ private fun OverlayTopSection(
                     )
                 }
             }
-            OverlayCircleButton(onClick = onCycleAspectRatio, size = buttonSize) {
+            if (buttons.zoom) OverlayCircleButton(onClick = onCycleAspectRatio, size = buttonSize) {
                 Icon(
                     imageVector = if (aspectZoomed) Icons.Outlined.FitScreen else Icons.Outlined.CropFree,
                     contentDescription = stringResource(R.string.player_aspect_ratio),
                     modifier = Modifier.size(iconSize)
                 )
             }
-            OverlayCircleButton(onClick = onToggleOrientation, size = buttonSize) {
+            if (buttons.rotate) OverlayCircleButton(onClick = onToggleOrientation, size = buttonSize) {
                 Icon(
                     imageVector = Icons.Outlined.ScreenRotation,
                     contentDescription = stringResource(R.string.player_cd_toggle_orientation),
@@ -1097,6 +1116,8 @@ private fun OverlayTransportControls(
     onSeekBackward: () -> Unit,
     onPlayPause: () -> Unit,
     onSeekForward: () -> Unit,
+    showSeek: Boolean = true,
+    showPlayPause: Boolean = true,
     modifier: Modifier = Modifier,
     onPlayPauseLongPress: (() -> Unit)? = null
 ) {
@@ -1106,14 +1127,14 @@ private fun OverlayTransportControls(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(spacing)
     ) {
-        OverlayCircleButton(onClick = onSeekBackward, size = TransportSeekButtonSize) {
+        if (showSeek) OverlayCircleButton(onClick = onSeekBackward, size = TransportSeekButtonSize) {
             Icon(
                 imageVector = Icons.Rounded.FastRewind,
                 contentDescription = stringResource(R.string.player_cd_seek_backward, seekBackwardSeconds),
                 modifier = Modifier.size(32.dp)
             )
         }
-        OverlayCircleButton(onClick = onPlayPause, size = TransportPlayButtonSize, onLongClick = onPlayPauseLongPress) {
+        if (showPlayPause) OverlayCircleButton(onClick = onPlayPause, size = TransportPlayButtonSize, onLongClick = onPlayPauseLongPress) {
             // 缓冲时加载圈直接占据播放键的位置，与控制层隐藏时的独立加载圈同心同尺寸。
             val centerState = when {
                 isBuffering -> TransportCenterState.Buffering
@@ -1142,7 +1163,7 @@ private fun OverlayTransportControls(
                 }
             }
         }
-        OverlayCircleButton(onClick = onSeekForward, size = TransportSeekButtonSize) {
+        if (showSeek) OverlayCircleButton(onClick = onSeekForward, size = TransportSeekButtonSize) {
             Icon(
                 imageVector = Icons.Rounded.FastForward,
                 contentDescription = stringResource(R.string.player_cd_seek_forward, seekForwardSeconds),
@@ -1469,7 +1490,9 @@ private fun PlaybackTimeLabel(
     duration: Long,
     scrubProgress: () -> Float?
 ) {
-    var showRemaining by rememberSaveable { mutableStateOf(false) }
+    // 初始按「进度条时间模式」设置，点击时间可临时切换。
+    val timeContext = LocalContext.current
+    var showRemaining by rememberSaveable { mutableStateOf(PlayerBehaviorPreferences(timeContext).showRemainingTime) }
     val displayedPosition = scrubProgress()
         ?.takeIf { duration > 0L }
         ?.let { (duration * it).toLong() }

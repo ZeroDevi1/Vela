@@ -38,6 +38,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
+import android.widget.Toast
 import com.vela.shared.R
 import com.vela.app.ui.player.PictureInPictureHost
 import com.vela.app.ui.player.applyPlayerPipParams
@@ -50,6 +51,7 @@ import com.vela.data.model.BaseItemDto
 import com.vela.data.repository.MediaRepositoryProvider
 import com.vela.player.core.SkippableSegmentType
 import com.vela.player.core.findActiveSkippableSegment
+import com.vela.player.preferences.PlayerBehaviorPreferences
 import com.vela.player.preferences.PlayerPreferences
 import com.vela.app.playback.SystemMediaSessionEffect
 import kotlinx.coroutines.delay
@@ -336,6 +338,21 @@ fun PlayerScreen(
     val canWatchPreviousEpisode = !previousEpisodeId.isNullOrBlank() && onWatchPreviousEpisode != null
     val canWatchNextEpisode = !nextEpisodeId.isNullOrBlank() && onWatchNextEpisode != null
 
+    // 「自动跳过片头」（与 iOS 一致）：每段片头只自动跳过一次；开启「即将跳过」提示时先提示 3 秒，
+    // 期间用户拖走（片段不再处于激活状态）即取消。
+    val autoSkippedIntros = remember(currentPlaybackId) { mutableSetOf<Long>() }
+    LaunchedEffect(activeSkippableSegment) {
+        val segment = activeSkippableSegment ?: return@LaunchedEffect
+        if (segment.type != SkippableSegmentType.INTRO) return@LaunchedEffect
+        val behavior = PlayerBehaviorPreferences(context)
+        if (!behavior.autoSkipIntro || !autoSkippedIntros.add(segment.seekToMs)) return@LaunchedEffect
+        if (behavior.hintBeforeSkip) {
+            Toast.makeText(context, R.string.player_auto_skip_intro_hint, Toast.LENGTH_SHORT).show()
+            delay(3_000)
+        }
+        viewModel.seekTo(segment.seekToMs)
+    }
+
     SystemMediaSessionEffect(
         mediaId = currentPlaybackId,
         title = playerState.mediaTitle,
@@ -604,6 +621,10 @@ fun PlayerScreen(
                     viewModel.endHoldSpeed()
                     uiState = uiState.copy(holdSpeedLabel = null)
                 }
+            },
+            onToggleSpeedBoost = {
+                val speed = viewModel.toggleSpeedBoost(playerPreferences.getLongPressPlaybackSpeed())
+                Toast.makeText(context, String.format(java.util.Locale.US, "%.1fx", speed), Toast.LENGTH_SHORT).show()
             },
             vrLookAround = playerState.vrFlatEnabled,
             onLookAround = { fingerDx, fingerDy ->

@@ -26,6 +26,7 @@ import androidx.media3.common.util.UnstableApi
 import com.vela.app.R
 import com.vela.app.locale.AppLanguageManager
 import com.vela.app.ui.screens.player.requestedOrientationFor
+import com.vela.player.preferences.PlayerBehaviorPreferences
 import com.vela.player.preferences.PlayerPreferences
 import com.vela.app.ui.player.PictureInPictureHost
 import com.vela.app.ui.player.applyPlayerPipParams
@@ -290,7 +291,8 @@ private fun PlayerRoute(args: PlaybackArgs) {
         onPlaylistItemSelected = { partId -> mediaId = partId },
         onPlaybackCompleted = { completedId ->
             val nextId = nextEpisodeId
-            if (!nextId.isNullOrBlank() && nextId != completedId) {
+            // 「自动播放下一集」关闭时停在结尾，由用户手动选择（与 iOS 设置一致）。
+            if (!nextId.isNullOrBlank() && nextId != completedId && PlayerBehaviorPreferences(context).autoPlayNext) {
                 mediaId = nextId
             }
         },
