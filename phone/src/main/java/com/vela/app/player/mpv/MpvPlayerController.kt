@@ -2,6 +2,7 @@ package com.vela.app.player.mpv
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.system.Os
@@ -91,6 +92,12 @@ class MpvPlayerController(
     private var vrForcedGpuNext = false
     /** Surface 已挂上；未挂时只记下要用的 vo，由 [attachSurface] 生效，避免 mpv 在无窗口时建 vo。 */
     private var surfaceAttached = false
+    /** 当前挂载的 Surface，用于向系统声明视频帧率；见 [applySurfaceFrameRate]。 */
+    @Volatile
+    private var attachedSurface: Surface? = null
+    /** 片源帧率（mpv `container-fps`），未知时为 0。 */
+    @Volatile
+    private var videoFps = 0.0
 
     /** 当前应使用的 vo：转平面期间为 gpu-next，否则为用户设置。 */
     private val effectiveVideoOutput: String
@@ -137,6 +144,7 @@ class MpvPlayerController(
         MPVLib.observeProperty("demuxer-cache-duration", MpvFormat.MPV_FORMAT_DOUBLE)
         MPVLib.observeProperty("paused-for-cache", MpvFormat.MPV_FORMAT_FLAG)
         MPVLib.observeProperty("eof-reached", MpvFormat.MPV_FORMAT_FLAG)
+        MPVLib.observeProperty("container-fps", MpvFormat.MPV_FORMAT_DOUBLE)
     }
 
     fun load(
@@ -208,6 +216,8 @@ class MpvPlayerController(
         MPVLib.setOptionString("force-window", "yes")
         MPVLib.setOptionString("vo", effectiveVideoOutput)
         surfaceAttached = true
+        attachedSurface = surface
+        applySurfaceFrameRate()
         if (width > 0 && height > 0) {
             surfaceWidth = width
             surfaceHeight = height
@@ -301,6 +311,7 @@ class MpvPlayerController(
     fun detachSurface() {
         if (released) return
         surfaceAttached = false
+        clearSurfaceFrameRate()
         MPVLib.setOptionString("vo", "null")
         MPVLib.setOptionString("force-window", "no")
         MPVLib.detachSurface()
@@ -591,7 +602,53 @@ class MpvPlayerController(
             "time-pos" -> positionMs = (value * 1000.0).toLong().coerceAtLeast(0L)
             "duration" -> durationMs = (value * 1000.0).toLong().coerceAtLeast(0L)
             "demuxer-cache-duration" -> cacheAheadMs = (value * 1000.0).toLong().coerceAtLeast(0L)
+            "container-fps" -> if (value != videoFps) {
+                videoFps = value
+                applySurfaceFrameRate()
+            }
         }
+    }
+
+    /** mpv 估算的实际输出帧率（`estimated-vf-fps`）；未知时为 null。OSD「实时帧率」使用。 */
+    fun estimatedFrameRate(): Double? {
+        if (released) return null
+        return MPVLib.getPropertyString("estimated-vf-fps")?.toDoubleOrNull()?.takeIf { it > 0 }
+    }
+
+    /**
+     * 向系统声明视频帧率，让屏幕切到能整除它的刷新率（60fps → 60/120Hz，24fps → 120Hz）。
+     *
+     * mpv 直接往 SurfaceView 送帧，不像 ExoPlayer 会自动调用 `Surface.setFrameRate`；高刷手机常驻 90Hz 时，
+     * 60fps 片源只能按 1、2、1、2 个 vsync 交替上屏（11ms / 22ms），平移镜头明显抖动卡顿。
+     * 只在无缝切换时生效（同一显示模式组内切换不黑屏）；帧率未知或异常时不声明，交给系统默认策略。
+     */
+    private fun applySurfaceFrameRate() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val surface = attachedSurface ?: return
+        val fps = videoFps.takeIf { it in 1.0..240.0 }?.toFloat() ?: return
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                surface.setFrameRate(
+                    fps,
+                    Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
+                    Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS
+                )
+            } else {
+                surface.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
+            }
+        }.onSuccess {
+            Log.i(COLOR_LOG_TAG, "surface frame rate=$fps")
+        }.onFailure { error ->
+            Log.w(COLOR_LOG_TAG, "surface setFrameRate($fps) failed", error)
+        }
+    }
+
+    /** 解除帧率声明，避免 Surface 复用到下一段播放（或画面离开后）仍锁定刷新率。 */
+    private fun clearSurfaceFrameRate() {
+        val surface = attachedSurface ?: return
+        attachedSurface = null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || !surface.isValid) return
+        runCatching { surface.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT) }
     }
 
     override fun eventProperty(property: String, value: Boolean) {
