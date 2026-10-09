@@ -53,6 +53,8 @@ fun VideoSurface(
     vrFlatEnabled: Boolean = false,
     vrLayout: VrLayout? = null,
     videoRotationDegrees: Int = 0,
+    /** VR 转平面时跟随设备朝向转动视角（「重力感应」，仅 ExoPlayer 球面视图）。 */
+    vrSensorRotation: Boolean = false,
     onSphericalTouchTarget: ((View?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -105,6 +107,7 @@ fun VideoSurface(
                 vrFlatEnabled = vrFlatEnabled,
                 vrLayout = vrLayout,
                 rotationDegrees = rotationDegrees,
+                vrSensorRotation = vrSensorRotation,
                 onSphericalTouchTarget = onSphericalTouchTarget,
                 modifier = surfaceModifier
             )
@@ -123,6 +126,7 @@ private fun ExoPlayerView(
     vrFlatEnabled: Boolean,
     vrLayout: VrLayout?,
     rotationDegrees: Int,
+    vrSensorRotation: Boolean,
     onSphericalTouchTarget: ((View?) -> Unit)?,
     modifier: Modifier
 ) {
@@ -174,7 +178,7 @@ private fun ExoPlayerView(
                 playerView.resizeMode = resizeMode
                 playerView.applySubtitlePreferences(playerPreferences)
                 val spherical = playerView.videoSurfaceView as? SphericalGLSurfaceView
-                spherical?.setUseSensorRotation(false)
+                spherical?.setUseSensorRotation(vrSensorRotation)
                 spherical?.setDefaultStereoMode(vrLayout.toExoStereoMode())
                 onSphericalTouchTarget?.invoke(if (vrFlatEnabled) spherical else null)
 

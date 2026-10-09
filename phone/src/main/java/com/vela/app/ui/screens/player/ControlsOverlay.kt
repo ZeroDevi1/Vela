@@ -315,6 +315,9 @@ fun ControlsOverlay(
     vrDetected: Boolean = false,
     vrFlatEnabled: Boolean = false,
     onToggleVrFlat: () -> Unit = {},
+    vrGyroscopeEnabled: Boolean = false,
+    /** null：设备没有陀螺仪，不显示「重力感应」开关。 */
+    onToggleVrGyroscope: (() -> Unit)? = null,
     onShowVrProjection: () -> Unit = {},
     animateProgressWave: Boolean = true
 ) {
@@ -395,6 +398,7 @@ fun ControlsOverlay(
             sleepTimerDeadline = sleepTimerDeadline,
             vrDetected = vrDetected,
             vrFlatEnabled = vrFlatEnabled,
+            vrGyroscopeEnabled = vrGyroscopeEnabled,
             showMore = moreMenuOpen,
             onShowMoreChange = { moreMenuOpen = it },
             onBackClick = onBackClick,
@@ -413,6 +417,7 @@ fun ControlsOverlay(
             onShowSubtitleStyle = onShowSubtitleStyle,
             onShowSubtitleDelay = onShowSubtitleDelay,
             onToggleVrFlat = onToggleVrFlat,
+            onToggleVrGyroscope = onToggleVrGyroscope,
             onShowVrProjection = onShowVrProjection,
             onUserInteraction = onUserInteraction,
             modifier = Modifier
@@ -595,6 +600,7 @@ private fun OverlayTopSection(
     sleepTimerDeadline: Long?,
     vrDetected: Boolean,
     vrFlatEnabled: Boolean,
+    vrGyroscopeEnabled: Boolean,
     showMore: Boolean,
     onShowMoreChange: (Boolean) -> Unit,
     onBackClick: () -> Unit,
@@ -613,6 +619,7 @@ private fun OverlayTopSection(
     onShowSubtitleStyle: () -> Unit,
     onShowSubtitleDelay: () -> Unit,
     onToggleVrFlat: () -> Unit,
+    onToggleVrGyroscope: (() -> Unit)?,
     onShowVrProjection: () -> Unit,
     onUserInteraction: () -> Unit,
     modifier: Modifier = Modifier
@@ -723,6 +730,7 @@ private fun OverlayTopSection(
                     sleepTimerDeadline = sleepTimerDeadline,
                     vrDetected = vrDetected,
                     vrFlatEnabled = vrFlatEnabled,
+                    vrGyroscopeEnabled = vrGyroscopeEnabled,
                     onSwitchPlayerEngine = onSwitchPlayerEngine,
                     videoRotationDegrees = videoRotationDegrees,
                     onRotateVideo = onRotateVideo,
@@ -733,6 +741,7 @@ private fun OverlayTopSection(
                     onShowSubtitleStyle = onShowSubtitleStyle,
                     onShowSubtitleDelay = onShowSubtitleDelay,
                     onToggleVrFlat = onToggleVrFlat,
+                    onToggleVrGyroscope = onToggleVrGyroscope,
                     onShowVrProjection = onShowVrProjection
                 )
             }
@@ -903,6 +912,7 @@ private fun OverlayMoreMenu(
     sleepTimerDeadline: Long?,
     vrDetected: Boolean,
     vrFlatEnabled: Boolean,
+    vrGyroscopeEnabled: Boolean,
     onSwitchPlayerEngine: (() -> Unit)?,
     videoRotationDegrees: Int,
     onRotateVideo: (() -> Unit)?,
@@ -913,6 +923,7 @@ private fun OverlayMoreMenu(
     onShowSubtitleStyle: () -> Unit,
     onShowSubtitleDelay: () -> Unit,
     onToggleVrFlat: () -> Unit,
+    onToggleVrGyroscope: (() -> Unit)?,
     onShowVrProjection: () -> Unit
 ) {
     var page by remember { mutableStateOf(MoreMenuPage.Main) }
@@ -999,6 +1010,14 @@ private fun OverlayMoreMenu(
                         checked = vrFlatEnabled,
                         onClick = onToggleVrFlat
                     )
+                    if (onToggleVrGyroscope != null) {
+                        OverlayMenuItem(
+                            text = stringResource(R.string.player_vr_gyroscope),
+                            icon = Icons.Outlined.ScreenRotation,
+                            checked = vrGyroscopeEnabled,
+                            onClick = onToggleVrGyroscope
+                        )
+                    }
                     OverlayMenuItem(
                         text = stringResource(R.string.player_vr_projection_title),
                         icon = Icons.Outlined.PanoramaPhotosphere,

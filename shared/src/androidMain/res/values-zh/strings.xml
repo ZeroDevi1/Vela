@@ -334,6 +334,7 @@
     <string name="player_dialog_audio_title">音频</string>
     <string name="player_audio_mute">静音</string>
     <string name="player_vr_chip_enable">VR · 转平面</string>
+    <string name="player_vr_gyroscope">重力感应</string>
     <string name="player_vr_chip_on">VR 平面</string>
     <string name="player_vr_projection_title">VR 投影格式</string>
     <string name="player_vr_projection_summary">解析不准时手动选择片源布局</string>

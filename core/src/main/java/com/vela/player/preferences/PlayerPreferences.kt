@@ -51,6 +51,7 @@ class PlayerPreferences(context: Context) {
         private const val KEY_START_MAXIMIZED = "start_maximized"
         private const val KEY_CACHE_NEXT_EPISODE = "cache_next_episode"
         private const val KEY_LONG_PRESS_PLAY_PAUSE_EXITS = "long_press_play_pause_exits"
+        private const val KEY_VR_GYROSCOPE = "vr_gyroscope"
         private const val KEY_PLAYER_CACHE_SIZE_MB = "player_cache_size_mb"
         private const val KEY_PLAYER_CACHE_TIME_SECONDS = "player_cache_time_seconds"
         private const val KEY_SEEK_BACKWARD_INTERVAL_SECONDS = "seek_backward_interval_seconds"
@@ -957,6 +958,13 @@ class PlayerPreferences(context: Context) {
 
     fun setLongPressPlayPauseExitEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_LONG_PRESS_PLAY_PAUSE_EXITS, enabled).apply()
+    }
+
+    /** VR 转平面时跟随设备朝向（陀螺仪）转动视角，可与拖动叠加（默认关闭，与 iOS 版一致）。 */
+    fun isVrGyroscopeEnabled(): Boolean = prefs.getBoolean(KEY_VR_GYROSCOPE, false)
+
+    fun setVrGyroscopeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_VR_GYROSCOPE, enabled).apply()
     }
 
     fun isCacheNextEpisodeEnabled(): Boolean {

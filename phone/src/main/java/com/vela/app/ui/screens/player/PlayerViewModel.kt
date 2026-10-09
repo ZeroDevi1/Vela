@@ -1308,6 +1308,15 @@ class PlayerViewModel @Inject constructor(
         mpvPlayer?.setVrLook(layout, vrYaw, vrPitch, vrOutputFov)
     }
 
+    /** 陀螺仪：按设备转动的角度增量（度，右 / 上为正）转动视角，与拖动叠加。 */
+    fun applyVrLookRotation(deltaYaw: Float, deltaPitch: Float) {
+        if (!_playerState.value.vrFlatEnabled) return
+        val layout = detectedVrLayout ?: return
+        vrYaw = (vrYaw + deltaYaw).coerceIn(-layout.yawLimit, layout.yawLimit)
+        vrPitch = (vrPitch + deltaPitch).coerceIn(-85f, 85f)
+        mpvPlayer?.setVrLook(layout, vrYaw, vrPitch, vrOutputFov)
+    }
+
     fun applyVrFovScale(scaleFactor: Float) {
         if (!_playerState.value.vrFlatEnabled) return
         val layout = detectedVrLayout ?: return

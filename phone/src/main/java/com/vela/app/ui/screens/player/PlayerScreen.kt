@@ -46,6 +46,7 @@ import com.vela.app.ui.player.enterPlayerPip
 import com.vela.app.ui.player.findActivity
 import com.vela.app.ui.screens.player.PlayerViewModel
 import com.vela.app.player.vr.VrLayoutParser
+import com.vela.app.player.vr.VrMotionTracker
 import com.vela.data.model.AudioTranscodeMode
 import com.vela.data.model.BaseItemDto
 import com.vela.data.repository.MediaRepositoryProvider
@@ -526,6 +527,20 @@ fun PlayerScreen(
 
     val isPortraitPlayback = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
     var vrSphericalView by remember { mutableStateOf<View?>(null) }
+    // 「重力感应」：ExoPlayer 球面视图用自带的传感器转动；mpv 着色器由 VrMotionTracker 把设备转动量叠加到视角。
+    val vrGyroscopeAvailable = remember { VrMotionTracker.isAvailable(context) }
+    var vrGyroscope by remember { mutableStateOf(playerPreferences.isVrGyroscopeEnabled()) }
+    val mpvVrGyroscopeActive = vrGyroscopeAvailable && vrGyroscope && playerState.vrFlatEnabled &&
+        viewModel.mpvPlayer != null &&
+        lifecycle != Lifecycle.Event.ON_PAUSE && lifecycle != Lifecycle.Event.ON_STOP &&
+        lifecycle != Lifecycle.Event.ON_DESTROY
+    if (mpvVrGyroscopeActive) {
+        DisposableEffect(Unit) {
+            val tracker = VrMotionTracker(context)
+            tracker.start(viewModel::applyVrLookRotation)
+            onDispose { tracker.stop() }
+        }
+    }
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -551,6 +566,7 @@ fun PlayerScreen(
             vrFlatEnabled = playerState.vrFlatEnabled,
             vrLayout = playerState.vrProjectionId?.let(VrLayoutParser::layoutForId),
             videoRotationDegrees = playerState.videoRotationDegrees,
+            vrSensorRotation = vrGyroscopeAvailable && vrGyroscope,
             onSphericalTouchTarget = { vrSphericalView = it },
             modifier = Modifier.fillMaxSize()
         )
@@ -708,6 +724,15 @@ fun PlayerScreen(
             },
             onShowChapters = { showChaptersSheet = true },
             onShowVrProjection = { showVrProjectionDialog = true },
+            vrGyroscopeEnabled = vrGyroscope,
+            onToggleVrGyroscope = if (vrGyroscopeAvailable) {
+                {
+                    vrGyroscope = !vrGyroscope
+                    playerPreferences.setVrGyroscopeEnabled(vrGyroscope)
+                }
+            } else {
+                null
+            },
             onShowPlaylist = if (playlist.size > 1) {
                 {
                     showPlaylistSheet = true

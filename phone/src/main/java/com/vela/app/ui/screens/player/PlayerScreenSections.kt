@@ -439,6 +439,8 @@ internal fun BoxScope.PlayerOverlayHost(
     onEnterPip: () -> Unit = {},
     onShowChapters: () -> Unit = {},
     onShowVrProjection: () -> Unit = {},
+    vrGyroscopeEnabled: Boolean = false,
+    onToggleVrGyroscope: (() -> Unit)? = null,
     onShowPlaylist: (() -> Unit)? = null,
     onSeekFeedback: (String, SeekSide) -> Unit = { _, _ -> },
     onPositionChanged: (Long) -> Unit = {},
@@ -689,6 +691,13 @@ internal fun BoxScope.PlayerOverlayHost(
             onToggleVrFlat = {
                 resetAutoHideTimer()
                 viewModel.toggleVrFlatPlayback()
+            },
+            vrGyroscopeEnabled = vrGyroscopeEnabled,
+            onToggleVrGyroscope = onToggleVrGyroscope?.let { toggle ->
+                {
+                    resetAutoHideTimer()
+                    toggle()
+                }
             },
             onShowVrProjection = {
                 resetAutoHideTimer()
