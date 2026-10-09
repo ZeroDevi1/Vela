@@ -30,6 +30,17 @@ class PlayerBehaviorPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_PRECISE_SEEK, true)
         set(value) = prefs.edit().putBoolean(KEY_PRECISE_SEEK, value).apply()
 
+    /**
+     * 记住音轨 / 字幕：按条目与剧集沿用上次的选择（剧集按语言等特征匹配到其它集）。默认开启，保持 Android 原有行为；
+     * 关闭后起播不再读取记忆，只用服务器默认或本次明确传入的选择。记忆本身不删除，重新开启后恢复使用。
+     */
+    var rememberAudioTrack: Boolean
+        get() = prefs.getBoolean(KEY_REMEMBER_AUDIO_TRACK, true)
+        set(value) = prefs.edit().putBoolean(KEY_REMEMBER_AUDIO_TRACK, value).apply()
+    var rememberSubtitleTrack: Boolean
+        get() = prefs.getBoolean(KEY_REMEMBER_SUBTITLE_TRACK, true)
+        set(value) = prefs.edit().putBoolean(KEY_REMEMBER_SUBTITLE_TRACK, value).apply()
+
     /** 自动跳过片头（有片头片段时）；默认关闭，与 iOS 一致。 */
     var autoSkipIntro: Boolean
         get() = prefs.getBoolean(KEY_AUTO_SKIP_INTRO, false)
@@ -134,6 +145,8 @@ class PlayerBehaviorPreferences(context: Context) {
         private const val KEY_PRECISE_SEEK = "precise_seek"
         private const val KEY_AUTO_SKIP_INTRO = "auto_skip_intro"
         private const val KEY_HINT_BEFORE_SKIP = "hint_before_skip"
+        private const val KEY_REMEMBER_AUDIO_TRACK = "remember_audio_track"
+        private const val KEY_REMEMBER_SUBTITLE_TRACK = "remember_subtitle_track"
         private const val KEY_SINGLE_TAP_CENTER = "single_tap_center"
         private const val KEY_SINGLE_TAP_SIDES = "single_tap_sides"
         private const val KEY_DOUBLE_TAP_CENTER = "double_tap_center"

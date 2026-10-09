@@ -12,6 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -50,9 +52,12 @@ fun VideoSurface(
     subtitleAppearanceEpoch: Int = 0,
     vrFlatEnabled: Boolean = false,
     vrLayout: VrLayout? = null,
+    videoRotationDegrees: Int = 0,
     onSphericalTouchTarget: ((View?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    // VR 转平面时画面由投影决定，不叠加旋转。
+    val rotationDegrees = if (vrFlatEnabled) 0 else videoRotationDegrees
     val motion = MaterialTheme.velaMotion
     val animatedScale = animateFloatAsState(
         targetValue = scale,
@@ -87,6 +92,7 @@ fun VideoSurface(
                 player = mpvPlayer,
                 resizeMode = resizeMode,
                 subtitleAppearanceEpoch = subtitleAppearanceEpoch,
+                videoRotationDegrees = rotationDegrees,
                 modifier = surfaceModifier
             )
         } else if (player != null) {
@@ -98,6 +104,7 @@ fun VideoSurface(
                 subtitleAppearanceEpoch = subtitleAppearanceEpoch,
                 vrFlatEnabled = vrFlatEnabled,
                 vrLayout = vrLayout,
+                rotationDegrees = rotationDegrees,
                 onSphericalTouchTarget = onSphericalTouchTarget,
                 modifier = surfaceModifier
             )
@@ -115,6 +122,7 @@ private fun ExoPlayerView(
     @Suppress("UNUSED_PARAMETER") subtitleAppearanceEpoch: Int,
     vrFlatEnabled: Boolean,
     vrLayout: VrLayout?,
+    rotationDegrees: Int,
     onSphericalTouchTarget: ((View?) -> Unit)?,
     modifier: Modifier
 ) {
@@ -122,7 +130,11 @@ private fun ExoPlayerView(
     val playerPreferences = remember { PlayerPreferences(context) }
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
 
-    DisposableEffect(vrFlatEnabled) {
+    // 画面旋转需要 TextureView：SurfaceView 的画面由系统合成，不跟随视图旋转。只在旋转时切换，
+    // 平时仍用 SurfaceView，保留 HDR 直出与更低的功耗；切换会重建 PlayerView，画面短暂黑一下。
+    val useTextureView = rotationDegrees != 0 && !vrFlatEnabled
+
+    DisposableEffect(vrFlatEnabled, useTextureView) {
         onDispose {
             playerViewRef?.player = null
             playerViewRef = null
@@ -130,12 +142,15 @@ private fun ExoPlayerView(
         }
     }
 
-    key(vrFlatEnabled) {
+    key(vrFlatEnabled, useTextureView) {
         AndroidView(
             factory = { viewContext ->
                 val playerView = if (vrFlatEnabled) {
                     LayoutInflater.from(viewContext)
                         .inflate(R.layout.player_view_spherical, null, false) as PlayerView
+                } else if (useTextureView) {
+                    LayoutInflater.from(viewContext)
+                        .inflate(R.layout.player_view_texture, null, false) as PlayerView
                 } else {
                     PlayerView(viewContext)
                 }
@@ -171,9 +186,33 @@ private fun ExoPlayerView(
                     else -> Unit
                 }
             },
-            modifier = modifier
+            modifier = modifier.rotatedVideo(if (useTextureView) rotationDegrees else 0)
         )
     }
+}
+
+/**
+ * 把画面顺时针旋转 [degrees]。90° / 270° 时先按交换后的宽高测量（宽 = 容器高，高 = 容器宽）再旋转，
+ * 使 PlayerView 在新方向上仍按原有缩放模式适应容器（与 iOS `RotatableSurface` 相同）。
+ * 只对 TextureView 有效；字幕在 PlayerView 内部，会随画面一起旋转。
+ */
+private fun Modifier.rotatedVideo(degrees: Int): Modifier {
+    if (degrees == 0) return this
+    val quarterTurn = degrees % 180 != 0
+    return this
+        .layout { measurable, constraints ->
+            if (!quarterTurn || !constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
+                val placeable = measurable.measure(constraints)
+                return@layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+            }
+            val width = constraints.maxWidth
+            val height = constraints.maxHeight
+            val placeable = measurable.measure(Constraints.fixed(width = height, height = width))
+            layout(width, height) {
+                placeable.place((width - placeable.width) / 2, (height - placeable.height) / 2)
+            }
+        }
+        .graphicsLayer { rotationZ = degrees.toFloat() }
 }
 
 @UnstableApi

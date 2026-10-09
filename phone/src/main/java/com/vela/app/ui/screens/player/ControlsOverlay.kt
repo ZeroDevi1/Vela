@@ -74,6 +74,7 @@ import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.Rotate90DegreesCw
 import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material.icons.outlined.ScreenRotation
 import androidx.compose.material.icons.outlined.Subtitles
@@ -297,7 +298,8 @@ fun ControlsOverlay(
     onScreenshot: (() -> Unit)? = null,
     mpvEngineActive: Boolean = true,
     onSwitchPlayerEngine: (() -> Unit)? = null,
-    onServerDownscale: (() -> Unit)? = null,
+    videoRotationDegrees: Int = 0,
+    onRotateVideo: (() -> Unit)? = null,
     onPlayPauseLongPress: (() -> Unit)? = null,
     sleepTimerDeadline: Long? = null,
     onSetSleepTimer: (Int?) -> Unit = {},
@@ -403,7 +405,8 @@ fun ControlsOverlay(
             onToggleOrientation = onToggleOrientation,
             onShowChapters = onShowChapters,
             onSwitchPlayerEngine = onSwitchPlayerEngine,
-            onServerDownscale = onServerDownscale,
+            videoRotationDegrees = videoRotationDegrees,
+            onRotateVideo = onRotateVideo,
             onSetSleepTimer = onSetSleepTimer,
             onAdjustVideoSize = onAdjustVideoSize,
             onAddLocalSubtitle = onAddLocalSubtitle,
@@ -602,7 +605,8 @@ private fun OverlayTopSection(
     onToggleOrientation: () -> Unit,
     onShowChapters: () -> Unit,
     onSwitchPlayerEngine: (() -> Unit)?,
-    onServerDownscale: (() -> Unit)?,
+    videoRotationDegrees: Int,
+    onRotateVideo: (() -> Unit)?,
     onSetSleepTimer: (Int?) -> Unit,
     onAdjustVideoSize: () -> Unit,
     onAddLocalSubtitle: () -> Unit,
@@ -720,7 +724,8 @@ private fun OverlayTopSection(
                     vrDetected = vrDetected,
                     vrFlatEnabled = vrFlatEnabled,
                     onSwitchPlayerEngine = onSwitchPlayerEngine,
-                    onServerDownscale = onServerDownscale,
+                    videoRotationDegrees = videoRotationDegrees,
+                    onRotateVideo = onRotateVideo,
                     onSetSleepTimer = onSetSleepTimer,
                     onShowMediaInfo = onShowMediaInfo,
                     onAdjustVideoSize = onAdjustVideoSize,
@@ -899,7 +904,8 @@ private fun OverlayMoreMenu(
     vrDetected: Boolean,
     vrFlatEnabled: Boolean,
     onSwitchPlayerEngine: (() -> Unit)?,
-    onServerDownscale: (() -> Unit)?,
+    videoRotationDegrees: Int,
+    onRotateVideo: (() -> Unit)?,
     onSetSleepTimer: (Int?) -> Unit,
     onShowMediaInfo: () -> Unit,
     onAdjustVideoSize: () -> Unit,
@@ -929,14 +935,6 @@ private fun OverlayMoreMenu(
                         onClick = { dismissThen(onSwitchPlayerEngine) }
                     )
                 }
-                if (onServerDownscale != null) {
-                    // 片源宽于 4K 时提供：本机解码吃力或解不出画面时让服务器缩放转码。
-                    OverlayMenuItem(
-                        text = stringResource(R.string.player_server_downscale_4k),
-                        icon = Icons.Outlined.HighQuality,
-                        onClick = { dismissThen(onServerDownscale) }
-                    )
-                }
                 OverlayMenuItem(
                     text = stringResource(R.string.player_sleep_timer),
                     icon = Icons.Outlined.Bedtime,
@@ -959,6 +957,17 @@ private fun OverlayMoreMenu(
                     icon = Icons.Outlined.AspectRatio,
                     onClick = { dismissThen(onAdjustVideoSize) }
                 )
+                if (onRotateVideo != null) {
+                    // 每次顺时针 90°；菜单保持打开，可连续点按，右侧显示当前角度。
+                    OverlayMenuItem(
+                        text = stringResource(R.string.player_rotate_video),
+                        icon = Icons.Outlined.Rotate90DegreesCw,
+                        trailingText = videoRotationDegrees.takeIf { it != 0 }?.let {
+                            stringResource(R.string.player_rotate_video_degrees, it)
+                        },
+                        onClick = onRotateVideo
+                    )
+                }
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 4.dp),
                     color = MaterialTheme.colorScheme.outlineVariant

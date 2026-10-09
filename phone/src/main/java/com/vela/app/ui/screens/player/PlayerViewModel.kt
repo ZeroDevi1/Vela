@@ -396,14 +396,20 @@ class PlayerViewModel @Inject constructor(
                 val preferenceStreams = itemDetails?.mediaStreams.orEmpty().ifEmpty {
                     itemDetails?.mediaSources?.firstOrNull()?.mediaStreams.orEmpty()
                 }
-                resolvedPreferredAudioStreamIndex =
-                    playerPreferences.matchSeriesAudioStreamIndex(seriesPreferenceId, preferenceStreams)
-                        ?: resolvedPreferredAudioStreamIndex
-                        ?: playerPreferences.getPreferredAudioStreamIndex(mediaId)
-                activePreferredSubtitleStreamIndex =
-                    playerPreferences.matchSeriesSubtitleStreamIndex(seriesPreferenceId, preferenceStreams)
-                        ?: activePreferredSubtitleStreamIndex
-                        ?: playerPreferences.getPreferredSubtitleStreamIndex(mediaId)
+                // 「记住音轨 / 字幕」关闭时不读取记忆，只用调用方明确传入的选择（换引擎、换画质时的当前轨道）或服务器默认。
+                val behaviorPreferences = PlayerBehaviorPreferences(context)
+                if (behaviorPreferences.rememberAudioTrack) {
+                    resolvedPreferredAudioStreamIndex =
+                        playerPreferences.matchSeriesAudioStreamIndex(seriesPreferenceId, preferenceStreams)
+                            ?: resolvedPreferredAudioStreamIndex
+                            ?: playerPreferences.getPreferredAudioStreamIndex(mediaId)
+                }
+                if (behaviorPreferences.rememberSubtitleTrack) {
+                    activePreferredSubtitleStreamIndex =
+                        playerPreferences.matchSeriesSubtitleStreamIndex(seriesPreferenceId, preferenceStreams)
+                            ?: activePreferredSubtitleStreamIndex
+                            ?: playerPreferences.getPreferredSubtitleStreamIndex(mediaId)
+                }
                 trackSelectionCoordinator.resetPendingSelections(
                     preferredAudioStreamIndex = resolvedPreferredAudioStreamIndex,
                     preferredSubtitleStreamIndex = activePreferredSubtitleStreamIndex
@@ -806,7 +812,13 @@ class PlayerViewModel @Inject constructor(
                     hardwareDecoding = hardwareDecoding,
                     vrDetected = vrLayout != null,
                     vrFlatEnabled = false,
-                    vrProjectionId = vrLayout?.id
+                    vrProjectionId = vrLayout?.id,
+                    // 换引擎、重试、换画质会重新初始化同一条目，保留旋转；换到其它条目时复位。
+                    videoRotationDegrees = if (mediaId == videoRotationMediaId) {
+                        _playerState.value.videoRotationDegrees
+                    } else {
+                        0
+                    }
                 )
                 if (usesMpv) {
                     updateApiTrackInformation()
@@ -2261,23 +2273,28 @@ class PlayerViewModel @Inject constructor(
 
     private fun persistAudioPreference(streamIndex: Int?) {
         val (preferences, mediaId) = currentMediaPreferences() ?: return
-        preferences.persistAudioSelection(
-            itemId = mediaId,
-            seriesId = seriesPreferenceId(),
-            streams = apiMediaStreams.orEmpty(),
-            streamIndex = streamIndex
-        )
+        // 「记住音轨」关闭时只更新本次播放的选择，不写入记忆。
+        if (rememberTrackSelection(audio = true)) {
+            preferences.persistAudioSelection(
+                itemId = mediaId,
+                seriesId = seriesPreferenceId(),
+                streams = apiMediaStreams.orEmpty(),
+                streamIndex = streamIndex
+            )
+        }
         _preferredStreamIndexes.value = _preferredStreamIndexes.value.copy(audioStreamIndex = streamIndex)
     }
 
     private fun persistSubtitlePreference(streamIndex: Int?) {
         val (preferences, mediaId) = currentMediaPreferences() ?: return
-        preferences.persistSubtitleSelection(
-            itemId = mediaId,
-            seriesId = seriesPreferenceId(),
-            streams = apiMediaStreams.orEmpty(),
-            streamIndex = streamIndex
-        )
+        if (rememberTrackSelection(audio = false)) {
+            preferences.persistSubtitleSelection(
+                itemId = mediaId,
+                seriesId = seriesPreferenceId(),
+                streams = apiMediaStreams.orEmpty(),
+                streamIndex = streamIndex
+            )
+        }
         _preferredStreamIndexes.value = _preferredStreamIndexes.value.copy(subtitleStreamIndex = streamIndex)
     }
 
@@ -2286,6 +2303,12 @@ class PlayerViewModel @Inject constructor(
             itemType = currentItemDetails?.type,
             seriesId = currentItemDetails?.seriesId
         )
+    }
+
+    /** 「记住音轨 / 字幕」开关；没有上下文时按默认开启处理。 */
+    private fun rememberTrackSelection(audio: Boolean): Boolean {
+        val preferences = PlayerBehaviorPreferences(playerContext ?: return true)
+        return if (audio) preferences.rememberAudioTrack else preferences.rememberSubtitleTrack
     }
 
     private fun currentMediaPreferences(): Pair<PlayerPreferences, String>? {
@@ -2303,19 +2326,24 @@ class PlayerViewModel @Inject constructor(
         val resumePositionMs = getCurrentPosition()
         val shouldResumePlaying = isPlayingNow()
 
+        // 重新起播时选择经参数传入，记忆关闭时无需写入。
         PlayerPreferences(context).apply {
-            persistAudioSelection(
-                itemId = mediaId,
-                seriesId = seriesPreferenceId(),
-                streams = apiMediaStreams.orEmpty(),
-                streamIndex = audioStreamIndex
-            )
-            persistSubtitleSelection(
-                itemId = mediaId,
-                seriesId = seriesPreferenceId(),
-                streams = apiMediaStreams.orEmpty(),
-                streamIndex = subtitleStreamIndex
-            )
+            if (rememberTrackSelection(audio = true)) {
+                persistAudioSelection(
+                    itemId = mediaId,
+                    seriesId = seriesPreferenceId(),
+                    streams = apiMediaStreams.orEmpty(),
+                    streamIndex = audioStreamIndex
+                )
+            }
+            if (rememberTrackSelection(audio = false)) {
+                persistSubtitleSelection(
+                    itemId = mediaId,
+                    seriesId = seriesPreferenceId(),
+                    streams = apiMediaStreams.orEmpty(),
+                    streamIndex = subtitleStreamIndex
+                )
+            }
         }
 
         releasePlayer()
@@ -2328,6 +2356,20 @@ class PlayerViewModel @Inject constructor(
             initialSeekPositionMs = resumePositionMs,
             startPlayback = shouldResumePlaying,
             mediaSourceId = requestedMediaSourceId
+        )
+    }
+
+    /** 旋转角度所属的条目；与当前条目不同时初始化把角度复位为 0。 */
+    private var videoRotationMediaId: String? = null
+
+    /** 画面顺时针旋转 90°（0 → 90 → 180 → 270 → 0），同时复位双指缩放 / 平移，避免旋转后偏移方向错乱。 */
+    fun rotateVideoClockwise() {
+        videoRotationMediaId = playbackSession.mediaId
+        _playerState.value = _playerState.value.copy(
+            videoRotationDegrees = (_playerState.value.videoRotationDegrees + 90) % 360,
+            videoScale = 1f,
+            videoOffsetX = 0f,
+            videoOffsetY = 0f
         )
     }
 

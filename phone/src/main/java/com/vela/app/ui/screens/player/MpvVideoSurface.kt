@@ -23,6 +23,7 @@ fun MpvVideoSurface(
     player: MpvPlayerController,
     resizeMode: Int,
     subtitleAppearanceEpoch: Int,
+    videoRotationDegrees: Int,
     modifier: Modifier
 ) {
     // Surface 回调捕获的是创建时的控制器；换实例（下一集、换引擎）时必须换一个 SurfaceView 挂到新实例上。
@@ -72,5 +73,9 @@ fun MpvVideoSurface(
     }
     LaunchedEffect(player, resizeMode) {
         player.setZoomMode(resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
+    }
+    // video-rotate 同时写为 option，会沿用到同一 mpv 实例的后续文件；按控制器实例重新下发，换条目时状态已复位为 0。
+    LaunchedEffect(player, videoRotationDegrees) {
+        player.setVideoRotation(videoRotationDegrees)
     }
 }

@@ -67,6 +67,7 @@ import com.vela.app.ui.components.common.rememberDownloadPanelState
 import com.vela.app.cast.CastController
 import com.vela.app.download.DownloadRepositoryProvider
 import com.vela.player.core.TrackDetails
+import com.vela.player.preferences.PlayerBehaviorPreferences
 import com.vela.player.preferences.PlayerPreferences
 import com.vela.player.preferences.TranscodeProfile
 import com.vela.shared.playback.UserDataRefreshEvent
@@ -140,6 +141,7 @@ fun DetailContent(
     val seerrRepository = rememberSeerrRepository(context)
     val downloadRepository = remember { DownloadRepositoryProvider.getInstance(context) }
     val playerPreferences = remember { PlayerPreferences(context) }
+    val behaviorPreferences = remember { PlayerBehaviorPreferences(context) }
     val preferences = remember { Preferences(context) }
     val coroutineScope = rememberCoroutineScope()
     val castPlaybackState by CastController.playbackState.collectAsState()
@@ -207,8 +209,10 @@ fun DetailContent(
         val fromSource = selectedMediaSource?.mediaStreams.orEmpty()
         if (fromSource.isNotEmpty()) fromSource else item.mediaStreams.orEmpty()
     }
+    // 「记住音轨 / 字幕」关闭时不预选记忆的轨道，显示服务器默认。
     val savedAudioOption = remember(item.id, item.seriesId, item.type, effectiveMediaStreams, trackSelectionSyncVersion) {
         val currentItemId = item.id ?: return@remember null
+        if (!behaviorPreferences.rememberAudioTrack) return@remember null
         AudioStreamIndex(
             streams = effectiveMediaStreams,
             streamIndex = playerPreferences.resolvePreferredAudioStreamIndex(
@@ -220,6 +224,7 @@ fun DetailContent(
     }
     val savedSubtitleOption = remember(item.id, item.seriesId, item.type, effectiveMediaStreams, trackSelectionSyncVersion) {
         val currentItemId = item.id ?: return@remember null
+        if (!behaviorPreferences.rememberSubtitleTrack) return@remember null
         SubtitleStreamIndex(
             streams = effectiveMediaStreams,
             streamIndex = playerPreferences.resolvePreferredSubtitleStreamIndex(
@@ -718,18 +723,23 @@ fun DetailContent(
         )
         item.id?.let { currentItemId ->
             val seriesId = TrackDetails.seriesPreferenceId(item.type, item.seriesId)
-            playerPreferences.persistAudioSelection(
-                itemId = currentItemId,
-                seriesId = seriesId,
-                streams = effectiveMediaStreams,
-                streamIndex = audioStreamIndex
-            )
-            playerPreferences.persistSubtitleSelection(
-                itemId = currentItemId,
-                seriesId = seriesId,
-                streams = effectiveMediaStreams,
-                streamIndex = subtitleStreamIndex
-            )
+            // 记忆关闭时不写入，避免重新开启后沿用关闭期间的选择；本次选择仍经回调交给播放器。
+            if (behaviorPreferences.rememberAudioTrack) {
+                playerPreferences.persistAudioSelection(
+                    itemId = currentItemId,
+                    seriesId = seriesId,
+                    streams = effectiveMediaStreams,
+                    streamIndex = audioStreamIndex
+                )
+            }
+            if (behaviorPreferences.rememberSubtitleTrack) {
+                playerPreferences.persistSubtitleSelection(
+                    itemId = currentItemId,
+                    seriesId = seriesId,
+                    streams = effectiveMediaStreams,
+                    streamIndex = subtitleStreamIndex
+                )
+            }
         }
         onPreferredStreamIndexesChanged(audioStreamIndex, subtitleStreamIndex)
         return audioStreamIndex to subtitleStreamIndex

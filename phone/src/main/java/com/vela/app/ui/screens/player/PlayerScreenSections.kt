@@ -651,10 +651,13 @@ internal fun BoxScope.PlayerOverlayHost(
             } else {
                 null
             },
-            onServerDownscale = if (viewModel.canRetryWithServerDownscale()) {
+            // 「服务器转码为 4K」只在错误卡片中提供，不放进「更多」菜单（与 iOS 一致）。
+            // VR 转平面时画面由投影着色器 / 球面视图决定，不提供旋转。
+            videoRotationDegrees = playerState.videoRotationDegrees,
+            onRotateVideo = if (!playerState.vrFlatEnabled) {
                 {
                     resetAutoHideTimer()
-                    viewModel.retryWithServerDownscale()
+                    viewModel.rotateVideoClockwise()
                 }
             } else {
                 null

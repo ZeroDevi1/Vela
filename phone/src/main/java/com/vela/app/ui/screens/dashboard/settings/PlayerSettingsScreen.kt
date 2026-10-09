@@ -99,7 +99,10 @@ enum class PlayerSettingsPage(val route: String, val titleRes: Int) {
     VIDEO("video", R.string.video_settings_title),
     AUDIO("audio", R.string.audio_settings_title),
     GESTURES("gestures", R.string.gesture_settings_title),
-    INTERFACE("interface", R.string.player_ui_settings_title);
+    INTERFACE("interface", R.string.player_ui_settings_title),
+    /** 界面偏好的子页面。 */
+    OSD("osd", R.string.pb_osd),
+    BUTTONS("buttons", R.string.pb_buttons);
 
     companion object {
         fun fromRoute(route: String?): PlayerSettingsPage = entries.firstOrNull { it.route == route } ?: PLAYBACK
@@ -110,7 +113,8 @@ enum class PlayerSettingsPage(val route: String, val titleRes: Int) {
 @Composable
 fun PlayerSettingsScreen(
     page: PlayerSettingsPage = PlayerSettingsPage.PLAYBACK,
-    onBackPressed: () -> Unit = {}
+    onBackPressed: () -> Unit = {},
+    onNavigateToPage: (PlayerSettingsPage) -> Unit = {}
 ) {
     val context = LocalContext.current
     val viewModel: PlayerSettingsViewModel = viewModel { PlayerSettingsViewModel(context) }
@@ -552,6 +556,7 @@ fun PlayerSettingsScreen(
                 }
 
                 PlayerSettingsPage.AUDIO -> {
+                    audioTrackBehaviorItems()
                     if (uiState.isAudioTranscodingAllowed) {
                         item { SectionLabel(stringResource(R.string.player_settings_section_transcoding)) }
                         item {
@@ -759,8 +764,12 @@ fun PlayerSettingsScreen(
                             )
                         }
                     }
-                    interfaceBehaviorItems()
+                    interfaceBehaviorItems(onOpenPage = onNavigateToPage)
                 }
+
+                PlayerSettingsPage.OSD -> osdBehaviorItems()
+
+                PlayerSettingsPage.BUTTONS -> buttonBehaviorItems()
             }
         }
     }
@@ -806,6 +815,7 @@ fun SubtitleSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             contentPadding = paddingValues.bottomContentPadding()
         ) {
+            subtitleTrackBehaviorItems()
             item { SectionLabel(stringResource(R.string.subtitle_settings_section_style)) }
             item {
                 SettingsSection {
@@ -1044,7 +1054,7 @@ internal fun SwitchSettingsItem(
 }
 
 @Composable
-private fun ClickableSettingsItem(
+internal fun ClickableSettingsItem(
     icon: ImageVector,
     title: String,
     subtitle: String,

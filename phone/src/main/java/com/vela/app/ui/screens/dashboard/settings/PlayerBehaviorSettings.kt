@@ -135,8 +135,35 @@ internal fun LazyListScope.gestureBehaviorItems() {
     }
 }
 
-/** 「界面偏好」页：控制栏、提示信息、OSD 与按钮显隐。 */
-internal fun LazyListScope.interfaceBehaviorItems() {
+/** 「音频设置」页：记住音轨。 */
+internal fun LazyListScope.audioTrackBehaviorItems() {
+    item { PlayerSettingsSectionLabel(stringResource(R.string.pb_section_tracks)) }
+    item {
+        val prefs = rememberBehaviorPreferences()
+        SettingsSection {
+            BehaviorSwitch(Icons.Rounded.Audiotrack, stringResource(R.string.pb_remember_audio_track),
+                stringResource(R.string.pb_remember_audio_track_summary), prefs.rememberAudioTrack) { prefs.rememberAudioTrack = it }
+        }
+    }
+}
+
+/** 「字幕设置」页：记住字幕。 */
+internal fun LazyListScope.subtitleTrackBehaviorItems() {
+    item { PlayerSettingsSectionLabel(stringResource(R.string.pb_section_tracks)) }
+    item {
+        val prefs = rememberBehaviorPreferences()
+        SettingsSection {
+            BehaviorSwitch(Icons.Rounded.Subtitles, stringResource(R.string.pb_remember_subtitle_track),
+                stringResource(R.string.pb_remember_subtitle_track_summary), prefs.rememberSubtitleTrack) { prefs.rememberSubtitleTrack = it }
+        }
+    }
+}
+
+/**
+ * 「界面偏好」页：控制栏与提示信息；OSD 信息、自定义播放器按钮各自是子页面（[osdBehaviorItems]、[buttonBehaviorItems]），
+ * 这里只放入口。
+ */
+internal fun LazyListScope.interfaceBehaviorItems(onOpenPage: (PlayerSettingsPage) -> Unit) {
     item { PlayerSettingsSectionLabel(stringResource(R.string.pb_section_controls)) }
     item {
         val prefs = rememberBehaviorPreferences()
@@ -177,7 +204,30 @@ internal fun LazyListScope.interfaceBehaviorItems() {
                 initial = prefs.hintBeforeSkip) { prefs.hintBeforeSkip = it }
         }
     }
-    item { PlayerSettingsSectionLabel(stringResource(R.string.pb_osd)) }
+    item { PlayerSettingsSectionLabel(stringResource(R.string.pb_section_overlay)) }
+    item {
+        SettingsSection {
+            ClickableSettingsItem(
+                icon = Icons.Rounded.Info,
+                title = stringResource(R.string.pb_osd),
+                subtitle = stringResource(R.string.pb_osd_entry_summary),
+                onClick = { onOpenPage(PlayerSettingsPage.OSD) },
+                accentColor = behaviorColor
+            )
+            SettingsDivider()
+            ClickableSettingsItem(
+                icon = Icons.Rounded.SmartButton,
+                title = stringResource(R.string.pb_buttons),
+                subtitle = stringResource(R.string.pb_buttons_entry_summary),
+                onClick = { onOpenPage(PlayerSettingsPage.BUTTONS) },
+                accentColor = behaviorColor
+            )
+        }
+    }
+}
+
+/** 「OSD 信息」子页面（从界面偏好进入）。 */
+internal fun LazyListScope.osdBehaviorItems() {
     item {
         val prefs = rememberBehaviorPreferences()
         var osd by remember { mutableStateOf(prefs.osd) }
@@ -225,7 +275,10 @@ internal fun LazyListScope.interfaceBehaviorItems() {
                 stringResource(R.string.pb_osd_summary), osd.landscapeOnly) { v -> update { it.copy(landscapeOnly = v) } }
         }
     }
-    item { PlayerSettingsSectionLabel(stringResource(R.string.pb_buttons)) }
+}
+
+/** 「自定义播放器按钮」子页面（从界面偏好进入）。 */
+internal fun LazyListScope.buttonBehaviorItems() {
     item {
         val prefs = rememberBehaviorPreferences()
         var buttons by remember { mutableStateOf(prefs.buttons) }

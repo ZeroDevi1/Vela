@@ -273,12 +273,14 @@ private fun PlayerRoute(args: PlaybackArgs) {
     }
 
     val isLaunchItem = mediaId == args.mediaId
+    val behaviorPreferences = remember { PlayerBehaviorPreferences(context) }
     PlayerScreen(
         mediaId = mediaId,
         remoteMediaUrl = args.remoteUrl,
         remoteMediaTitle = args.remoteTitle,
-        preferredAudioStreamIndex = args.audioStreamIndex,
-        preferredSubtitleStreamIndex = args.subtitleStreamIndex,
+        // 启动时选定的轨道沿用到其它剧集也是一种记忆；「记住音轨 / 字幕」关闭时只用于启动条目。
+        preferredAudioStreamIndex = args.audioStreamIndex.takeIf { isLaunchItem || behaviorPreferences.rememberAudioTrack },
+        preferredSubtitleStreamIndex = args.subtitleStreamIndex.takeIf { isLaunchItem || behaviorPreferences.rememberSubtitleTrack },
         // 版本、起播位置只属于启动条目；切到其它分段/剧集后沿用会请求到别的条目的源或位置。
         startFromBeginning = args.startFromBeginning && isLaunchItem,
         initialSeekPositionMs = args.seekPositionMs.takeIf { isLaunchItem },

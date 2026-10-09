@@ -57,4 +57,12 @@
     <string name="pb_button_chapters">Chapters button</string>
     <string name="pb_button_speed">Speed button</string>
     <string name="pb_button_screenshot">Screenshot button</string>
+    <string name="pb_section_tracks">Track selection</string>
+    <string name="pb_remember_audio_track">Remember audio track</string>
+    <string name="pb_remember_audio_track_summary">Reuse the audio track chosen last time for the same video or series</string>
+    <string name="pb_remember_subtitle_track">Remember subtitles</string>
+    <string name="pb_remember_subtitle_track_summary">Reuse the subtitles chosen last time for the same video or series</string>
+    <string name="pb_section_overlay">Info &amp; buttons</string>
+    <string name="pb_osd_entry_summary">Clock, frame rate, network speed and more in the screen corners</string>
+    <string name="pb_buttons_entry_summary">Choose which buttons appear on the player controls</string>
 </resources>

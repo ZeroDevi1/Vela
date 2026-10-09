@@ -67,6 +67,8 @@ data class PlayerState(
     val videoOffsetY: Float = 0f,
     val videoWidthFraction: Float = DEFAULT_VIDEO_WIDTH_FRACTION,
     val aspectRatioMode: String = "Fit",
+    /** 画面顺时针旋转角度（0 / 90 / 180 / 270），纠正方向错误的片源；只对当前条目生效，不持久化。 */
+    val videoRotationDegrees: Int = 0,
     val vrDetected: Boolean = false,
     val vrFlatEnabled: Boolean = false,
     val vrProjectionId: String? = null

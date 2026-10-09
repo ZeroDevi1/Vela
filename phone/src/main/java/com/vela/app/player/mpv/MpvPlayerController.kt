@@ -257,6 +257,12 @@ class MpvPlayerController(
         MPVLib.command(arrayOf("screenshot-to-file", path, "subtitles"))
     }
 
+    /** 画面顺时针旋转角度（0 / 90 / 180 / 270）；mpv 按旋转后的宽高比适配窗口，字幕不随画面旋转。 */
+    fun setVideoRotation(degrees: Int) {
+        if (released) return
+        setMpv("video-rotate", degrees.toString())
+    }
+
     fun setZoomMode(enabled: Boolean) {
         if (released) return
         setMpv("panscan", if (enabled) "1" else "0")

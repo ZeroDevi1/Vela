@@ -57,4 +57,12 @@
     <string name="pb_button_chapters">章节选择按钮</string>
     <string name="pb_button_speed">速度调节按钮</string>
     <string name="pb_button_screenshot">截图按钮</string>
+    <string name="pb_section_tracks">轨道选择</string>
+    <string name="pb_remember_audio_track">记住音轨</string>
+    <string name="pb_remember_audio_track_summary">同一影片或剧集沿用上次选择的音轨</string>
+    <string name="pb_remember_subtitle_track">记住字幕</string>
+    <string name="pb_remember_subtitle_track_summary">同一影片或剧集沿用上次选择的字幕</string>
+    <string name="pb_section_overlay">信息与按钮</string>
+    <string name="pb_osd_entry_summary">在屏幕角落显示时钟、帧率、网速等信息</string>
+    <string name="pb_buttons_entry_summary">选择控制栏中显示的按钮</string>
 </resources>

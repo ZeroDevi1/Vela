@@ -747,6 +747,9 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                     page = PlayerSettingsPage.fromRoute(entry.arguments?.getString("page")),
                     onBackPressed = {
                         navController.popBackStack()
+                    },
+                    onNavigateToPage = { subPage ->
+                        navController.navigate("player_settings/${subPage.route}")
                     }
                 )
             }

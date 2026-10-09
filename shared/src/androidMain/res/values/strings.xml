@@ -220,6 +220,8 @@
     <string name="player_unlock">Unlock</string>
     <string name="player_media_info">Media info</string>
     <string name="player_adjust_video_size">Adjust video size</string>
+    <string name="player_rotate_video">Rotate video</string>
+    <string name="player_rotate_video_degrees">%1$d°</string>
     <string name="player_video_width_value">Width %1$d%%</string>
     <string name="player_hw_plus">HW+</string>
     <string name="player_pip">Picture in picture</string>

@@ -550,6 +550,7 @@ fun PlayerScreen(
             subtitleAppearanceEpoch = viewModel.subtitleAppearanceEpoch,
             vrFlatEnabled = playerState.vrFlatEnabled,
             vrLayout = playerState.vrProjectionId?.let(VrLayoutParser::layoutForId),
+            videoRotationDegrees = playerState.videoRotationDegrees,
             onSphericalTouchTarget = { vrSphericalView = it },
             modifier = Modifier.fillMaxSize()
         )

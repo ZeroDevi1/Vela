@@ -219,6 +219,8 @@
     <string name="player_unlock">解锁</string>
     <string name="player_media_info">媒体信息</string>
     <string name="player_adjust_video_size">调整画面尺寸</string>
+    <string name="player_rotate_video">画面旋转</string>
+    <string name="player_rotate_video_degrees">%1$d°</string>
     <string name="player_video_width_value">宽度 %1$d%%</string>
     <string name="player_hw_plus">HW+</string>
     <string name="player_pip">小窗播放</string>
