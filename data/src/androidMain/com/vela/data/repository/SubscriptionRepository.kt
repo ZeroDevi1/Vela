@@ -30,24 +30,56 @@ class SubscriptionRepository(context: Context) {
         val normalized = url.trim().trimEnd('/').removeSuffix("/api/v1")
         val token = MoviePilotApi(normalized).login(username.trim(), password, otp)
         MoviePilotApi(normalized, token).subscriptions()
-        if (this.url != normalized) secure.removeToken("moviepilot:${this.url}")
+        if (this.url != normalized) {
+            secure.removeToken("moviepilot:${this.url}")
+            secure.removeToken(passwordKey(this.url))
+        }
         secure.putToken("moviepilot:$normalized", token)
+        // Saved (encrypted) so an expired token (default 8 days) can be renewed without asking again. Accounts that
+        // log in with a two-step code cannot be renewed this way, so their password is not kept.
+        if (otp.isBlank()) secure.putToken(passwordKey(normalized), password) else secure.removeToken(passwordKey(normalized))
         prefs.edit().putString("mp_url", normalized).putString("mp_user", username.trim()).putBoolean("mp_enabled", true).apply()
     }
-    suspend fun testConnection() { api().subscriptions() }
-    fun logout() { secure.removeToken("moviepilot:$url"); enabled = false }
+    suspend fun testConnection() { withApi { it.subscriptions() } }
+    fun logout() {
+        secure.removeToken("moviepilot:$url")
+        secure.removeToken(passwordKey(url))
+        enabled = false
+    }
+    private fun passwordKey(url: String) = "moviepilot-password:$url"
     private fun api(): MoviePilotApi {
         check(enabled && loggedIn) { "MoviePilot is not connected" }
         return MoviePilotApi(url, secure.getToken("moviepilot:$url"))
     }
 
-    suspend fun subscriptions(): List<SubscriptionRecord> = api().subscriptions().map(::parseSubscription)
+    /**
+     * Runs [block]; when the token has expired, logs in once with the saved password and retries. Without a saved
+     * password (two-step accounts) or if the new login fails, the user has to reconnect.
+     */
+    private suspend fun <T> withApi(block: suspend (MoviePilotApi) -> T): T {
+        try {
+            return block(api())
+        } catch (e: MoviePilotException) {
+            if (!e.unauthorized) throw e
+            val password = secure.getToken(passwordKey(url))
+                ?: throw MoviePilotException("MoviePilot login expired, please reconnect", e.status, unauthorized = true)
+            val token = try {
+                MoviePilotApi(url).login(username, password)
+            } catch (login: MoviePilotException) {
+                throw MoviePilotException("MoviePilot login expired, please reconnect (${login.message})", login.status, unauthorized = true)
+            }
+            secure.putToken("moviepilot:$url", token)
+            return block(MoviePilotApi(url, token))
+        }
+    }
+
+    suspend fun subscriptions(): List<SubscriptionRecord> = withApi { it.subscriptions() }.map(::parseSubscription)
     suspend fun publicCalendar(today: LocalDate = LocalDate.now()) = bangumiCalendar(today)
     suspend fun subscriptionCalendar(records: List<SubscriptionRecord>, today: LocalDate = LocalDate.now()) = moviePilotCalendar(today, records)
 
     suspend fun removeSubscription(record: SubscriptionRecord) {
         check(syncRemoval) { "MoviePilot subscription removal is disabled" }
-        api().removeSubscription(record.id)
+        withApi { it.removeSubscription(record.id) }
     }
 
     suspend fun subscribedSeasons(title: CatalogTitle): Set<Int> = subscriptions().filter { it.catalog?.key == title.key }
@@ -59,11 +91,11 @@ class SubscriptionRepository(context: Context) {
         val matches = subscriptions().filter { it.catalog?.key == title.key && it.season == season }
         if (remove) {
             check(matches.size == 1) { "Subscription changed; manage individual entries in My subscriptions" }
-            api().removeSubscription(matches.single().id)
-        } else if (matches.isEmpty()) api().addSubscription(title, season)
+            withApi { it.removeSubscription(matches.single().id) }
+        } else if (matches.isEmpty()) withApi { it.addSubscription(title, season) }
     }
 
-    suspend fun searchDouban(query: String): List<DoubanSearchTitle> = api().searchDouban(query).mapNotNull { row ->
+    suspend fun searchDouban(query: String): List<DoubanSearchTitle> = withApi { it.searchDouban(query) }.mapNotNull { row ->
         val id = row.text("douban_id") ?: return@mapNotNull null
         DoubanSearchTitle(id, row.text("title").orEmpty(), row.text("overview").orEmpty(), row.text("poster_path"),
             if (row.text("type") == "电影") "movie" else "tv", row.text("release_date") ?: row.text("year"),
@@ -76,7 +108,7 @@ class SubscriptionRepository(context: Context) {
         var tmdbId = title.tmdbId
         var rating = title.rating
         if (tmdbId == null && imdbId.isNullOrBlank()) {
-            val detail = api().get("douban/${title.id}").jsonObject
+            val detail = withApi { it.get("douban/${title.id}") }.jsonObject
             tmdbId = detail.number("tmdb_id")?.takeIf { it > 0 }
             imdbId = detail.text("imdb_id")
             rating = detail.text("vote_average")?.toDoubleOrNull() ?: rating
@@ -98,8 +130,9 @@ class SubscriptionRepository(context: Context) {
     }
 
     private suspend fun moviePilotCalendar(today: LocalDate, records: List<SubscriptionRecord>? = null): CalendarFeed = coroutineScope {
-        val api = api()
+        // Fetching the list first renews an expired token, so the parallel requests below use a valid one.
         val subscriptions = records ?: subscriptions()
+        val api = api()
         val gate = Semaphore(3)
         val responses = subscriptions.map { sub -> async { gate.withPermit { catalogResult {
             val title = sub.catalog ?: error("Subscription ${sub.id} has no TMDB identity")

@@ -14,6 +14,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.vela.data.model.BaseItemDto
+import com.vela.data.api.MoviePilotException
 import com.vela.data.repository.*
 import com.vela.shared.R
 import kotlinx.coroutines.launch
@@ -45,7 +46,9 @@ fun MoviePilotConnectionCard() {
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         Button(onClick = { busy = true; error = null; scope.launch {
-            catalogResult { repo.connect(url, username, password, otp) }.fold(onSuccess = { loggedIn = true; enabled = true; connectionChecked = true; password = ""; otp = "" }, onFailure = { error = it.message })
+            catalogResult { repo.connect(url, username, password, otp) }.fold(onSuccess = { loggedIn = true; enabled = true; connectionChecked = true; password = ""; otp = "" }, onFailure = {
+                error = if ((it as? MoviePilotException)?.mfaRequired == true) context.getString(R.string.catalog_otp_required) else it.message
+            })
             busy = false
         } }, enabled = !busy && url.isNotBlank() && username.isNotBlank() && password.isNotBlank()) { Text(stringResource(R.string.catalog_connect)) }
         if (loggedIn && enabled) TextButton(onClick = { busy = true; error = null; scope.launch {

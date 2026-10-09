@@ -4,12 +4,36 @@ import com.vela.data.network.CatalogNetwork
 import io.ktor.client.call.body
 import io.ktor.client.request.*
 import io.ktor.client.request.forms.submitForm
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.*
 import kotlinx.serialization.json.*
 
 internal fun JsonObject.text(key: String): String? = (get(key) as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
 internal fun JsonObject.number(key: String): Int? = text(key)?.toIntOrNull()
 internal fun JsonObject.objects(key: String): List<JsonObject> = (get(key) as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+
+/**
+ * MoviePilot request failure. [status] is the HTTP status (-1 when unknown); [unauthorized] marks an expired or
+ * missing token (the repository logs in again once with the saved password); [mfaRequired] means the password was
+ * accepted but the account needs a two-step verification code.
+ */
+class MoviePilotException(
+    message: String,
+    val status: Int = -1,
+    val unauthorized: Boolean = false,
+    val mfaRequired: Boolean = false,
+) : Exception(message)
+
+/**
+ * Error text from a MoviePilot error body: FastAPI's `detail` (string or `[{"msg": ...}]`), or `message` of the
+ * `{"success": false, "message": ...}` wrapper newer versions return (validation details in `data[].message`).
+ */
+internal fun moviePilotErrorDetail(body: String): String? {
+    val obj = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull() ?: return null
+    obj.text("detail")?.let { return it }
+    (obj["detail"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.text("msg") }?.takeIf { it.isNotEmpty() }?.let { return it.joinToString("; ") }
+    return obj.text("message")
+}
 
 class MoviePilotApi(private val baseUrl: String, private val token: String? = null) {
     private val client = CatalogNetwork.client
@@ -23,7 +47,18 @@ class MoviePilotApi(private val baseUrl: String, private val token: String? = nu
             append("username", username); append("password", password)
             if (otp.isNotBlank()) append("otp_password", otp)
         })
-        check(response.status.value in 200..299) { "MoviePilot login HTTP ${response.status.value}" }
+        if (response.status.value !in 200..299) {
+            val detail = moviePilotErrorDetail(response.bodyAsText())
+            if (response.status.value == 401 || response.status.value == 403) {
+                // A correct password on an account with two-step verification is also rejected with 401;
+                // the server marks it with `X-MFA-Required` / "需要二次验证", so it must not read as a wrong password.
+                if (response.headers["X-MFA-Required"] == "true" || detail == "需要二次验证") {
+                    throw MoviePilotException("Two-step verification code required", response.status.value, mfaRequired = true)
+                }
+                throw MoviePilotException(detail ?: "Wrong username or password", response.status.value)
+            }
+            throw httpError(response)
+        }
         return response.body<JsonObject>().text("access_token") ?: error("Missing MoviePilot access token")
     }
     suspend fun get(path: String, params: Map<String, String> = emptyMap()): JsonElement {
@@ -32,7 +67,7 @@ class MoviePilotApi(private val baseUrl: String, private val token: String? = nu
             bearerAuth(credential)
             params.forEach { (key, value) -> parameter(key, value) }
         }
-        check(response.status.value in 200..299) { "MoviePilot HTTP ${response.status.value}" }
+        ensureSuccess(response)
         return response.body()
     }
     suspend fun addSubscription(title: com.vela.data.model.CatalogTitle, season: Int?) {
@@ -46,7 +81,7 @@ class MoviePilotApi(private val baseUrl: String, private val token: String? = nu
                 put("year", title.date.take(4)); if (season != null) put("season", season)
             })
         }
-        check(response.status.value in 200..299) { "MoviePilot HTTP ${response.status.value}" }
+        ensureSuccess(response)
         val result = response.body<JsonObject>()
         check(result["success"]?.jsonPrimitive?.booleanOrNull == true) { result.text("message") ?: "MoviePilot subscription update failed" }
     }
@@ -55,9 +90,22 @@ class MoviePilotApi(private val baseUrl: String, private val token: String? = nu
     suspend fun removeSubscription(id: Int) {
         require(id > 0)
         val response = client.delete("$root/subscribe/$id") { bearerAuth(token ?: error("MoviePilot login required")) }
-        check(response.status.value in 200..299) { "MoviePilot HTTP ${response.status.value}" }
+        ensureSuccess(response)
         val result = response.body<JsonObject>()
         check(result["success"]?.jsonPrimitive?.booleanOrNull == true) { result.text("message") ?: "MoviePilot subscription update failed" }
+    }
+
+    private suspend fun ensureSuccess(response: io.ktor.client.statement.HttpResponse) {
+        if (response.status.value in 200..299) return
+        if (response.status.value == 401 || response.status.value == 403) {
+            throw MoviePilotException("MoviePilot login expired", response.status.value, unauthorized = true)
+        }
+        throw httpError(response)
+    }
+
+    private suspend fun httpError(response: io.ktor.client.statement.HttpResponse): MoviePilotException {
+        val detail = moviePilotErrorDetail(response.bodyAsText())
+        return MoviePilotException(detail?.let { "MoviePilot HTTP ${response.status.value}: $it" } ?: "MoviePilot HTTP ${response.status.value}", response.status.value)
     }
 
     suspend fun subscriptions(): List<JsonObject> = get("subscribe/").jsonArray.map { it.jsonObject }

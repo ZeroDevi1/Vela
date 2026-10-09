@@ -67,6 +67,7 @@
     <string name="catalog_username">Username</string>
     <string name="catalog_password">Password</string>
     <string name="catalog_otp">One-time code (optional)</string>
+    <string name="catalog_otp_required">This account uses two-step verification. Enter the one-time code and connect again.</string>
     <string name="catalog_connect">Log in and test connection</string>
     <string name="catalog_connected">Connected as %1$s</string>
     <string name="catalog_disconnected">Not connected</string>
