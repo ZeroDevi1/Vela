@@ -77,7 +77,6 @@
 |------|------|
 | Android 手机 | 稳定 |
 | Android 电视 | 稳定 |
-| iOS | 开发中 |
 
 ---
 
@@ -103,7 +102,7 @@
 | 网络 | Ktor Client + OkHttp 5 |
 | 图片 | Coil 3 |
 | 播放器 | MPV（主）、Media3 ExoPlayer（回退） |
-| 多平台 | Kotlin Multiplatform（Android + iOS） |
+| 多平台 | Kotlin Multiplatform（Android） |
 
 ## 目录结构
 
@@ -113,7 +112,6 @@ tv/       电视端（DPAD、侧栏、电视流程）
 data/     API、仓库、模型；多平台网络层
 core/     共享播放器、偏好设置与工具
 shared/   共享 UI 组件与图片基础设施
-iosApp/   iOS 壳工程（开发中）
 ```
 
 品牌资源在 [`branding/vela/`](branding/vela/)，README 使用的图标来自该目录的重绘成品。

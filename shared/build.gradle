@@ -19,12 +19,6 @@ kotlin {
         }
     }
 
-    if (org.gradle.internal.os.OperatingSystem.current().isMacOsX()) {
-        iosX64()
-        iosArm64()
-        iosSimulatorArm64()
-    }
-
     sourceSets {
         androidMain {
             kotlin.srcDirs = ['src/androidMain']
@@ -54,15 +48,6 @@ kotlin {
 
                 implementation 'com.google.dagger:hilt-android:2.60.1'
                 implementation 'androidx.hilt:hilt-navigation-compose:1.4.0'
-            }
-        }
-
-        if (org.gradle.internal.os.OperatingSystem.current().isMacOsX()) {
-            iosMain {
-                kotlin.srcDirs = ['src/iosMain']
-                dependencies {
-                    implementation project(':data')
-                }
             }
         }
     }

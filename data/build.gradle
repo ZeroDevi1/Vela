@@ -31,21 +31,6 @@ kotlin {
         }
     }
 
-    // iOS targets (only on macOS)
-    if (org.gradle.internal.os.OperatingSystem.current().isMacOsX()) {
-        def iosX64 = iosX64()
-        def iosArm64 = iosArm64()
-        def iosSimulatorArm64 = iosSimulatorArm64()
-
-        // Configure iOS framework for Xcode
-        [iosX64, iosArm64, iosSimulatorArm64].forEach { target ->
-            target.binaries.framework {
-                baseName = "VelaData"
-                isStatic = true
-            }
-        }
-    }
-
     sourceSets {
         commonTest {
             dependencies {
@@ -81,43 +66,5 @@ kotlin {
                 implementation "io.ktor:ktor-serialization-kotlinx-json:3.6.0"
             }
         }
-        if (org.gradle.internal.os.OperatingSystem.current().isMacOsX()) {
-            iosMain {
-                kotlin.srcDirs = ['src/iosMain']
-                dependencies {
-                    implementation "io.ktor:ktor-client-darwin:3.6.0"
-                    implementation "io.ktor:ktor-serialization-kotlinx-json:3.6.0"
-                    implementation "androidx.datastore:datastore-preferences-core:1.2.1"
-                    implementation "com.squareup.okio:okio:3.18.2"
-                }
-            }
-        }
     }
-}
-
-// XCFramework configuration for iOS
-tasks.register('assembleXCFramework', Exec) {
-    dependsOn 'linkDebugFrameworkIosArm64'
-    dependsOn 'linkDebugFrameworkIosSimulatorArm64'
-
-    def frameworkPath = "VelaData.framework"
-    def xcframeworkPath = "${buildDir}/XCFrameworks/debug/VelaData.xcframework"
-
-    doFirst {
-        delete xcframeworkPath
-    }
-
-    commandLine 'xcodebuild', '-create-xcframework',
-        '-framework', "${buildDir}/bin/iosArm64/debugFramework/${frameworkPath}",
-        '-framework', "${buildDir}/bin/iosSimulatorArm64/debugFramework/${frameworkPath}",
-        '-output', xcframeworkPath
-}
-
-tasks.register('copyFrameworkToIosApp', Copy) {
-    dependsOn 'assembleXCFramework'
-
-    from("${buildDir}/XCFrameworks/debug") {
-        include "VelaData.xcframework/**"
-    }
-    into "${rootDir}/iosApp/Frameworks"
 }
