@@ -8,6 +8,9 @@
 # the profile, and the target device defaults to the profile's only
 # ProvisionedDevices entry.
 #
+# --unsigned skips all of the above and only packs an unsigned IPA for public
+# releases; users re-sign it with their own certificate.
+#
 # zsign: https://github.com/zhlynn/zsign (build/macos -> make).
 set -euo pipefail
 
@@ -18,6 +21,7 @@ DEVICE=""
 SKIP_BUILD=0
 LAUNCH=1
 INSTALL=1
+UNSIGNED=0
 DERIVED="$ROOT/build/ios"
 APP_PRODUCT="$DERIVED/Build/Products/Release-iphoneos/Vela.app"
 
@@ -28,7 +32,8 @@ Usage:
 
 Build iosApp (Release, unsigned), re-sign with zsign using the signing folder
 of the chosen device into build/ios/Vela-<iPhone|iPad>.ipa, then install
-with devicectl and launch.
+with devicectl and launch. With --unsigned, only pack
+build/ios/Vela-unsigned.ipa (no signing files, zsign or device needed).
 
 Options:
   --iphone          use \$SIGN_ROOT/iPhone (default)
@@ -37,6 +42,7 @@ Options:
   --skip-build      re-sign and install the already-built Vela.app
   --no-launch       install only, do not start the app
   --no-install      build and sign only (device not connected)
+  --unsigned        build and pack an unsigned IPA only (CI / public release)
   -h, --help        show this help
 
 Environment:
@@ -49,6 +55,7 @@ Examples:
   $0 --ipad
   $0 --skip-build --no-launch
   $0 --ipad --no-install
+  $0 --unsigned
 EOF
 }
 
@@ -81,6 +88,7 @@ while [ $# -gt 0 ]; do
     --skip-build) SKIP_BUILD=1 ;;
     --no-launch) LAUNCH=0 ;;
     --no-install) INSTALL=0 ;;
+    --unsigned) UNSIGNED=1 ;;
     -h|--help)
       usage
       exit 0
@@ -94,22 +102,57 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-ZSIGN="${ZSIGN:-zsign}"
-need "$ZSIGN"
 need xcodebuild
-need xcrun
-SIGNED_IPA="$DERIVED/Vela-$TARGET.ipa"
+# Check signing inputs before the slow build.
+if [ "$UNSIGNED" -eq 0 ]; then
+  ZSIGN="${ZSIGN:-zsign}"
+  need "$ZSIGN"
+  need xcrun
+  SIGNED_IPA="$DERIVED/Vela-$TARGET.ipa"
 
-SIGN_DIR="$SIGN_ROOT/$TARGET"
-P12="$SIGN_DIR/证书文件.p12"
-PROFILE="$SIGN_DIR/描述文件.mobileprovision"
-PASSWORD_FILE="$SIGN_DIR/密码.txt"
-for f in "$P12" "$PROFILE" "$PASSWORD_FILE"; do
-  [ -f "$f" ] || { echo "signing file not found: $f" >&2; exit 1; }
-done
+  SIGN_DIR="$SIGN_ROOT/$TARGET"
+  P12="$SIGN_DIR/证书文件.p12"
+  PROFILE="$SIGN_DIR/描述文件.mobileprovision"
+  PASSWORD_FILE="$SIGN_DIR/密码.txt"
+  for f in "$P12" "$PROFILE" "$PASSWORD_FILE"; do
+    [ -f "$f" ] || { echo "signing file not found: $f" >&2; exit 1; }
+  done
+fi
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/vela-ios-sign.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
+
+if [ "$SKIP_BUILD" -eq 0 ]; then
+  # Xcode checks for VelaData.xcframework while planning the build, before the
+  # target's own run-script phase can produce it.
+  echo "building VelaData.xcframework"
+  (cd "$ROOT" && ./gradlew :data:copyFrameworkToIosApp)
+
+  echo "building Vela (Release, iphoneos, unsigned)"
+  xcodebuild \
+    -project "$ROOT/iosApp/Vela.xcodeproj" \
+    -scheme Vela \
+    -configuration Release \
+    -sdk iphoneos \
+    -destination generic/platform=iOS \
+    -derivedDataPath "$DERIVED" \
+    CODE_SIGNING_ALLOWED=NO \
+    ENABLE_USER_SCRIPT_SANDBOXING=NO \
+    build
+fi
+
+[ -d "$APP_PRODUCT" ] || { echo "app not found: $APP_PRODUCT" >&2; exit 1; }
+mkdir -p "$WORK/Payload"
+cp -R "$APP_PRODUCT" "$WORK/Payload/Vela.app"
+
+if [ "$UNSIGNED" -eq 1 ]; then
+  UNSIGNED_IPA="$DERIVED/Vela-unsigned.ipa"
+  rm -f "$UNSIGNED_IPA"
+  # -y keeps framework symlinks intact.
+  (cd "$WORK" && zip -qry "$UNSIGNED_IPA" Payload)
+  echo "unsigned $UNSIGNED_IPA"
+  exit 0
+fi
 
 # Read bundle id and device from the profile so the folders stay drop-in.
 security cms -D -i "$PROFILE" > "$WORK/profile.plist"
@@ -135,31 +178,8 @@ echo "team    $TEAM_ID"
 echo "bundle  $BUNDLE_ID"
 echo "device  $DEVICE"
 
-if [ "$SKIP_BUILD" -eq 0 ]; then
-  # Xcode checks for VelaData.xcframework while planning the build, before the
-  # target's own run-script phase can produce it.
-  echo "building VelaData.xcframework"
-  (cd "$ROOT" && ./gradlew :data:copyFrameworkToIosApp)
-
-  echo "building Vela (Release, iphoneos, unsigned)"
-  xcodebuild \
-    -project "$ROOT/iosApp/Vela.xcodeproj" \
-    -scheme Vela \
-    -configuration Release \
-    -sdk iphoneos \
-    -destination generic/platform=iOS \
-    -derivedDataPath "$DERIVED" \
-    CODE_SIGNING_ALLOWED=NO \
-    ENABLE_USER_SCRIPT_SANDBOXING=NO \
-    build
-fi
-
-[ -d "$APP_PRODUCT" ] || { echo "app not found: $APP_PRODUCT" >&2; exit 1; }
-
-# Sign a copy so the build output stays unsigned and reusable for the other
-# device; zsign only packs an IPA from a Payload/ layout.
-mkdir -p "$WORK/Payload"
-cp -R "$APP_PRODUCT" "$WORK/Payload/Vela.app"
+# Sign the Payload/ copy so the build output stays unsigned and reusable for
+# the other device; zsign only packs an IPA from a Payload/ layout.
 echo "signing with zsign"
 # zsign drops .zsign_cache/ in the working directory; keep it out of the repo.
 (
