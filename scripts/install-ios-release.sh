@@ -126,7 +126,7 @@ if [ "$SKIP_BUILD" -eq 0 ]; then
   # Xcode checks for VelaData.xcframework while planning the build, before the
   # target's own run-script phase can produce it.
   echo "building VelaData.xcframework"
-  (cd "$ROOT" && ./gradlew :data:copyFrameworkToIosApp)
+  (cd "$ROOT" && ./gradlew :data:copyFrameworkToIosApp -PxcframeworkBuildType=release)
 
   echo "building Vela (Release, iphoneos, unsigned)"
   xcodebuild \

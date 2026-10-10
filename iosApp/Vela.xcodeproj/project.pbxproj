@@ -53,6 +53,7 @@
 		57A80F00302C9A0000B7A835 /* Exceptions for "." folder in "Vela" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Frameworks/.gitignore,
 				VelaTests/VelaTests.swift,
 				VelaUITests/VelaUITests.swift,
 				VelaUITests/VelaUITestsLaunchTests.swift,
