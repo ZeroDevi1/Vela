@@ -49,25 +49,9 @@
 		57A80B4C302C8D8000B7A835 /* VelaData.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = VelaData.xcframework; path = Frameworks/VelaData.xcframework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		57A80F00302C9A0000B7A835 /* Exceptions for "." folder in "Vela" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Frameworks/.gitignore,
-				VelaTests/VelaTests.swift,
-				VelaUITests/VelaUITests.swift,
-				VelaUITests/VelaUITestsLaunchTests.swift,
-			);
-			target = 57A80AD9302C873A00B7A835 /* Vela */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		57A80ADC302C873A00B7A835 /* . */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				57A80F00302C9A0000B7A835 /* Exceptions for "." folder in "Vela" target */,
-			);
 			path = .;
 			sourceTree = "<group>";
 		};

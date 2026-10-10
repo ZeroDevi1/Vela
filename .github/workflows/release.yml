@@ -12,9 +12,6 @@ permissions:
 jobs:
   android:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.meta.outputs.version }}
-      tag: ${{ steps.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -133,35 +130,3 @@ jobs:
           files: |
             phone/build/outputs/apk/release/*.apk
             tv/build/outputs/apk/release/*.apk
-
-  # 公开发布只提供未签名 IPA，由用户用自己的证书重签（zsign / Sideloadly / AltStore 等）；
-  # 仓库和 CI 都不持有任何 iOS 证书。依赖 android job 先创建 GitHub Release，再追加附件。
-  ios:
-    needs: android
-    # 默认 Xcode 26.6，满足 IPHONEOS_DEPLOYMENT_TARGET = 26.2。
-    runs-on: macos-26
-    env:
-      IPA_NAME: vela-ios-${{ needs.android.outputs.version }}-unsigned.ipa
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Build unsigned IPA
-        run: |
-          xcodebuild -version
-          ./scripts/install-ios-release.sh --unsigned
-          mv build/ios/Vela-unsigned.ipa "build/ios/$IPA_NAME"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: vela-ios-unsigned
-          path: build/ios/${{ env.IPA_NAME }}
-
-      - name: Attach IPA to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ needs.android.outputs.tag }}" "build/ios/$IPA_NAME" --clobber
