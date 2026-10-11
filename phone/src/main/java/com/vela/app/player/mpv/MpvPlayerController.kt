@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.system.Os
 import android.util.Log
 import android.view.Surface
@@ -98,6 +99,13 @@ class MpvPlayerController(
     /** 片源帧率（mpv `container-fps`），未知时为 0。 */
     @Volatile
     private var videoFps = 0.0
+    /** 识别容器 pts 损坏的片源；访问须持有自身锁（load 在调用线程，日志在 mpv 事件线程）。 */
+    private val brokenPtsDetector = MpvBrokenPtsDetector()
+    private val ptsLogObserver = object : MPVLib.LogObserver {
+        override fun logMessage(prefix: String, level: Int, text: String) {
+            onMpvLog(prefix, text)
+        }
+    }
 
     /** 当前应使用的 vo：转平面期间为 gpu-next，否则为用户设置。 */
     private val effectiveVideoOutput: String
@@ -139,6 +147,7 @@ class MpvPlayerController(
         configureMpv()
         MPVLib.init()
         MPVLib.addObserver(this)
+        MPVLib.addLogObserver(ptsLogObserver)
         MPVLib.observeProperty("time-pos", MpvFormat.MPV_FORMAT_DOUBLE)
         MPVLib.observeProperty("duration", MpvFormat.MPV_FORMAT_DOUBLE)
         MPVLib.observeProperty("demuxer-cache-duration", MpvFormat.MPV_FORMAT_DOUBLE)
@@ -170,6 +179,7 @@ class MpvPlayerController(
         pendingSubtitleTrackId = subtitleTrackId?.takeUnless { it == "no" }
         lastDolbyRuntimePath = null
         clearVrFlattenShader()
+        resetBrokenPtsRepair()
         MPVLib.setPropertyBoolean("pause", true)
         listener.onBuffering()
         applyRemoteStreamOptions(remoteHttpPlayback)
@@ -587,12 +597,41 @@ class MpvPlayerController(
         vrLookScheduled = false
         MpvWarmPool.notifyReleased(this)
         runCatching { MPVLib.removeObserver(this) }
+        runCatching { MPVLib.removeLogObserver(ptsLogObserver) }
         // released 已置位，此后主线程上的所有调用都会提前返回；Surface 由 ANativeWindow 引用计数保活，
         // 即使 SurfaceView 先销毁，后台 detach 也只会得到可忽略的 EGL 错误。
         lifecycleExecutor.execute {
             runCatching { MPVLib.detachSurface() }
             runCatching { MPVLib.destroy() }
         }
+    }
+
+    /** 换片时恢复 mpv 默认的 pts 处理；上一片源可能因 pts 损坏关闭过 `correct-pts`。 */
+    private fun resetBrokenPtsRepair() {
+        synchronized(brokenPtsDetector) { brokenPtsDetector.reset() }
+        setMpv("correct-pts", "yes")
+    }
+
+    /**
+     * 硬解遇到容器 pts 损坏（见 [MpvBrokenPtsDetector]）时关闭 `correct-pts`，保留硬解。
+     *
+     * mpv 每轮解码都会刷新该选项，运行时修改立即生效：之后按 `container-fps` 从上一帧依次排时间戳，
+     * seek 后从第一个包的时间重新起算。代价是可变帧率片源的帧时长会被拉平，因此只在已出现损坏时启用。
+     * 软解不处理：mpv 会自动改用重排后的 dts。
+     */
+    private fun onMpvLog(prefix: String, text: String) {
+        if (released) return
+        val detected = synchronized(brokenPtsDetector) {
+            brokenPtsDetector.onLog(prefix, text, SystemClock.elapsedRealtime())
+        }
+        if (!detected) return
+        val hwdecCurrent = MPVLib.getPropertyString("hwdec-current")
+        if (hwdecCurrent.isNullOrEmpty() || hwdecCurrent == "no") {
+            Log.i(COLOR_LOG_TAG, "broken video pts on software decode; keep correct-pts")
+            return
+        }
+        setMpv("correct-pts", "no")
+        Log.w(COLOR_LOG_TAG, "broken video pts on hwdec=$hwdecCurrent fps=$videoFps; correct-pts=no")
     }
 
     override fun eventProperty(property: String) = Unit

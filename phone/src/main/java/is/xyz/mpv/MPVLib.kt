@@ -54,6 +54,30 @@ object MPVLib {
             level <= 30 -> Log.w(tag, message)
             else -> Log.i(tag, message)
         }
+        synchronized(logObservers) {
+            for (observer in logObservers) observer.logMessage(prefix, level, message)
+        }
+    }
+
+    private val logObservers = mutableListOf<LogObserver>()
+
+    @JvmStatic
+    fun addLogObserver(o: LogObserver) {
+        synchronized(logObservers) {
+            logObservers.add(o)
+        }
+    }
+
+    @JvmStatic
+    fun removeLogObserver(o: LogObserver) {
+        synchronized(logObservers) {
+            logObservers.remove(o)
+        }
+    }
+
+    /** 接收 mpv 日志（已去掉首尾空白，仅 warn 及以上与 info）。在 mpv 事件线程回调。 */
+    interface LogObserver {
+        fun logMessage(prefix: String, level: Int, text: String)
     }
 
     private val observers = mutableListOf<EventObserver>()
