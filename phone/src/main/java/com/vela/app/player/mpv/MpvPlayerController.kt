@@ -82,6 +82,7 @@ class MpvPlayerController(
     private var requestedHwdec: String = hardwareDecoding
     /** 当前片源是否超高像素；见 [MpvRenderLoad]。 */
     private var heavySource = false
+    @Volatile
     private var currentSpeed = 1.0
     private var vrShaderActive = false
     /** gpu-next 上视角走动态 uniform；gpu 上视角烘焙进 #define，需换文件重载。 */
@@ -564,6 +565,7 @@ class MpvPlayerController(
         val value = speed.coerceIn(0.25, 4.0)
         currentSpeed = value
         MPVLib.setPropertyDouble("speed", value)
+        applySurfaceFrameRate()
         // 长按预览只改 speed：切 interpolation / video-sync / framedrop 会清解码缓冲，造成一帧卡顿。
         if (retunePerformance) {
             applySpeedPerformance(value)
@@ -665,12 +667,13 @@ class MpvPlayerController(
      *
      * mpv 直接往 SurfaceView 送帧，不像 ExoPlayer 会自动调用 `Surface.setFrameRate`；高刷手机常驻 90Hz 时，
      * 60fps 片源只能按 1、2、1、2 个 vsync 交替上屏（11ms / 22ms），平移镜头明显抖动卡顿。
+     * 倍速时按实际上屏帧率声明（见 [MpvPlaybackTuning.surfaceFrameRate]）。
      * 只在无缝切换时生效（同一显示模式组内切换不黑屏）；帧率未知或异常时不声明，交给系统默认策略。
      */
     private fun applySurfaceFrameRate() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         val surface = attachedSurface ?: return
-        val fps = videoFps.takeIf { it in 1.0..240.0 }?.toFloat() ?: return
+        val fps = MpvPlaybackTuning.surfaceFrameRate(videoFps, currentSpeed) ?: return
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 surface.setFrameRate(
@@ -1110,35 +1113,24 @@ class MpvPlayerController(
         val smoothMotion = playerPreferences.getMpvSmoothMotion() && !heavySource
         val interpolation = MpvPlaybackTuning.interpolation(smoothMotion, speed)
         val videoSync = MpvPlaybackTuning.videoSync(smoothMotion, speed)
-        val framedrop = MpvPlaybackTuning.framedrop(speed)
-        val skipNonRef = MpvPlaybackTuning.skipNonRefFrames(speed)
+        val framedrop = MpvPlaybackTuning.FRAMEDROP
+        val skipLoopFilter = MpvPlaybackTuning.skipLoopFilter(speed)
         if (asOptions) {
             MPVLib.setOptionString("interpolation", interpolation)
             MPVLib.setOptionString("video-sync", videoSync)
             MPVLib.setOptionString("framedrop", framedrop)
             MPVLib.setOptionString("hr-seek-framedrop", "yes")
-            MPVLib.setOptionString(
-                "video-latency-hacks",
-                if (MpvPlaybackTuning.isHighSpeed(speed)) "yes" else "no"
-            )
-            MPVLib.setOptionString(
-                "vd-lavc-skipframe",
-                if (skipNonRef) "nonref" else "default"
-            )
+            MPVLib.setOptionString("video-latency-hacks", "no")
+            MPVLib.setOptionString("vd-lavc-skipframe", "default")
             MPVLib.setOptionString(
                 "vd-lavc-skiploopfilter",
-                if (skipNonRef) "nonkey" else "default"
+                if (skipLoopFilter) "nonkey" else "default"
             )
         } else {
             setMpv("interpolation", interpolation)
             setMpv("video-sync", videoSync)
             setMpv("framedrop", framedrop)
-            setMpv(
-                "video-latency-hacks",
-                if (MpvPlaybackTuning.isHighSpeed(speed)) "yes" else "no"
-            )
-            setMpv("vd-lavc-skipframe", if (skipNonRef) "nonref" else "default")
-            setMpv("vd-lavc-skiploopfilter", if (skipNonRef) "nonkey" else "default")
+            setMpv("vd-lavc-skiploopfilter", if (skipLoopFilter) "nonkey" else "default")
         }
     }
 
