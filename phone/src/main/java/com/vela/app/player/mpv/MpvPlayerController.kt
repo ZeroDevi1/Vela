@@ -81,7 +81,12 @@ class MpvPlayerController(
     private var colorPolicyStreams: List<MediaStream>? = null
     private var requestedHwdec: String = hardwareDecoding
     /** 当前片源是否超高像素；见 [MpvRenderLoad]。 */
+    @Volatile
     private var heavySource = false
+    /** 保护 [fastRenderApplied] 及随之写入的缩放/去色带选项。 */
+    private val renderQualityLock = Any()
+    /** 最近一次写给 mpv 的是否为轻量渲染；尚未写过时为 null。 */
+    private var fastRenderApplied: Boolean? = null
     @Volatile
     private var currentSpeed = 1.0
     private var vrShaderActive = false
@@ -380,20 +385,36 @@ class MpvPlayerController(
     /** 按片源像素量切换缩放/去色带/插帧；超高像素片源改走轻量路径，普通片源恢复用户设置。 */
     private fun applyRenderLoad(mediaStreams: List<MediaStream>?) {
         heavySource = MpvRenderLoad.isHeavySource(mediaStreams)
-        if (heavySource) {
-            setMpv("scale", MpvRenderLoad.FAST_SCALER)
-            setMpv("dscale", MpvRenderLoad.FAST_SCALER)
-            setMpv("cscale", MpvRenderLoad.FAST_SCALER)
-            setMpv("deband", "no")
-        } else {
-            setMpv("scale", playerPreferences.getMpvUpscaleFilter())
-            setMpv("dscale", playerPreferences.getMpvDownscaleFilter())
-            setMpv("cscale", MpvRenderLoad.FAST_SCALER)
-            setMpv("deband", if (playerPreferences.getMpvDeband()) "yes" else "no")
-        }
+        applyRenderQuality(force = true)
         setMpv("fbo-format", MpvRenderLoad.fboFormat(mediaStreams))
         applySpeedPerformance(currentSpeed)
         Log.i(COLOR_LOG_TAG, "render heavy=$heavySource fbo=${MpvRenderLoad.fboFormat(mediaStreams)}")
+    }
+
+    /**
+     * 按当前片源和倍速选择缩放与去色带：超高像素片源、高帧率倍速（见 [MpvRenderLoad.needsFastRender]）
+     * 走轻量路径，其余恢复用户设置。
+     *
+     * 倍速和片源帧率变化时都会调用（分别在主线程和 mpv 事件线程），结果不变时不重复写选项。
+     *
+     * @param force 用户设置或片源可能已变化时为 true，跳过"结果不变"的判断
+     */
+    private fun applyRenderQuality(force: Boolean = false) {
+        synchronized(renderQualityLock) {
+            val fast = MpvRenderLoad.needsFastRender(heavySource, videoFps, currentSpeed)
+            if (!force && fast == fastRenderApplied) return
+            fastRenderApplied = fast
+            if (fast) {
+                setMpv("scale", MpvRenderLoad.FAST_SCALER)
+                setMpv("dscale", MpvRenderLoad.FAST_SCALER)
+                setMpv("deband", "no")
+            } else {
+                setMpv("scale", playerPreferences.getMpvUpscaleFilter())
+                setMpv("dscale", playerPreferences.getMpvDownscaleFilter())
+                setMpv("deband", if (playerPreferences.getMpvDeband()) "yes" else "no")
+            }
+            setMpv("cscale", MpvRenderLoad.FAST_SCALER)
+        }
     }
 
     private fun applyColorHwdec() {
@@ -566,6 +587,7 @@ class MpvPlayerController(
         currentSpeed = value
         MPVLib.setPropertyDouble("speed", value)
         applySurfaceFrameRate()
+        applyRenderQuality()
         // 长按预览只改 speed：切 interpolation / video-sync / framedrop 会清解码缓冲，造成一帧卡顿。
         if (retunePerformance) {
             applySpeedPerformance(value)
@@ -652,6 +674,7 @@ class MpvPlayerController(
             "container-fps" -> if (value != videoFps) {
                 videoFps = value
                 applySurfaceFrameRate()
+                applyRenderQuality()
             }
         }
     }
@@ -866,10 +889,15 @@ class MpvPlayerController(
             convertDv7ToDv81 = playerPreferences.isDolbyDv7ToDv81Enabled(),
             deviceSupportsDolbyVision = deviceSupport == HdrCapabilityManager.HdrSupport.DOLBY_VISION
         )
+        // operating_rate 是 MediaCodec 解码器的私有选项，软解不认，只在请求硬解时附加。
+        val operatingRate = MpvRenderLoad.decoderOperatingRate(colorPolicyStreams)
+            ?.takeIf { requestedHwdec != PlayerPreferences.MPV_HARDWARE_DECODING_NONE }
+            ?.let { "operating_rate=$it" }
+        val vdLavcO = listOfNotNull(options.vdLavcO.takeIf { it.isNotBlank() }, operatingRate).joinToString(",")
         Log.i(
             DOLBY_LOG_TAG,
             "decode path=${options.playbackPath} vf=${options.vf.ifBlank { "<none>" }} " +
-                "vd-lavc-o=${options.vdLavcO.ifBlank { "<none>" }}"
+                "vd-lavc-o=${vdLavcO.ifBlank { "<none>" }}"
         )
         val vf = HevcHwdecColor.composedVf(options.vf, colorPolicyStreams)
         Log.i(
@@ -879,10 +907,10 @@ class MpvPlayerController(
         )
         if (asOptions) {
             MPVLib.setOptionString("vf", vf)
-            MPVLib.setOptionString("vd-lavc-o", options.vdLavcO)
+            MPVLib.setOptionString("vd-lavc-o", vdLavcO)
         } else {
             setMpv("vf", vf)
-            setMpv("vd-lavc-o", options.vdLavcO)
+            setMpv("vd-lavc-o", vdLavcO)
         }
     }
 

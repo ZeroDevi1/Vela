@@ -173,6 +173,8 @@ class PlayerViewModel @Inject constructor(
     private var hasRenderedFirstFrame = false
     private var mpvExternalSubtitleUrls: Map<Int, String> = emptyMap()
     private var remotePlaybackRequestKey: String? = null
+    /** 当前倍速；主线程写入，预览预生成协程在 IO 线程读取。 */
+    @Volatile
     private var playbackSpeed = 1f
     private var speedBeforeHold = 1f
     private var lastHardwareDecoding = PlayerPreferences.DEFAULT_MPV_HARDWARE_DECODING
@@ -1756,7 +1758,8 @@ class PlayerViewModel @Inject constructor(
      * 起播稳定后在后台由粗到细预生成整片缩略图网格（见 [scrubSweepPositions]），
      * 让拖到任意位置都能立即显示一张邻近帧，而不必等现场解码。
      *
-     * 让位规则：用户拖动请求排队时、主播放器缓冲时都暂停；直链只在非计费网络下进行，
+     * 让位规则：用户拖动请求排队时、主播放器缓冲时、倍速播放时都暂停（倍速下主播放的解码和下载
+     * 都已成倍增加，4K 高帧率片源的硬解更是没有余量）；直链只在非计费网络下进行，
      * 避免在流量网络上为预览额外下载关键帧。连续失败多次（片源不支持解复用或解码）即停止。
      *
      * 预生成要额外开一路硬解并下载关键帧，会和主播放抢解码器与带宽：
@@ -1779,7 +1782,9 @@ class PlayerViewModel @Inject constructor(
             val sweepGapMs = if (isLargeSource()) SCRUB_SWEEP_GAP_LARGE_SOURCE_MS else SCRUB_SWEEP_GAP_MS
             var consecutiveFailures = 0
             for (positionMs in scrubSweepPositions(_playerState.value.duration)) {
-                while (scrubPreviewQueued || _playerState.value.isLoading) delay(SCRUB_SWEEP_POLL_MS)
+                while (scrubPreviewQueued || _playerState.value.isLoading || playbackSpeed > 1f) {
+                    delay(SCRUB_SWEEP_POLL_MS)
+                }
                 if (scrubPreviewSource !== source) return@launch
                 if (cachedScrubFrame(positionMs, exact = true) != null) continue
                 val frame = loadKeyframeFrame(source, positionMs)

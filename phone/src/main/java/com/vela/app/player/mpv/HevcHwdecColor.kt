@@ -21,11 +21,17 @@ internal object HevcHwdecColor {
         if (userPreference == PlayerPreferences.MPV_HARDWARE_DECODING_NONE) {
             return userPreference
         }
-        return if (needsCopyColorPath(mediaStreams)) {
-            PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC_COPY
-        } else {
-            userPreference
+        if (needsCopyColorPath(mediaStreams)) {
+            return PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC_COPY
         }
+        // copy 回读的吞吐撑不住高吞吐片源的倍速播放（见 MpvRenderLoad.isHighThroughputSource），改走零拷贝。
+        if (
+            userPreference == PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC_COPY &&
+            MpvRenderLoad.isHighThroughputSource(mediaStreams)
+        ) {
+            return PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC
+        }
+        return userPreference
     }
 
     fun formatVf(mediaStreams: List<MediaStream>?): String {

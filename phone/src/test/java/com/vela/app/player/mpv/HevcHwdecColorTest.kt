@@ -10,6 +10,32 @@ import org.junit.Test
 class HevcHwdecColorTest {
 
     @Test
+    fun fourKSixtyHdrCopyPreferenceFallsBackToZeroCopy() {
+        val hdr60 = listOf(
+            MediaStream(
+                type = "Video", codec = "hevc", width = 3840, height = 2160,
+                realFrameRate = 60f, videoRange = "HDR", videoRangeType = "HDR10", colorTransfer = "smpte2084"
+            )
+        )
+        assertEquals(
+            PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC,
+            HevcHwdecColor.hardwareDecoding(PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC_COPY, hdr60)
+        )
+        // 4K 24fps 仍按用户选择的 copy；软解偏好不受影响。
+        assertEquals(
+            PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC_COPY,
+            HevcHwdecColor.hardwareDecoding(
+                PlayerPreferences.MPV_HARDWARE_DECODING_MEDIACODEC_COPY,
+                hdr60.map { it.copy(realFrameRate = 24f) }
+            )
+        )
+        assertEquals(
+            PlayerPreferences.MPV_HARDWARE_DECODING_NONE,
+            HevcHwdecColor.hardwareDecoding(PlayerPreferences.MPV_HARDWARE_DECODING_NONE, hdr60)
+        )
+    }
+
+    @Test
     fun unspecified4kHevcUsesCopyAndBt709Filter() {
         val streams = listOf(unspecifiedHevc(width = 3840, height = 2160, codecTag = "hev1"))
         assertEquals(
