@@ -63,4 +63,14 @@ class ScrubFrameScheduleTest {
         val cached = setOf(0L, 75L)
         assertEquals(75L, nearestScrubFrameBucket(cached, 120_000L, scrubNearDistanceMs(120 * 60_000L)))
     }
+
+    @Test
+    fun sweepYieldsWhileMainBufferIsShort() {
+        assertTrue(scrubSweepShouldYieldToBuffer(bufferAheadMs = 4_000L, remainingMs = 600_000L))
+        assertFalse(scrubSweepShouldYieldToBuffer(bufferAheadMs = 25_000L, remainingMs = 600_000L))
+        // 接近片尾：剩余 10 秒时缓冲到 8 秒即可，不会因为够不到阈值而永远让位。
+        assertFalse(scrubSweepShouldYieldToBuffer(bufferAheadMs = 8_000L, remainingMs = 10_000L))
+        assertTrue(scrubSweepShouldYieldToBuffer(bufferAheadMs = 3_000L, remainingMs = 10_000L))
+        assertFalse(scrubSweepShouldYieldToBuffer(bufferAheadMs = 0L, remainingMs = 0L))
+    }
 }

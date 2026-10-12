@@ -90,6 +90,24 @@ internal fun scrubSweepPositions(durationMs: Long): List<Long> {
     }
 }
 
+/** 直链预生成要求主播放器至少有这么多前向缓冲，单位毫秒；不足时先让主播放下载。 */
+internal const val SCRUB_SWEEP_MIN_BUFFER_MS = 20_000L
+
+/** 接近片尾时从剩余时长里扣掉的余量，单位毫秒；demuxer 报告的缓冲通常到不了片尾最后一点。 */
+private const val SCRUB_SWEEP_END_MARGIN_MS = 2_000L
+
+/**
+ * 主播放器前向缓冲不足、预生成应先暂停时为 true。
+ *
+ * @param bufferAheadMs 播放位置之后已缓冲的时长，单位毫秒
+ * @param remainingMs 播放位置到片尾的时长，单位毫秒；片长未知（≤ 0）时不让位
+ */
+internal fun scrubSweepShouldYieldToBuffer(bufferAheadMs: Long, remainingMs: Long): Boolean {
+    if (remainingMs <= 0L) return false
+    val required = minOf(SCRUB_SWEEP_MIN_BUFFER_MS, remainingMs - SCRUB_SWEEP_END_MARGIN_MS)
+    return bufferAheadMs < required
+}
+
 /**
  * 判断这次定位是不是还停在上一张关键帧上。
  *

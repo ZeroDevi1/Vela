@@ -63,8 +63,12 @@ class MpvPlayerController(
     @Volatile
     private var released = false
     private var ready = false
+    // 以下三项在 mpv 事件线程更新，主线程和预览预生成的 IO 协程都会读取。
+    @Volatile
     private var durationMs: Long = 0L
+    @Volatile
     private var positionMs: Long = 0L
+    @Volatile
     private var cacheAheadMs: Long = 0L
     private var playWhenReady = true
     private var pendingSubtitleUrls: List<String> = emptyList()

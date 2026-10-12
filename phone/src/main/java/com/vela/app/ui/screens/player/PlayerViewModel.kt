@@ -1759,7 +1759,8 @@ class PlayerViewModel @Inject constructor(
      * 让拖到任意位置都能立即显示一张邻近帧，而不必等现场解码。
      *
      * 让位规则：用户拖动请求排队时、主播放器缓冲时、倍速播放时都暂停（倍速下主播放的解码和下载
-     * 都已成倍增加，4K 高帧率片源的硬解更是没有余量）；直链只在非计费网络下进行，
+     * 都已成倍增加，4K 高帧率片源的硬解更是没有余量）；直链在主播放前向缓冲不足时也暂停
+     * （见 [isMainBufferLowForSweep]）。直链只在非计费网络下进行，
      * 避免在流量网络上为预览额外下载关键帧。连续失败多次（片源不支持解复用或解码）即停止。
      *
      * 预生成要额外开一路硬解并下载关键帧，会和主播放抢解码器与带宽：
@@ -1782,7 +1783,10 @@ class PlayerViewModel @Inject constructor(
             val sweepGapMs = if (isLargeSource()) SCRUB_SWEEP_GAP_LARGE_SOURCE_MS else SCRUB_SWEEP_GAP_MS
             var consecutiveFailures = 0
             for (positionMs in scrubSweepPositions(_playerState.value.duration)) {
-                while (scrubPreviewQueued || _playerState.value.isLoading || playbackSpeed > 1f) {
+                while (
+                    scrubPreviewQueued || _playerState.value.isLoading || playbackSpeed > 1f ||
+                    isMainBufferLowForSweep(remote)
+                ) {
                     delay(SCRUB_SWEEP_POLL_MS)
                 }
                 if (scrubPreviewSource !== source) return@launch
@@ -1804,6 +1808,25 @@ class PlayerViewModel @Inject constructor(
                 delay(sweepGapMs)
             }
         }
+    }
+
+    /**
+     * 直链播放时主播放器的前向缓冲是否还不够，预生成需要先让出带宽。
+     *
+     * 预生成每张图都要另发几次 Range 请求，带宽紧张时会和主播放抢：实测 15Mbps 的 4K 片源
+     * 在 1x 下缓冲被它从 9s 拖到 4s。接近片尾时剩余时长本身不足阈值，按剩余时长判断。
+     * 只对 mpv 生效：ExoPlayer 的缓冲位置只能在主线程读取，保持原有行为。
+     *
+     * @param remote 片源是否为 http(s) 直链；本地文件不占带宽，恒为 false
+     */
+    private fun isMainBufferLowForSweep(remote: Boolean): Boolean {
+        if (!remote) return false
+        val mpv = mpvPlayer ?: return false
+        val position = mpv.currentPosition
+        return scrubSweepShouldYieldToBuffer(
+            bufferAheadMs = mpv.bufferedPosition - position,
+            remainingMs = mpv.duration - position
+        )
     }
 
     /**
