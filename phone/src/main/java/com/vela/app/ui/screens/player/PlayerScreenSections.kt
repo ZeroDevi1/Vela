@@ -686,7 +686,8 @@ internal fun BoxScope.PlayerOverlayHost(
                 viewModel.setPlaybackSpeed(speed)
             },
             playbackSpeed = playerState.playbackSpeed,
-            vrDetected = playerState.vrDetected,
+            // 未识别出但尺寸像 VR 帧时同样给出入口，可手动开启并选择投影。
+            vrDetected = playerState.vrDetected || playerState.vrManualAvailable,
             vrFlatEnabled = playerState.vrFlatEnabled,
             onToggleVrFlat = {
                 resetAutoHideTimer()

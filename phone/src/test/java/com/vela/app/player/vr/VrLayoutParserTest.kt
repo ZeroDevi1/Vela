@@ -169,4 +169,55 @@ class VrLayoutParserTest {
         )
         assertEquals(VrStereo.SideBySide, layout?.stereo)
     }
+
+    @Test
+    fun parsesDmmContentIdWithNumericPrefix() {
+        assertEquals(VrProjection.HalfEquirect, VrLayoutParser.parse(mediaSourcePath = "/vr/1sivr00123-cd1.mp4")?.projection)
+        assertEquals(VrProjection.HalfEquirect, VrLayoutParser.parse(mediaSourcePath = "h_1155crvr00123.mp4")?.projection)
+        assertEquals(VrProjection.HalfEquirect, VrLayoutParser.parse(mediaSourcePath = "3DSVR-0456-A.mp4")?.projection)
+        assertEquals(VrProjection.HalfEquirect, VrLayoutParser.parse(mediaSourcePath = "URVRSP-123.mp4")?.projection)
+        assertEquals(VrProjection.HalfEquirect, VrLayoutParser.parse(mediaSourcePath = "VRKM-1234-cd2.mp4")?.projection)
+    }
+
+    @Test
+    fun parsesStandaloneVrWord() {
+        assertEquals(VrProjection.HalfEquirect, VrLayoutParser.parse(itemName = "某作品 【VR】 前編")?.projection)
+        assertEquals(VrProjection.HalfEquirect, VrLayoutParser.parse(mediaSourcePath = "Title_8KVR_part1.mp4")?.projection)
+        assertEquals(VrProjection.HalfEquirect, VrLayoutParser.parse(mediaSourcePath = "Title VR.mp4")?.projection)
+    }
+
+    @Test
+    fun keepsExplicit360OverVrCode() {
+        assertEquals(VrProjection.Equirect, VrLayoutParser.parse(mediaSourcePath = "Travel_vr360.mp4")?.projection)
+    }
+
+    @Test
+    fun ignoresWordsMerelyContainingVr() {
+        assertNull(VrLayoutParser.parse(mediaSourcePath = "/movies/Overdrive (2017).mkv"))
+        assertNull(VrLayoutParser.parse(mediaSourcePath = "/movies/DVR Recording.ts", videoWidth = 1920, videoHeight = 1080))
+        assertNull(VrLayoutParser.parse(itemName = "Silver Linings"))
+    }
+
+    @Test
+    fun guessesLayoutFromAspect() {
+        assertEquals(
+            VrLayout(VrProjection.HalfEquirect, VrStereo.SideBySide, 180),
+            VrLayoutParser.guessFromAspect(8192, 4096)
+        )
+        assertEquals(
+            VrLayout(VrProjection.Equirect, VrStereo.SideBySide, 360),
+            VrLayoutParser.guessFromAspect(7680, 1920)
+        )
+        assertEquals(VrStereo.Mono, VrLayoutParser.guessFromAspect(4096, 4096)?.stereo)
+        assertEquals(VrStereo.SideBySide, VrLayoutParser.guessFromAspect(null, null)?.stereo)
+        assertNull(VrLayoutParser.guessFromAspect(3840, 2160))
+    }
+
+    @Test
+    fun checksLayoutAgainstVideoSize() {
+        val sbs180 = VrLayout(VrProjection.HalfEquirect, VrStereo.SideBySide, 180)
+        assertEquals(true, VrLayoutParser.fitsVideoSize(sbs180, 8192, 4096))
+        assertEquals(false, VrLayoutParser.fitsVideoSize(sbs180, 3840, 2160))
+        assertEquals(true, VrLayoutParser.fitsVideoSize(sbs180, null, null))
+    }
 }

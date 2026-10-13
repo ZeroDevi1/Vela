@@ -249,6 +249,9 @@ fun PlayerScreen(
             currentPlaybackId = mediaId
         }
     }
+    LaunchedEffect(playlist) {
+        viewModel.setVrPartsPlaylist(playlist)
+    }
     LaunchedEffect(inPip) {
         if (inPip) {
             showPlaybackInfoSheet = false
