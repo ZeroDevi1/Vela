@@ -5,7 +5,8 @@ import kotlin.math.abs
 /**
  * Strict VR layout detection from filename / path / tags.
  *
- * A projection token is required. Bare "180" in titles like "180 Days" is ignored.
+ * A projection token is required (a standalone "VR" word or a DMM-style VR code counts as 180°).
+ * Bare "180" in titles like "180 Days" is ignored.
  * [video3DFormat] only fills stereo packing after a projection is already known.
  * When the video size is known it is the final authority: VR frames are 1:2 / 1:1 / 2:1 / 4:1,
  * so a 16:9 file named "VR" (already flattened to 2D) is rejected, and missing stereo
@@ -17,9 +18,13 @@ object VrLayoutParser {
     private val FISHEYE_220 = Regex("""(?:^|[_\-. ])(?:mkx220|fisheye220|f220)(?:$|[_\-. ])""")
     private val FISHEYE_200 = Regex("""(?:^|[_\-. ])(?:mkx200|fisheye200|f200|rf70)(?:$|[_\-. ])""")
     private val FISHEYE_190 = Regex("""(?:^|[_\-. ])(?:fisheye190|f190|fisheye|rf52)(?:$|[_\-. ])""")
-    private val JAV_VR_STUDIO = Regex(
-        """(?:^|[_\-. \[【])(?:crvr|kavr|sivr|ipvr|savr|hnvr|pxvr|kmvr|mdvr)[-_]?\d"""
-    )
+    /**
+     * DMM 系 VR 番号：前缀含 vr（crvr / sivr / 3dsvr / urvrsp / vrkm ...）后跟编号。
+     * 前面允许数字，兼容 `1sivr00123`、`h_1155crvr00123` 这类内容 ID 写法。
+     */
+    private val JAV_VR_STUDIO = Regex("""(?:^|[^a-z])[a-z]{0,5}vr[a-z]{0,3}[-_]?\d{2,}""")
+    /** 独立的 VR 字样：`_VR_`、`【VR】`、`[8KVR]`；前后不能紧贴字母数字，避免误中普通单词。 */
+    private val VR_WORD = Regex("""(?:^|[^a-z0-9])(?:\d{1,2}k)?vr(?:$|[^a-z0-9])""")
     private val HALF_EQUIRECT = Regex(
         """(?:^|[_\-. ])(?:vr180|180x180|hequirect)(?:$|[_\-. ])|[_\-.]180[_\-. ]"""
     )
@@ -101,6 +106,26 @@ object VrLayoutParser {
         )
     }
 
+    /**
+     * 名字里没有 VR 线索时供手动开启用的默认排布：只看宽高比，按常见程度猜测。
+     * 尺寸未知时按 180° SBS；尺寸不是任何 VR 排布时返回 null。
+     */
+    fun guessFromAspect(videoWidth: Int?, videoHeight: Int?): VrLayout? {
+        val aspect = aspectRatio(videoWidth, videoHeight)
+            ?: return VrLayout(VrProjection.HalfEquirect, VrStereo.SideBySide, 180)
+        for (projection in listOf(VrProjection.HalfEquirect, VrProjection.Equirect)) {
+            val stereo = stereoCandidates(projection, aspect).firstOrNull() ?: continue
+            return VrLayout(projection, stereo, defaultFov(projection))
+        }
+        return null
+    }
+
+    /** [layout] 能否套用到给定尺寸的画面上（同一影片的其它分段沿用识别结果时校验）；尺寸未知视为可以。 */
+    fun fitsVideoSize(layout: VrLayout, videoWidth: Int?, videoHeight: Int?): Boolean {
+        val aspect = aspectRatio(videoWidth, videoHeight) ?: return true
+        return layout.stereo in stereoCandidates(layout.projection, aspect)
+    }
+
     fun layoutForId(id: String): VrLayout? {
         val parts = id.split(':')
         if (parts.size == 3) {
@@ -161,10 +186,12 @@ object VrLayoutParser {
             FISHEYE_220.containsMatchIn(text) -> VrProjection.Fisheye to 220
             FISHEYE_200.containsMatchIn(text) -> VrProjection.Fisheye to 200
             FISHEYE_190.containsMatchIn(text) -> VrProjection.Fisheye to 190
-            // DMM 系 VR 番号发布为 180° 等距柱状 SBS；按鱼眼展开会让画面越往边缘越拉伸。
-            JAV_VR_STUDIO.containsMatchIn(text) -> VrProjection.HalfEquirect to 180
             HALF_EQUIRECT.containsMatchIn(text) -> VrProjection.HalfEquirect to 180
             EQUIRECT.containsMatchIn(text) -> VrProjection.Equirect to 360
+            // DMM 系 VR 番号发布为 180° 等距柱状 SBS；按鱼眼展开会让画面越往边缘越拉伸。
+            JAV_VR_STUDIO.containsMatchIn(text) -> VrProjection.HalfEquirect to 180
+            // 只写了「VR」时按最常见的 180° 处理；尺寸不符的平面片由宽高比校验排除。
+            VR_WORD.containsMatchIn(text) -> VrProjection.HalfEquirect to 180
             else -> null
         }
     }

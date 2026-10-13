@@ -70,6 +70,8 @@ data class PlayerState(
     /** 画面顺时针旋转角度（0 / 90 / 180 / 270），纠正方向错误的片源；只对当前条目生效，不持久化。 */
     val videoRotationDegrees: Int = 0,
     val vrDetected: Boolean = false,
+    /** 没识别出 VR，但画面尺寸像 VR 帧（或未知）：菜单仍提供 VR 转平面入口供手动开启。 */
+    val vrManualAvailable: Boolean = false,
     val vrFlatEnabled: Boolean = false,
     val vrProjectionId: String? = null
 )

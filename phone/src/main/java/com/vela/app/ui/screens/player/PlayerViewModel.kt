@@ -179,6 +179,17 @@ class PlayerViewModel @Inject constructor(
     private var speedBeforeHold = 1f
     private var lastHardwareDecoding = PlayerPreferences.DEFAULT_MPV_HARDWARE_DECODING
     private var detectedVrLayout: VrLayout? = null
+    /** 未识别出 VR 时手动开启所用的默认排布（按宽高比猜测）。 */
+    private var manualVrLayout: VrLayout? = null
+    /** 当前条目的视频尺寸，分段播放列表晚到时据此校验能否沿用其它分段的 VR 排布。 */
+    private var vrVideoWidth: Int? = null
+    private var vrVideoHeight: Int? = null
+    /** 当前条目已完成 VR 识别；之前到达的分段列表只记录，由起播时的识别一并处理。 */
+    private var vrDetectionDone = false
+    /** 多 CD / 分段影片的全部分段（含主条目）；用于各分段共享 VR 识别结果。 */
+    private var vrPartsPlaylist: List<BaseItemDto> = emptyList()
+    /** 同一组分段里识别出或手动选定的 VR 排布，切到其它分段时沿用。 */
+    private var vrPartsLayout: VrLayout? = null
     private var vrYaw = 0f
     private var vrPitch = 0f
     private var vrOutputFov = VrFlattenFilter.DEFAULT_OUTPUT_FOV
@@ -772,6 +783,8 @@ class PlayerViewModel @Inject constructor(
                 )
                 val sourceVideoStream = apiMediaStreams.orEmpty()
                     .firstOrNull { it.type.equals("Video", ignoreCase = true) }
+                vrVideoWidth = sourceVideoStream?.width
+                vrVideoHeight = sourceVideoStream?.height
                 val vrLayout = VrLayoutParser.parse(
                     mediaSourcePath = primaryMediaSource?.path,
                     itemPath = itemDetails?.path,
@@ -779,10 +792,17 @@ class PlayerViewModel @Inject constructor(
                     mediaSourceName = primaryMediaSource?.name,
                     tags = itemDetails?.tags,
                     video3DFormat = itemDetails?.video3DFormat,
-                    videoWidth = sourceVideoStream?.width,
-                    videoHeight = sourceVideoStream?.height
-                )
+                    videoWidth = vrVideoWidth,
+                    videoHeight = vrVideoHeight
+                ) ?: vrLayoutFromParts(mediaId)
                 detectedVrLayout = vrLayout
+                manualVrLayout = if (vrLayout == null) {
+                    VrLayoutParser.guessFromAspect(vrVideoWidth, vrVideoHeight)
+                } else {
+                    null
+                }
+                if (vrLayout != null && isVrPart(mediaId)) vrPartsLayout = vrLayout
+                vrDetectionDone = true
                 _playerState.value = _playerState.value.copy(
                     isLoading = true,
                     isPlaying = false,
@@ -813,6 +833,7 @@ class PlayerViewModel @Inject constructor(
                     playbackSpeed = 1f,
                     hardwareDecoding = hardwareDecoding,
                     vrDetected = vrLayout != null,
+                    vrManualAvailable = manualVrLayout != null,
                     vrFlatEnabled = false,
                     vrProjectionId = vrLayout?.id,
                     // 换引擎、重试、换画质会重新初始化同一条目，保留旋转；换到其它条目时复位。
@@ -1272,7 +1293,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun toggleVrFlatPlayback() {
-        val layout = detectedVrLayout ?: return
+        val layout = detectedVrLayout ?: manualVrLayout ?: return
         if (_playerState.value.vrFlatEnabled) {
             disableVrFlatPlayback()
         } else {
@@ -1283,6 +1304,7 @@ class PlayerViewModel @Inject constructor(
     fun selectVrProjection(id: String) {
         val layout = VrLayoutParser.layoutForId(id) ?: return
         detectedVrLayout = layout
+        if (isVrPart(currentItemDetails?.id)) vrPartsLayout = layout
         _playerState.value = _playerState.value.copy(
             vrDetected = true,
             vrProjectionId = layout.id
@@ -1330,7 +1352,58 @@ class PlayerViewModel @Inject constructor(
         mpvPlayer?.setVrLook(layout, vrYaw, vrPitch, vrOutputFov)
     }
 
+    /**
+     * 多 CD / 分段影片的播放列表（含主条目）。各分段文件名写法常不一致，只要有一段能识别出 VR，
+     * 其余分段就沿用同一排布；列表晚于起播到达时，当前分段若还没识别出来就补上并按识别结果自动转平面。
+     */
+    fun setVrPartsPlaylist(parts: List<BaseItemDto>) {
+        val sameGroup = parts.map { it.id } == vrPartsPlaylist.map { it.id }
+        vrPartsPlaylist = parts
+        if (!sameGroup) {
+            vrPartsLayout = null
+            val currentId = currentItemDetails?.id
+            if (isVrPart(currentId)) vrPartsLayout = detectedVrLayout
+        }
+        if (!vrDetectionDone) return
+        val currentId = currentItemDetails?.id ?: return
+        if (detectedVrLayout != null || !isVrPart(currentId)) return
+        val layout = vrLayoutFromParts(currentId) ?: return
+        detectedVrLayout = layout
+        manualVrLayout = null
+        _playerState.value = _playerState.value.copy(
+            vrDetected = true,
+            vrManualAvailable = false,
+            vrProjectionId = layout.id
+        )
+        if (isMpvPlayback()) enableVrFlatPlayback(layout)
+    }
+
+    private fun isVrPart(mediaId: String?): Boolean {
+        return mediaId != null && vrPartsPlaylist.size > 1 && vrPartsPlaylist.any { it.id == mediaId }
+    }
+
+    /** 当前分段识别不出时，按同组其它分段（已识别 / 手动选定的结果优先，其次是其文件名）推断排布。 */
+    private fun vrLayoutFromParts(mediaId: String): VrLayout? {
+        if (!isVrPart(mediaId)) return null
+        vrPartsLayout?.takeIf { VrLayoutParser.fitsVideoSize(it, vrVideoWidth, vrVideoHeight) }?.let { return it }
+        return vrPartsPlaylist.asSequence()
+            .filter { it.id != mediaId }
+            .mapNotNull { part ->
+                VrLayoutParser.parse(
+                    mediaSourcePath = part.mediaSources?.firstOrNull()?.path,
+                    itemPath = part.path,
+                    itemName = part.name,
+                    tags = part.tags,
+                    videoWidth = vrVideoWidth,
+                    videoHeight = vrVideoHeight
+                )
+            }
+            .firstOrNull()
+    }
+
     private fun enableVrFlatPlayback(layout: VrLayout) {
+        detectedVrLayout = layout
+        if (isVrPart(currentItemDetails?.id)) vrPartsLayout = layout
         resetVrLook()
         mpvPlayer?.setVrFlattenShader(layout, vrYaw, vrPitch, vrOutputFov)
         _playerState.value = _playerState.value.copy(
@@ -1348,9 +1421,14 @@ class PlayerViewModel @Inject constructor(
 
     private fun resetVrPlayback() {
         detectedVrLayout = null
+        manualVrLayout = null
+        vrDetectionDone = false
+        vrVideoWidth = null
+        vrVideoHeight = null
         resetVrLook()
         _playerState.value = _playerState.value.copy(
             vrDetected = false,
+            vrManualAvailable = false,
             vrFlatEnabled = false,
             vrProjectionId = null
         )
