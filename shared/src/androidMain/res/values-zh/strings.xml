@@ -970,6 +970,8 @@
     <string name="detail_person_unknown">未知的人</string>
     <string name="detail_person_load_failed">现在无法加载此人。</string>
     <string name="detail_person_about">关于</string>
+    <string name="detail_person_born">%1$s 出生</string>
+    <string name="detail_person_born_with_age">%1$s 出生（%2$d 岁）</string>
     <string name="detail_person_no_related_titles">没有相关标题可用。</string>
     <string name="detail_person_read_more">阅读更多</string>
     <string name="detail_person_read_less">少读</string>

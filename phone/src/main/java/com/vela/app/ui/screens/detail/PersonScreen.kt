@@ -9,8 +9,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -33,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -61,6 +64,8 @@ import com.vela.app.ui.components.common.fetchSeerDirectedTitlesForTmdbPerson
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.Period
 
 @UnstableApi
 @Composable
@@ -578,8 +583,60 @@ private fun PersonHero(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                     )
                 }
+
+                personLifeText(person)?.let { life ->
+                    PersonFactRow(icon = Icons.Rounded.CalendarMonth, text = life)
+                }
+                person?.productionLocations?.firstOrNull { it.isNotBlank() }?.let { place ->
+                    PersonFactRow(icon = Icons.Rounded.Place, text = place)
+                }
             }
         }
+    }
+}
+
+/** 人物头部的一行资料（生卒、出生地）：图标 + 文字。 */
+@Composable
+private fun PersonFactRow(icon: ImageVector, text: String) {
+    Row(
+        modifier = Modifier.padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.72f),
+            modifier = Modifier.size(15.dp)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = text,
+            color = Color.White.copy(alpha = 0.86f),
+            fontSize = 13.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/**
+ * 生卒文字，与 iOS 版人物页一致：在世为「1990/05/16 出生（35 岁）」，已故为「1930/01/01 – 2000/01/01」。
+ * 服务器把人物的出生日期放在 PremiereDate、去世日期放在 EndDate；没有出生日期时返回 null。
+ */
+@Composable
+private fun personLifeText(person: BaseItemDto?): String? {
+    if (person == null) return null
+    val birthRaw = person.premiereDate?.takeIf { it.isNotBlank() } ?: return null
+    val birthText = formatDetailPremiereDate(birthRaw) ?: return null
+    formatDetailPremiereDate(person.endDate)?.let { return "$birthText – $it" }
+    // 只取日期部分计算周岁；日期格式不是 yyyy-MM-dd 时不显示年龄。
+    val age = runCatching {
+        Period.between(LocalDate.parse(birthRaw.take(10)), LocalDate.now()).years
+    }.getOrNull()
+    return if (age != null && age > 0) {
+        stringResource(R.string.detail_person_born_with_age, birthText, age)
+    } else {
+        stringResource(R.string.detail_person_born, birthText)
     }
 }
 
