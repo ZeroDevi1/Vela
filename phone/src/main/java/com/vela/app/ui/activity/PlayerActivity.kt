@@ -141,6 +141,7 @@ class PlayerActivity : ComponentActivity(), PictureInPictureHost {
         const val EXTRA_REMOTE_URL = "remote_url"
         const val EXTRA_REMOTE_TITLE = "remote_title"
         const val EXTRA_PARTS_OWNER_ID = "parts_owner_id"
+        const val EXTRA_PARTS_SOURCE_ID = "parts_source_id"
 
         fun start(
             context: Context,
@@ -152,7 +153,8 @@ class PlayerActivity : ComponentActivity(), PictureInPictureHost {
             subtitleStreamIndex: Int? = null,
             remoteUrl: String? = null,
             remoteTitle: String? = null,
-            partsOwnerId: String? = null
+            partsOwnerId: String? = null,
+            partsSourceId: String? = null
         ) {
             if (mediaId.isBlank() && remoteUrl.isNullOrBlank()) return
             com.vela.app.ui.screens.music.MusicPlayback.pauseForVideo()
@@ -167,6 +169,7 @@ class PlayerActivity : ComponentActivity(), PictureInPictureHost {
                 remoteUrl?.takeIf { it.isNotBlank() }?.let { putExtra(EXTRA_REMOTE_URL, it) }
                 remoteTitle?.takeIf { it.isNotBlank() }?.let { putExtra(EXTRA_REMOTE_TITLE, it) }
                 partsOwnerId?.takeIf { it.isNotBlank() }?.let { putExtra(EXTRA_PARTS_OWNER_ID, it) }
+                partsSourceId?.takeIf { it.isNotBlank() }?.let { putExtra(EXTRA_PARTS_SOURCE_ID, it) }
                 addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 if (activity == null) {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -194,7 +197,12 @@ private data class PlaybackArgs(
      * 多 CD 影片的主条目（CD1）。从详情页分段卡片启动 CD2 等分段时传入，用于取完整分段列表；
      * 为空时 [mediaId] 本身就是主条目或非分段影片。
      */
-    val partsOwnerId: String?
+    val partsOwnerId: String?,
+    /**
+     * 主条目在详情页选中的版本（媒体源 ID）。多版本条目的分段只属于其中一个版本（如平面版 + 分 CD 的 VR 版），
+     * 分段列表按该版本获取，播放中回到 CD1 时也继续用它；为空时按主条目本身处理。
+     */
+    val partsSourceId: String?
 ) {
     companion object {
         fun from(intent: Intent?): PlaybackArgs? {
@@ -223,7 +231,8 @@ private data class PlaybackArgs(
                 },
                 remoteUrl = remoteUrl,
                 remoteTitle = intent.getStringExtra(PlayerActivity.EXTRA_REMOTE_TITLE),
-                partsOwnerId = intent.getStringExtra(PlayerActivity.EXTRA_PARTS_OWNER_ID)
+                partsOwnerId = intent.getStringExtra(PlayerActivity.EXTRA_PARTS_OWNER_ID),
+                partsSourceId = intent.getStringExtra(PlayerActivity.EXTRA_PARTS_SOURCE_ID)
             )
         }
     }
@@ -238,7 +247,9 @@ private fun PlayerRoute(args: PlaybackArgs) {
     var episodePreviousId by remember { mutableStateOf<String?>(null) }
     var episodeNextId by remember { mutableStateOf<String?>(null) }
     // 多 CD / 多分段影片的各部分，按启动的条目取一次；部分之间原地切换时不重新获取。
-    var parts by remember(args.mediaId, args.remoteUrl, args.partsOwnerId) { mutableStateOf<List<BaseItemDto>>(emptyList()) }
+    var parts by remember(args.mediaId, args.remoteUrl, args.partsOwnerId, args.partsSourceId) {
+        mutableStateOf<List<BaseItemDto>>(emptyList())
+    }
     val partIndex = parts.indexOfFirst { it.id == mediaId }
     // 剧集优先用上一集/下一集；没有剧集导航时（电影分段）用相邻部分，自动续播同样生效。
     val previousEpisodeId = episodePreviousId
@@ -261,11 +272,11 @@ private fun PlayerRoute(args: PlaybackArgs) {
         episodeNextId = navigation.nextEpisodeId
     }
 
-    LaunchedEffect(args.mediaId, args.remoteUrl, args.partsOwnerId) {
+    LaunchedEffect(args.mediaId, args.remoteUrl, args.partsOwnerId, args.partsSourceId) {
         if (!args.remoteUrl.isNullOrBlank()) return@LaunchedEffect
         // 从分段卡片进入时用详情页的主条目；其余入口启动的就是主条目（或非分段影片）本身。
         val ownerId = args.partsOwnerId?.takeIf { it.isNotBlank() } ?: args.mediaId
-        parts = mediaRepository.getPartsPlaylist(ownerId)
+        parts = mediaRepository.getPartsPlaylist(ownerId, args.partsSourceId)
     }
 
     LaunchedEffect(Unit) {
@@ -284,7 +295,12 @@ private fun PlayerRoute(args: PlaybackArgs) {
         // 版本、起播位置只属于启动条目；切到其它分段/剧集后沿用会请求到别的条目的源或位置。
         startFromBeginning = args.startFromBeginning && isLaunchItem,
         initialSeekPositionMs = args.seekPositionMs.takeIf { isLaunchItem },
-        mediaSourceId = args.mediaSourceId.takeIf { isLaunchItem },
+        // 从 CD2 等分段回到主条目（CD1）时沿用详情页选中的版本，否则会按「视频首选版本」换到平面版等其它版本。
+        mediaSourceId = when {
+            isLaunchItem -> args.mediaSourceId
+            mediaId == args.partsOwnerId -> args.partsSourceId
+            else -> null
+        },
         previousEpisodeId = previousEpisodeId,
         nextEpisodeId = nextEpisodeId,
         onWatchPreviousEpisode = { episodeId -> mediaId = episodeId },

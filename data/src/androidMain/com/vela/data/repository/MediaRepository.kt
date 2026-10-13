@@ -82,6 +82,8 @@ class MediaRepository(private val context: Context) {
         private val PROVIDER_KEYS = listOf("Imdb", "Tmdb", "Tvdb")
         private const val DISPLAY_PREFERENCES_CLIENT = "emby"
         private const val STRM_PLAYLIST_PEEK_BYTES = 8_192L
+        /** Jellyfin 条目 ID 的形态（无连字符 GUID）；Emby 的条目 ID 是纯数字，媒体源 ID 是 `mediasource_N`。 */
+        private val JELLYFIN_ITEM_ID = Regex("[0-9a-fA-F]{32}")
     }
 
     private val strmPeekClient by lazy {
@@ -613,23 +615,33 @@ class MediaRepository(private val context: Context) {
      * 多 CD 影片的完整分段列表（主条目在前），不是分段影片时返回空列表。
      * 服务器只在主条目上返回 AdditionalParts，[ownerId] 须是主条目；分段条目是附属条目，
      * 不会出现在继续观看、搜索等列表里，只能从主条目详情页进入，调用方总能拿到主条目 ID。
+     *
+     * @param ownerSourceId 主条目要播放的版本（媒体源 ID）；多版本条目的分段挂在具体版本上，含义见 [getAdditionalParts]。
      */
-    suspend fun getPartsPlaylist(ownerId: String): List<BaseItemDto> {
-        val parts = getAdditionalParts(ownerId).getOrNull().orEmpty()
+    suspend fun getPartsPlaylist(ownerId: String, ownerSourceId: String? = null): List<BaseItemDto> {
+        val parts = getAdditionalParts(ownerId, ownerSourceId).getOrNull().orEmpty()
         if (parts.isEmpty()) return emptyList()
         val owner = getItemById(ownerId).getOrNull() ?: return emptyList()
         return listOf(owner) + parts
     }
 
-    suspend fun getAdditionalParts(itemId: String): Result<List<BaseItemDto>> {
+    /**
+     * [itemId] 的附加分段（不含条目自身）；不是分段影片或请求被服务器拒绝时为空列表。
+     *
+     * @param mediaSourceId 选中的版本。同一条目下「平面版 + 分 CD 的 VR 版」这类多版本，分段只属于其中一个版本，
+     *   按条目 ID 查询只能得到主版本的分段。Jellyfin 的版本媒体源 ID 就是该版本的条目 ID（32 位十六进制），
+     *   此时按版本查询；Emby 的媒体源 ID（`mediasource_N`）不是条目 ID，仍按 [itemId] 查询。
+     */
+    suspend fun getAdditionalParts(itemId: String, mediaSourceId: String? = null): Result<List<BaseItemDto>> {
         return try {
             val api = getApi() ?: return Result.failure(Exception(string(R.string.data_error_api_not_available)))
             val userId = getUserId()
-            val response = api.getAdditionalParts(itemId = itemId, userId = userId)
+            val queryId = mediaSourceId?.takeIf(JELLYFIN_ITEM_ID::matches) ?: itemId
+            val response = api.getAdditionalParts(itemId = queryId, userId = userId)
             if (response.isSuccessful) {
                 Result.success(
                     response.body()?.items.orEmpty().filter { part ->
-                        !part.id.isNullOrBlank() && part.id != itemId
+                        !part.id.isNullOrBlank() && part.id != itemId && part.id != queryId
                     }
                 )
             } else {

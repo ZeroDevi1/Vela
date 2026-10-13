@@ -43,22 +43,28 @@ import com.vela.data.model.BaseItemDto
 import com.vela.data.repository.MediaRepository
 import com.vela.shared.R
 
+/**
+ * 多 CD 影片的分段卡片；第一张是 [item] 本身。
+ *
+ * @param mediaSourceId 详情页当前选中的版本；分段随版本变化，切换版本后重新获取。
+ */
 @Composable
 internal fun AdditionalPartsSection(
     item: BaseItemDto,
+    mediaSourceId: String?,
     isSeerDetail: Boolean,
     mediaRepository: MediaRepository,
     onPartClick: (BaseItemDto) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var additionalParts by remember(item.id) { mutableStateOf<List<BaseItemDto>>(emptyList()) }
+    var additionalParts by remember(item.id, mediaSourceId) { mutableStateOf<List<BaseItemDto>>(emptyList()) }
 
-    LaunchedEffect(item.id, isSeerDetail) {
+    LaunchedEffect(item.id, mediaSourceId, isSeerDetail) {
         additionalParts = if (isSeerDetail) {
             emptyList()
         } else {
             val itemId = item.id?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
-            mediaRepository.getAdditionalParts(itemId).getOrDefault(emptyList())
+            mediaRepository.getAdditionalParts(itemId, mediaSourceId).getOrDefault(emptyList())
         }
     }
 

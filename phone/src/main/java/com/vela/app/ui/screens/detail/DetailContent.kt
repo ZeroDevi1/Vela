@@ -1477,6 +1477,7 @@ fun DetailContent(
                             )
                             AdditionalPartsSection(
                                 item = item,
+                                mediaSourceId = selectedMediaSourceId,
                                 isSeerDetail = isSeerDetail,
                                 mediaRepository = mediaRepository,
                                 onPartClick = onPlayPart

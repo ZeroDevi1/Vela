@@ -172,7 +172,7 @@ fun DetailScreenContainer(
         castDisplaySubtitleStreamIndex = playbackData.selectedSubtitleStreamIndex
     }
 
-    fun localPlayer(targetItemId: String, mediaSourceId: String?, partsOwnerId: String?) {
+    fun localPlayer(targetItemId: String, mediaSourceId: String?, partsOwnerId: String?, partsSourceId: String?) {
         castingDisplay = false
         PlayerActivity.start(
             context = context,
@@ -182,7 +182,8 @@ fun DetailScreenContainer(
             mediaSourceId = mediaSourceId,
             audioStreamIndex = preferredAudioStreamIndex,
             subtitleStreamIndex = preferredSubtitleStreamIndex,
-            partsOwnerId = partsOwnerId
+            partsOwnerId = partsOwnerId,
+            partsSourceId = partsSourceId
         )
     }
 
@@ -254,7 +255,9 @@ fun DetailScreenContainer(
         fromStart: Boolean = false,
         startPositionMs: Long? = null,
         mediaSourceId: String? = preferredMediaSourceId,
-        partsOwnerId: String? = null
+        partsOwnerId: String? = null,
+        // 分段挂在主条目的具体版本上：默认就是本次要播放的版本；从 CD2 等分段卡片启动时由调用方传主条目选中的版本。
+        partsSourceId: String? = mediaSourceId
     ) {
         val activeItemId = targetItem?.id?.takeIf { it.isNotBlank() } ?: fallbackItemId
         preferredAudioStreamIndex = audioStreamIndex
@@ -299,10 +302,10 @@ fun DetailScreenContainer(
                     castingDisplay = true
                     castDisplayState(castItemId = activeItemId)
                 } else {
-                    localPlayer(activeItemId, mediaSourceId, partsOwnerId)
+                    localPlayer(activeItemId, mediaSourceId, partsOwnerId, partsSourceId)
                 }
             } else {
-                localPlayer(activeItemId, mediaSourceId, partsOwnerId)
+                localPlayer(activeItemId, mediaSourceId, partsOwnerId, partsSourceId)
             }
         }
     }
@@ -477,7 +480,8 @@ fun DetailScreenContainer(
                             // PlaybackInfo 找不到对应源而无法播放，交给服务器选该分段自己的默认源。
                             mediaSourceId = preferredMediaSourceId.takeIf { part.id == activeItem.id },
                             // 分段卡片只出现在主条目详情页，把主条目带给播放器以取完整分段列表。
-                            partsOwnerId = activeItem.id
+                            partsOwnerId = activeItem.id,
+                            partsSourceId = preferredMediaSourceId
                         )
                     }
                 )
