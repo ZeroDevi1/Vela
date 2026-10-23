@@ -144,6 +144,8 @@ shared/   共享 UI 组件与图片基础设施
 
 APK 命名：`vela-{phone|tv}-{debug|release}-<version>[-<abi>].apk`
 
+TV 只发布包含全部 ABI 的通用包（无 `-<abi>` 后缀），兼容 64 位芯片配 32 位系统的电视；手机仍按 ABI 拆分。
+
 本地签名 release（需 `keystore.properties` 或环境变量 `VELA_STORE_FILE` / `VELA_STORE_PASSWORD` / `VELA_KEY_PASSWORD`）：
 
 ```bash

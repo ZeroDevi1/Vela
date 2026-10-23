@@ -105,6 +105,20 @@ class AppUpdateTest {
     }
 
     @Test
+    fun tvUniversalAssetIsPickedOn32BitTvAlongsidePhoneSplits() {
+        val phoneArm = asset(AppFlavor.Phone, "arm64-v8a")
+        val phoneV7 = asset(AppFlavor.Phone, "armeabi-v7a")
+        val tvUniversal = asset(AppFlavor.Tv, null)
+        val picked = pickRecommendedAsset(
+            assets = listOf(phoneArm, phoneV7, tvUniversal),
+            flavor = AppFlavor.Tv,
+            supportedAbis = listOf("armeabi-v7a", "armeabi")
+        )
+        assertEquals(tvUniversal, picked)
+        assertEquals(tvUniversal, parseUpdateAssetName(tvUniversal.name, 1, tvUniversal.downloadUrl))
+    }
+
+    @Test
     fun accelerateGithubUrlPrefixesOnce() {
         val url = "https://github.com/ZeroDevi1/Vela/releases/download/v1.0.0/app.apk"
         val prefix = "https://gh-proxy.com/"

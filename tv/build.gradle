@@ -72,18 +72,9 @@ android {
         }
     }
 
-    splits {
-        abi {
-            def isBuildingBundle = gradle.startParameter.taskNames.any {
-                it.toLowerCase(Locale.ROOT).contains("bundle")
-            }
-            enable = !isBuildingBundle
-
-            reset()
-            include "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
-            universalApk false
-        }
-    }
+    // TV 只出一个包含全部 ABI 的通用 APK，不按 ABI 拆分：不少电视是 64 位芯片配 32 位系统
+    // （如 TCL 27C3A Pro 只能装 armeabi-v7a），用户按芯片挑 arm64 包会装不上。
+    // TV 包的原生库只有几 MB，合并后体积增加有限；应用内更新按无 ABI 后缀的资产匹配通用包。
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

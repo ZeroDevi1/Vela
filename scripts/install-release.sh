@@ -113,7 +113,13 @@ apk_path() {
   local module="$1"
   local version="$2"
   local abi="$3"
-  echo "$ROOT/$module/build/outputs/apk/release/vela-${module}-release-${version}-${abi}.apk"
+  local dir="$ROOT/$module/build/outputs/apk/release"
+  # TV 只产出不带 ABI 后缀的通用包；有按 ABI 拆分的包时优先用它
+  if [ -f "$dir/vela-${module}-release-${version}-${abi}.apk" ] || [ ! -f "$dir/vela-${module}-release-${version}.apk" ]; then
+    echo "$dir/vela-${module}-release-${version}-${abi}.apk"
+  else
+    echo "$dir/vela-${module}-release-${version}.apk"
+  fi
 }
 
 package_name() {
@@ -180,14 +186,12 @@ SERIAL="$(pick_serial)"
 if [ -z "$ABI" ]; then
   ABI="$(device_abi "$SERIAL")"
 fi
-APK="$(apk_path "$MODULE" "$VERSION" "$ABI")"
 PACKAGE="$(package_name "$MODULE")"
 
 echo "module  $MODULE"
 echo "version $VERSION"
 echo "device  $SERIAL"
 echo "abi     $ABI"
-echo "apk     $APK"
 
 if [ "$SKIP_BUILD" -eq 0 ]; then
   echo "building :$MODULE:assembleRelease"
@@ -200,6 +204,10 @@ if [ "$SKIP_BUILD" -eq 0 ]; then
     fi
   )
 fi
+
+# 构建之后再解析路径：通用包（无 ABI 后缀）只有构建完才存在
+APK="$(apk_path "$MODULE" "$VERSION" "$ABI")"
+echo "apk     $APK"
 
 if [ ! -f "$APK" ]; then
   echo "APK not found: $APK" >&2
