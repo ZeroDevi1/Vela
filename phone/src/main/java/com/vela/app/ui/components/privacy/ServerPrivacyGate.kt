@@ -137,6 +137,16 @@ internal fun ServerPrivacyGate(activity: Activity, content: @Composable () -> Un
             }
         }
     }
+    val locked = snapshot != null && active?.isPrivate == true && !unlocked
+    // 切到私密服务器或冷启动停在私密服务器时直接弹系统验证（与 iOS 一致），
+    // 每个服务器只自动弹一次：用户取消后留在锁定页，由「解锁」按钮手动重试。
+    var autoPrompted by remember(active?.id) { mutableStateOf(false) }
+    LaunchedEffect(active?.id, locked) {
+        if (locked && !autoPrompted) {
+            autoPrompted = true
+            confirm()
+        }
+    }
     DisposableEffect(active?.isPrivate) {
         if (active?.isPrivate == true) activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         onDispose { activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
