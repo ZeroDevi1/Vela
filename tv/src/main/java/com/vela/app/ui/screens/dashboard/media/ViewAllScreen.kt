@@ -1,47 +1,49 @@
 package com.vela.app.ui.screens.dashboard.media
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.LocalOffer
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import coil3.compose.AsyncImage
-import coil3.request.*
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -49,26 +51,21 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.annotation.StringRes
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.flow.first
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.vela.shared.R
-import com.vela.app.ui.screens.dashboard.home.LibraryItemCard
-import com.vela.shared.ui.components.common.FilterChip as MediaFilterChip
-import com.vela.shared.ui.components.common.PosterCountBadge
-import com.vela.shared.ui.components.common.WatchedIndicatorBadge
-import com.vela.shared.playback.UserDataRefreshSignals
-import com.vela.shared.util.image.DisableEmbyPosterEnhancers
-import com.vela.shared.util.image.WarmImageUrl
+import com.vela.app.ui.components.TvFocusRestoreScope
+import com.vela.app.util.text.TitleIndex
+import com.vela.data.model.BaseItemDto
 import com.vela.data.repository.MediaRepository
 import com.vela.data.repository.MediaRepositoryProvider
-import com.vela.data.model.BaseItemDto
+import com.vela.shared.R
+import com.vela.shared.playback.UserDataRefreshSignals
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+/**
+ * TV「查看全部 / 媒体库」页，布局参照 Emby TV：顶部页签与时钟，左侧首字符索引，中间海报网格，
+ * 右侧排序 / 筛选工具栏，右下角「当前位置 | 总数」。遥控器方向键在这几个区域之间自然移动。
+ */
 @Composable
 fun ViewAllScreen(
     contentType: ContentType,
@@ -81,849 +78,382 @@ fun ViewAllScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val items by viewModel.items.collectAsStateWithLifecycle()
     val userDataRefreshEvent by UserDataRefreshSignals.refreshEvent.collectAsState()
-
     val context = LocalContext.current
     val mediaRepository = remember { MediaRepositoryProvider.getInstance(context) }
-    
-    var showSortSheet by remember { mutableStateOf(false) }
-    val gridState = rememberLazyGridState()
-    val resolvedTitle = title.takeIf { it.isNotBlank() } ?: stringResource(R.string.view_all_title)
-    val isWatchedViewAll = parentId == WATCHED_VIEW_ALL_PARENT_ID
-    val isWatchedEpisodeViewAll = isWatchedViewAll && contentType == ContentType.EPISODES
-    val filterSignature = remember(
-        uiState.sortBy,
-        uiState.sortOrder,
-        uiState.selectedGenres
-    ) {
-        listOf(
-            uiState.sortBy,
-            uiState.sortOrder,
-            uiState.selectedGenres.toList().sorted().joinToString("|")
-        ).joinToString("::")
-    }
-    var lastAppliedFilterSignature by rememberSaveable(contentType, parentId, genreId) {
-        mutableStateOf(filterSignature)
-    }
-    val genreIncludeItemTypes = remember(contentType, isWatchedViewAll) {
-        if (isWatchedViewAll) {
-            null
-        } else when (contentType) {
-            ContentType.MOVIES, ContentType.MOVIES_GENRE -> "Movie"
-            ContentType.SERIES, ContentType.TVSHOWS_GENRE -> "Series"
-            ContentType.ALL -> "Movie,Series"
-            ContentType.EPISODES -> null
-        }
-    }
-    var serverGenres by rememberSaveable(contentType, parentId, genreId) {
-        mutableStateOf(emptyList<String>())
-    }
-    LaunchedEffect(contentType, parentId, genreId, genreIncludeItemTypes) {
-        if (genreIncludeItemTypes == null) {
-            serverGenres = emptyList()
-        } else {
-            mediaRepository.getFilteredGenres(
-                parentId = parentId,
-                includeItemTypes = genreIncludeItemTypes
-            ).fold(
-                onSuccess = { genres ->
-                    serverGenres = genres.mapNotNull { it.name?.trim()?.takeIf(String::isNotEmpty) }
-                },
-                onFailure = {
-                    serverGenres = emptyList()
-                }
-            )
-        }
-    }
-    val availableGenres = remember(serverGenres, uiState.selectedGenres) {
-        serverGenres
-            .plus(uiState.selectedGenres)
-            .distinct()
-            .sorted()
-    }
-    val displayItems = remember(items, uiState.selectedGenres) {
-        val filteredItems = if (uiState.selectedGenres.size > 1) {
-            items.filter { item ->
-                val itemGenres = item.genres.orEmpty().toSet()
-                uiState.selectedGenres.all { genre -> itemGenres.contains(genre) }
-            }
-        } else {
-            items
-        }
-        filteredItems.distinctBy(::viewAllItemKey)
-    }
-    val headerTotalCount = uiState.totalItems
+    val scope = rememberCoroutineScope()
 
-    // Load initial data
+    val tab = uiState.browseTab
+    val isWatchedList = parentId == WATCHED_VIEW_ALL_PARENT_ID
+    val genreOverview = tab == LibraryBrowseTab.GENRES && uiState.drillTitle == null
+    val landscape = tab.usesLandscapeCards() || contentType == ContentType.EPISODES || genreOverview
+    val showToolbar = tab.supportsSort() && !isWatchedList && !genreOverview
+    val nameIndexed = viewModel.isNameIndexed(uiState)
+    val displayItems = remember(items) { items.distinctBy(::viewAllItemKey) }
+
+    // 每个页签 / 层级各自的滚动位置；从详情页返回时由 rememberSaveable 恢复
+    val gridState = rememberSaveable(tab, uiState.drillTitle, saver = LazyGridState.Saver) { LazyGridState() }
+    var focusedIndex by remember(tab, uiState.drillTitle) { mutableStateOf<Int?>(null) }
+    // 在索引栏上选中的跳转目标；网格获得焦点后清空
+    var railTarget by remember(tab, uiState.drillTitle) { mutableStateOf<Int?>(null) }
+    // 需要主动获得焦点的网格位置（从索引栏按右键进入网格）
+    var focusTarget by remember { mutableStateOf<Int?>(null) }
+    val focusTargetRequester = remember { FocusRequester() }
+    val firstItemRequester = remember { FocusRequester() }
+    var initialFocusDone by rememberSaveable { mutableStateOf(false) }
+
+    val firstIndexByHead = remember(displayItems, nameIndexed) {
+        if (!nameIndexed) emptyMap() else LinkedHashMap<String, Int>().apply {
+            displayItems.forEachIndexed { index, item -> putIfAbsent(TitleIndex.headOf(item.indexTitle()), index) }
+        }
+    }
+    val heads = remember(firstIndexByHead) { firstIndexByHead.keys.toList() }
+    val activeHead by remember(displayItems, nameIndexed, gridState) {
+        derivedStateOf {
+            if (!nameIndexed) null
+            else displayItems.getOrNull(railTarget ?: focusedIndex ?: gridState.firstVisibleItemIndex)
+                ?.let { TitleIndex.headOf(it.indexTitle()) }
+        }
+    }
+
+    var showSortDialog by remember { mutableStateOf(false) }
+    var showGenreDialog by remember { mutableStateOf(false) }
+
     LaunchedEffect(contentType, parentId, genreId) {
         viewModel.ensureItemsLoaded(contentType, parentId, genreId)
     }
 
-    LaunchedEffect(userDataRefreshEvent, contentType, parentId, genreId) {
-        if (userDataRefreshEvent == null || !contentType.includesSeriesItems()) {
-            return@LaunchedEffect
-        }
-        viewModel.loadItems(contentType, parentId, refresh = true, genreId = genreId)
+    // 只响应进入页面之后的播放状态变化（如看完一集返回），进入前的旧信号不触发重复加载
+    val initialRefreshEvent = remember { userDataRefreshEvent }
+    LaunchedEffect(userDataRefreshEvent) {
+        if (userDataRefreshEvent != initialRefreshEvent && tab.supportsSort()) viewModel.refresh()
     }
 
-    LaunchedEffect(filterSignature) {
-        if (lastAppliedFilterSignature != filterSignature) {
-            gridState.scrollToItem(0)
-            lastAppliedFilterSignature = filterSignature
-        }
+    // 排序或筛选变化后回到列表顶部：网格按 key 保持滚动位置，否则会停在旧焦点条目重排后的位置；
+    // 旧的焦点序号与跳转目标也随之失效
+    val listSignature = listOf(
+        uiState.sortBy,
+        uiState.sortOrder,
+        uiState.unplayedOnly,
+        uiState.selectedGenres.sorted().joinToString("|")
+    ).joinToString("::")
+    var appliedListSignature by rememberSaveable { mutableStateOf(listSignature) }
+    LaunchedEffect(listSignature) {
+        if (appliedListSignature == listSignature) return@LaunchedEffect
+        appliedListSignature = listSignature
+        focusedIndex = null
+        railTarget = null
+        gridState.scrollToItem(0)
     }
 
-    LaunchedEffect(
-        gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index,
-        items.size
-    ) {
-        val lastVisibleIndex = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-        val loadMore = when {
-            items.isEmpty() -> true
-            else -> lastVisibleIndex >= displayItems.size - 5
-        }
+    // 首次进入时焦点落在第一个条目上；之后切换页签焦点留在页签行
+    LaunchedEffect(displayItems.isNotEmpty()) {
+        if (initialFocusDone || displayItems.isEmpty()) return@LaunchedEffect
+        withFrameNanos { }
+        runCatching { firstItemRequester.requestFocus() }
+        initialFocusDone = true
+    }
 
-        if (loadMore && uiState.hasMorePages && !uiState.isLoading) {
-            viewModel.loadMoreItems(contentType, parentId, genreId)
+    // 滚动接近末尾时加载下一页（名称排序为全量加载，不分页）
+    val latestState by rememberUpdatedState(uiState)
+    val latestCount by rememberUpdatedState(displayItems.size)
+    LaunchedEffect(gridState) {
+        snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { lastVisible ->
+                if (latestState.hasMorePages && !latestState.isLoading && lastVisible >= latestCount - 12) {
+                    viewModel.loadMoreItems()
+                }
+            }
+    }
+
+    BackHandler(enabled = uiState.canGoBack) { viewModel.popBrowseLevel() }
+
+    fun openItem(item: BaseItemDto) {
+        when {
+            genreOverview -> viewModel.openGenre(item)
+            item.opensAsFolder() -> viewModel.openFolder(item)
+            else -> onItemClick(item)
         }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(Color(0xFF101012))
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Surface(
+        Column(modifier = Modifier.fillMaxSize()) {
+            // 顶栏：媒体库显示页签，其他入口显示标题；右侧时钟
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding(),
-                color = Color.Black
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = resolvedTitle,
-                            color = Color.White,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (headerTotalCount > 0) {
-                            Text(
-                                text = stringResource(R.string.view_all_count, displayItems.size, headerTotalCount),
-                                color = Color.White.copy(alpha = 0.7f),
-                                fontSize = 13.sp,
-                                modifier = Modifier.padding(top = 2.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            Box(
-                modifier = Modifier.fillMaxSize()
-            ) {
-                when {
-                    uiState.isLoading && items.isEmpty() -> {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(3),
-                            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 120.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(15) {
-                                SkeletonPosterCard()
-                            }
-                        }
-                    }
-                    
-                    uiState.error != null && items.isEmpty() -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.padding(32.dp)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.view_all_error_title),
-                                    color = Color.White,
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = uiState.error ?: stringResource(R.string.view_all_error_message),
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    fontSize = 14.sp,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(top = 8.dp)
-                                )
-                                Button(
-                                    onClick = { viewModel.loadItems(contentType, parentId, refresh = true, genreId = genreId) },
-                                    modifier = Modifier.padding(top = 24.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFF0080FF)
-                                    ),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text(
-                                        stringResource(R.string.try_again),
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    
-                    displayItems.isEmpty() -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.view_all_empty_title),
-                                    color = Color.White,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Text(
-                                    text = stringResource(R.string.view_all_empty_message),
-                                    color = Color.White.copy(alpha = 0.6f),
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                    
-                    else -> {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(3),
-                                state = gridState,
-                                contentPadding = PaddingValues(
-                                    start = 16.dp,
-                                    top = 16.dp,
-                                    end = 16.dp,
-                                    bottom = 120.dp
-                                ),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(16.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(
-                                    items = displayItems,
-                                    key = ::viewAllItemKey
-                                ) { item ->
-                                    if (isWatchedEpisodeViewAll) {
-                                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                            LibraryItemCard(
-                                                item = item,
-                                                mediaRepository = mediaRepository,
-                                                disableImageEnhancers = true,
-                                                watchedFeedStyle = true,
-                                                onClick = { onItemClick(item) }
-                                            )
-                                        }
-                                    } else {
-                                        PosterCard(
-                                            item = item,
-                                            mediaRepository = mediaRepository,
-                                            watchedViewAll = isWatchedViewAll,
-                                            onClick = { onItemClick(item) }
-                                        )
-                                    }
-                                }
-
-                                if (uiState.hasMorePages) {
-                                    item(span = { GridItemSpan(maxLineSpan) }) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(24.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (uiState.isLoading) {
-                                                CircularProgressIndicator(
-                                                    color = Color(0xFF0080FF),
-                                                    modifier = Modifier.size(28.dp),
-                                                    strokeWidth = 3.dp
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            androidx.compose.animation.AnimatedVisibility(
-                                visible = uiState.isLoading && displayItems.isNotEmpty(),
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .padding(top = 8.dp),
-                                enter = fadeIn(),
-                                exit = fadeOut()
-                            ) {
-                                Surface(
-                                    color = Color(0xCC111111),
-                                    shape = RoundedCornerShape(999.dp),
-                                    tonalElevation = 2.dp
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        CircularProgressIndicator(
-                                            color = Color(0xFF0080FF),
-                                            modifier = Modifier.size(16.dp),
-                                            strokeWidth = 2.dp
-                                        )
-                                        Text(
-                                            text = stringResource(R.string.loading),
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!isWatchedEpisodeViewAll) {
-            SortFAB(
-                onClick = { showSortSheet = true },
-                modifier = Modifier.align(Alignment.BottomEnd)
-            )
-        }
-
-        if (showSortSheet && !isWatchedEpisodeViewAll) {
-            SortBottomSheet(
-                currentSortBy = uiState.sortBy,
-                currentSortOrder = uiState.sortOrder,
-                availableGenres = availableGenres,
-                selectedGenres = uiState.selectedGenres,
-                onSortSelected = { sortBy, sortOrder ->
-                    viewModel.setSort(sortBy, sortOrder, contentType, parentId, genreId)
-                },
-                onGenreToggle = { genre ->
-                    viewModel.toggleGenreFilter(genre, contentType, parentId, genreId)
-                },
-                onClearFilters = { viewModel.clearFilters(contentType, parentId, genreId) },
-                onDismiss = { showSortSheet = false }
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun RecentlyAddedCard(
-    item: BaseItemDto,
-    mediaRepository: MediaRepository,
-    onClick: () -> Unit = {}
-) {
-    val context = LocalContext.current
-    val disablePosterEnhancers = DisableEmbyPosterEnhancers()
-    var imageUrl by remember(item.id) { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(item.id, disablePosterEnhancers) {
-        val itemId = item.id
-        if (itemId != null) {
-            try {
-                val actualItemId = if (item.type == "Episode" && !item.seriesId.isNullOrBlank()) {
-                    item.seriesId ?: itemId
-                } else {
-                    itemId
-                }
-
-                val url = mediaRepository.getImageUrl(
-                    itemId = actualItemId,
-                    width = 200,
-                    height = 300,
-                    quality = 90,
-                    enableImageEnhancers = !disablePosterEnhancers
-                ).first()
-                imageUrl = url
-            } catch (e: Exception) {
-            }
-        }
-    }
-
-    Card(
-        modifier = Modifier
-            .width(120.dp)
-            .height(180.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.Transparent
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        onClick = onClick
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Color.Gray.copy(alpha = 0.3f),
-                        RoundedCornerShape(8.dp)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = item.name?.take(2)?.uppercase() ?: stringResource(R.string.view_all_unknown_initial),
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.8f)
-                            )
-                        )
-                    )
-                    .padding(8.dp)
-            ) {
-                Text(
-                    text = item.name ?: stringResource(R.string.search_result_unknown_title),
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PosterCard(
-    item: BaseItemDto,
-    mediaRepository: MediaRepository,
-    watchedViewAll: Boolean = false,
-    onClick: () -> Unit = {}
-) {
-    val context = LocalContext.current
-    val disablePosterEnhancers = DisableEmbyPosterEnhancers()
-    var imageUrl by remember(item.id, watchedViewAll) { mutableStateOf<String?>(null) }
-    var isLoading by remember(item.id, watchedViewAll) { mutableStateOf(true) }
-
-    LaunchedEffect(item.id, disablePosterEnhancers, watchedViewAll) {
-        val itemId = item.id
-        if (itemId != null) {
-            try {
-                val actualItemId = if (item.type == "Episode" && !item.seriesId.isNullOrBlank()) {
-                    item.seriesId ?: itemId
-                } else {
-                    itemId
-                }
-
-                val url = mediaRepository.getImageUrl(
-                    itemId = actualItemId,
-                    width = 300,
-                    height = 450,
-                    quality = 90,
-                    enableImageEnhancers = !disablePosterEnhancers && !watchedViewAll
-                ).first()
-                imageUrl = url
-                isLoading = false
-            } catch (e: Exception) {
-                imageUrl = null
-                isLoading = false
-            }
-        }
-    }
-
-    val displayName = if (item.type == "Episode" && !item.seriesName.isNullOrBlank()) {
-        item.seriesName!!
-    } else {
-        item.name ?: stringResource(R.string.search_result_unknown_title)
-    }
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        WarmImageUrl(imageUrl = imageUrl, allowRgb565 = true)
-
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(2f / 3f),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = Color.Transparent
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-            onClick = onClick
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize()
-            ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(imageUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = displayName,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    placeholder = null,
-                    error = null,
-                    fallback = null
-                )
-
-                if (imageUrl == null) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color(0xFF1A1A2E),
-                                        Color(0xFF16213E)
-                                    )
-                                ),
-                                shape = RoundedCornerShape(16.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                color = Color.White.copy(alpha = 0.6f),
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Text(
-                                text = displayName.take(2).uppercase(),
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-
-                // Episode/item count badge
-                val itemCount = when {
-                    item.type == "Series" -> {
-                        when {
-                            item.userData?.unplayedItemCount != null -> item.userData?.unplayedItemCount
-                            item.episodeCount != null && item.episodeCount!! > 0 -> item.episodeCount
-                            item.recursiveItemCount != null && item.recursiveItemCount!! > 0 -> item.recursiveItemCount
-                            item.childCount != null && item.childCount!! > 0 -> item.childCount
-                            else -> null
-                        }
-                    }
-                    else -> null
-                }
-
-                val isFullyWatched = item.type == "Series" &&
-                    item.userData?.unplayedItemCount == 0
-
-                itemCount?.takeIf { it > 0 && !watchedViewAll }?.let { count ->
-                    PosterCountBadge(
-                        count = count,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 8.dp, end = 4.dp)
-                    )
-                }
-
-                if (!watchedViewAll && (isFullyWatched || (itemCount == null && item.userData?.played == true))) {
-                    WatchedIndicatorBadge(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(4.dp)
-                    )
-                }
-
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = displayName,
-            color = Color.White,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            lineHeight = 16.sp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp)
-        )
-
-        item.productionYear?.let { year ->
-            Text(
-                text = year.toString(),
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 11.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun SkeletonPosterCard() {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.05f),
-                            Color.White.copy(alpha = 0.02f)
-                        )
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                )
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.85f)
-                .height(13.dp)
-                .background(
-                    color = Color.White.copy(alpha = 0.08f),
-                    shape = RoundedCornerShape(6.dp)
-                )
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.4f)
-                .height(11.dp)
-                .background(
-                    color = Color.White.copy(alpha = 0.05f),
-                    shape = RoundedCornerShape(5.dp)
-                )
-        )
-    }
-}
-
-@Composable
-private fun SortFAB(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    FloatingActionButton(
-        onClick = onClick,
-        modifier = modifier
-            .navigationBarsPadding()
-            .padding(end = 20.dp, bottom = 20.dp)
-            .size(56.dp),
-        containerColor = Color(0xFF1A1A1A),
-        contentColor = Color.White,
-        elevation = FloatingActionButtonDefaults.elevation(
-            defaultElevation = 8.dp,
-            pressedElevation = 12.dp
-        )
-    ) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.Sort,
-            contentDescription = stringResource(R.string.view_all_sort),
-            modifier = Modifier.size(24.dp)
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-private fun SortBottomSheet(
-    currentSortBy: String,
-    currentSortOrder: String,
-    availableGenres: List<String>,
-    selectedGenres: Set<String>,
-    onSortSelected: (String, String) -> Unit,
-    onGenreToggle: (String) -> Unit,
-    onClearFilters: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = Color(0xFF0F0F0F),
-        scrimColor = Color.Black.copy(alpha = 0.7f),
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        dragHandle = {
-            BottomSheetDefaults.DragHandle(
-                color = Color.White.copy(alpha = 0.4f)
-            )
-        }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 560.dp)
-                .padding(start = 24.dp, end = 24.dp, bottom = 24.dp)
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .verticalScroll(rememberScrollState())
-        ) {
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 24.dp)
-            ) {
-                Surface(
-                    modifier = Modifier.size(40.dp),
-                    color = Color(0xFF0080FF).copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Sort,
-                            contentDescription = null,
-                            tint = Color(0xFF0080FF),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Text(
-                    text = stringResource(R.string.view_all_sort_and_filter),
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            val sortOptions = listOf(
-                SortOption("DateCreated", "Descending"),
-                SortOption("SortName", "Ascending"),
-                SortOption("SortName", "Descending"),
-                SortOption("ProductionYear", "Descending"),
-                SortOption("ProductionYear", "Ascending"),
-                SortOption("CommunityRating", "Descending"),
-                SortOption("CommunityRating", "Ascending"),
-                SortOption("Random", "Ascending")
-            )
-
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                sortOptions.forEach { option ->
-                    MediaFilterChip(
-                        label = stringResource(sortOptionLabelRes(option.sortBy, option.sortOrder)),
-                        isSelected = currentSortBy == option.sortBy && currentSortOrder == option.sortOrder,
-                        onClick = { onSortSelected(option.sortBy, option.sortOrder) }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
+                    .padding(start = 40.dp, end = 40.dp, top = 24.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        modifier = Modifier.size(36.dp),
-                        color = Color(0xFFFF9F43).copy(alpha = 0.14f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Filled.LocalOffer,
-                                contentDescription = null,
-                                tint = Color(0xFFFF9F43),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
+                if (uiState.isLibrary) {
+                    LibraryTabRow(
+                        tabs = uiState.tabs,
+                        selected = tab,
+                        contentType = contentType,
+                        onSelect = viewModel::setBrowseTab,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
                     Text(
-                        text = stringResource(R.string.view_all_genres),
+                        text = title.ifBlank { stringResource(R.string.view_all_title) },
                         color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(start = 14.dp)
                     )
                 }
+                TvClock(modifier = Modifier.padding(start = 24.dp))
+            }
+            uiState.drillTitle?.let { drillTitle ->
+                Text(
+                    text = "‹ $drillTitle",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 54.dp, bottom = 4.dp)
+                )
+            }
 
-                if (selectedGenres.isNotEmpty()) {
-                    TextButton(onClick = onClearFilters) {
-                        Text(
-                            text = stringResource(R.string.view_all_clear_filters),
-                            color = Color(0xFF3AA0FF)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(top = 8.dp)
+            ) {
+                if (heads.isNotEmpty()) {
+                    TitleIndexRail(
+                        heads = heads,
+                        activeHead = activeHead,
+                        onSelect = { head ->
+                            val index = firstIndexByHead[head] ?: return@TitleIndexRail
+                            railTarget = index
+                            scope.launch { gridState.scrollToItem(index) }
+                        },
+                        onEnterGrid = {
+                            val visible = gridState.layoutInfo.visibleItemsInfo.map { it.index }
+                            focusTarget = railTarget?.takeIf { it in visible } ?: gridState.firstVisibleItemIndex
+                            scope.launch {
+                                // 等目标卡片挂上 focusRequester 再请求焦点
+                                withFrameNanos { }
+                                runCatching { focusTargetRequester.requestFocus() }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .padding(start = 12.dp)
+                    )
+                } else {
+                    Spacer(Modifier.width(48.dp))
+                }
+
+                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    TvFocusRestoreScope {
+                        LibraryContent(
+                            uiState = uiState,
+                            items = displayItems,
+                            tab = tab,
+                            landscape = landscape,
+                            showWatchedState = !genreOverview,
+                            gridState = gridState,
+                            mediaRepository = mediaRepository,
+                            focusRequesterFor = { index ->
+                                when (index) {
+                                    focusTarget -> focusTargetRequester
+                                    0 -> firstItemRequester
+                                    else -> null
+                                }
+                            },
+                            onItemFocused = { index ->
+                                focusedIndex = index
+                                railTarget = null
+                            },
+                            onItemClick = ::openItem,
+                            onRetry = viewModel::refresh
                         )
                     }
                 }
+
+                if (showToolbar) {
+                    LibraryToolbar(
+                        unplayedOnly = uiState.unplayedOnly,
+                        genreFilterActive = uiState.selectedGenres.isNotEmpty(),
+                        onSort = { showSortDialog = true },
+                        onToggleUnplayed = viewModel::toggleUnplayedOnly,
+                        onFilter = { showGenreDialog = true },
+                        modifier = Modifier.padding(start = 8.dp, end = 16.dp, top = 8.dp)
+                    )
+                } else {
+                    Spacer(Modifier.width(40.dp))
+                }
             }
+        }
 
-            Spacer(modifier = Modifier.height(14.dp))
+        if (displayItems.isNotEmpty() && tab != LibraryBrowseTab.RECOMMENDED) {
+            Text(
+                text = "${(railTarget ?: focusedIndex ?: 0) + 1} | ${maxOf(uiState.totalItems, displayItems.size)}",
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 14.sp,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 28.dp, bottom = 14.dp)
+            )
+        }
+    }
 
-            if (availableGenres.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.view_all_no_genres),
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 14.sp
+    if (showSortDialog) {
+        SortDialog(
+            sortBy = uiState.sortBy,
+            sortOrder = uiState.sortOrder,
+            onSelect = { sortBy, sortOrder ->
+                viewModel.setSort(sortBy, sortOrder)
+                showSortDialog = false
+            },
+            onDismiss = { showSortDialog = false }
+        )
+    }
+    if (showGenreDialog) {
+        GenreFilterDialog(
+            loadGenres = viewModel::loadGenreNames,
+            selected = uiState.selectedGenres,
+            onToggle = viewModel::toggleGenreFilter,
+            onClear = viewModel::clearGenreFilters,
+            onDismiss = { showGenreDialog = false }
+        )
+    }
+}
+
+/** 中间内容区：按加载状态与页签显示骨架、错误、空状态、推荐行或条目网格。 */
+@Composable
+private fun LibraryContent(
+    uiState: ViewAllUiState,
+    items: List<BaseItemDto>,
+    tab: LibraryBrowseTab,
+    landscape: Boolean,
+    showWatchedState: Boolean,
+    gridState: LazyGridState,
+    mediaRepository: MediaRepository,
+    focusRequesterFor: (Int) -> FocusRequester?,
+    onItemFocused: (Int) -> Unit,
+    onItemClick: (BaseItemDto) -> Unit,
+    onRetry: () -> Unit
+) {
+    val minCellWidth = if (landscape) LANDSCAPE_MIN_WIDTH else POSTER_MIN_WIDTH
+    when {
+        uiState.isLoading && items.isEmpty() -> LazyVerticalGrid(
+            columns = GridCells.Adaptive(minCellWidth),
+            contentPadding = GridPadding,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            userScrollEnabled = false,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(18) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(if (landscape) 16f / 9f else 2f / 3f)
+                        .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(6.dp))
                 )
+            }
+        }
+
+        uiState.error != null && items.isEmpty() -> CenteredMessage(
+            title = stringResource(R.string.view_all_error_title),
+            message = uiState.error,
+            actionLabel = stringResource(R.string.try_again),
+            onAction = onRetry
+        )
+
+        items.isEmpty() -> CenteredMessage(
+            title = stringResource(R.string.view_all_empty_title),
+            message = stringResource(R.string.view_all_empty_message)
+        )
+
+        tab == LibraryBrowseTab.RECOMMENDED -> RecommendationRows(
+            sections = uiState.recommendationSections,
+            mediaRepository = mediaRepository,
+            onItemClick = onItemClick
+        )
+
+        else -> Box(Modifier.fillMaxSize()) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minCellWidth),
+                state = gridState,
+                contentPadding = GridPadding,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                itemsIndexed(items, key = { _, item -> viewAllItemKey(item) }) { index, item ->
+                    LibraryGridCard(
+                        item = item,
+                        mediaRepository = mediaRepository,
+                        landscape = landscape,
+                        showWatchedState = showWatchedState,
+                        focusRequester = focusRequesterFor(index),
+                        onFocused = { onItemFocused(index) },
+                        onClick = { onItemClick(item) }
+                    )
+                }
+            }
+            if (uiState.isLoading) {
+                CircularProgressIndicator(
+                    color = LibraryAccent,
+                    strokeWidth = 3.dp,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 16.dp)
+                        .size(28.dp)
+                )
+            }
+        }
+    }
+}
+
+/** 推荐页签：每个推荐理由一行横向海报。 */
+@Composable
+private fun RecommendationRows(
+    sections: List<LibraryRecommendationSection>,
+    mediaRepository: MediaRepository,
+    onItemClick: (BaseItemDto) -> Unit
+) {
+    LazyColumn(
+        contentPadding = PaddingValues(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(sections) { section ->
+            val titleRes = recommendationTitleRes(section.recommendationType)
+            val sectionTitle = if (titleRes == R.string.library_tab_recommended) {
+                stringResource(titleRes)
             } else {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                stringResource(titleRes, section.baselineName.orEmpty())
+            }
+            Column {
+                Text(
+                    text = sectionTitle,
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(start = 16.dp, bottom = 10.dp)
+                )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    availableGenres.forEach { genre ->
-                        MediaFilterChip(
-                            label = genre,
-                            isSelected = selectedGenres.contains(genre),
-                            onClick = { onGenreToggle(genre) }
+                    items(section.items, key = ::viewAllItemKey) { item ->
+                        LibraryGridCard(
+                            item = item,
+                            mediaRepository = mediaRepository,
+                            landscape = false,
+                            onClick = { onItemClick(item) },
+                            modifier = Modifier.width(POSTER_MIN_WIDTH)
                         )
                     }
                 }
@@ -932,33 +462,43 @@ private fun SortBottomSheet(
     }
 }
 
-private data class SortOption(
-    val sortBy: String,
-    val sortOrder: String
-)
-
-private fun viewAllItemKey(item: BaseItemDto): String {
-    return item.id ?: "${item.name}_${item.type}_${item.seriesId}_${item.indexNumber ?: 0}"
-}
-
-private fun ContentType.includesSeriesItems(): Boolean {
-    return this == ContentType.SERIES ||
-        this == ContentType.TVSHOWS_GENRE ||
-        this == ContentType.ALL
-}
-
-@StringRes
-private fun sortOptionLabelRes(sortBy: String, sortOrder: String): Int {
-    return when (sortBy to sortOrder) {
-        "DateCreated" to "Descending" -> R.string.view_all_sort_recently_added
-        "SortName" to "Ascending" -> R.string.view_all_sort_name_az
-        "SortName" to "Descending" -> R.string.view_all_sort_name_za
-        "ProductionYear" to "Descending" -> R.string.view_all_sort_year_newest
-        "ProductionYear" to "Ascending" -> R.string.view_all_sort_year_oldest
-        "CommunityRating" to "Descending" -> R.string.view_all_sort_rating_high
-        "CommunityRating" to "Ascending" -> R.string.view_all_sort_rating_low
-        "Random" to "Ascending",
-        "Random" to "Descending" -> R.string.library_sort_random
-        else -> R.string.view_all_sort_recently_added
+@Composable
+private fun CenteredMessage(
+    title: String,
+    message: String,
+    actionLabel: String? = null,
+    onAction: () -> Unit = {}
+) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+            Text(text = title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = message,
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            if (actionLabel != null) {
+                Button(
+                    onClick = onAction,
+                    modifier = Modifier.padding(top = 24.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = LibraryAccent),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(actionLabel, color = Color.White, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
     }
 }
+
+/** 海报最小宽度：1080p 电视（约 960dp 宽）扣除索引栏与工具栏后一行 6 张，与 Emby TV 密度一致。 */
+private val POSTER_MIN_WIDTH = 120.dp
+/** 横版卡片（单集、流派）最小宽度：一行 3–4 张。 */
+private val LANDSCAPE_MIN_WIDTH = 200.dp
+/** 留出卡片聚焦放大与描边的空间，避免被网格边缘裁掉。 */
+private val GridPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 48.dp)
+
+private fun viewAllItemKey(item: BaseItemDto): String =
+    item.id ?: "${item.name}_${item.type}_${item.seriesId}_${item.indexNumber ?: 0}"

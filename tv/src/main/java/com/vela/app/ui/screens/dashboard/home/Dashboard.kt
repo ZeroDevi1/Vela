@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.rounded.ExitToApp
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.*
@@ -1350,6 +1351,11 @@ fun Dashboard(
     }
 
     val lazyColumnState = dashboardScrollState ?: rememberLazyListState()
+    // Emby 式首页的焦点条目：立即用于标题，停稳后用于详情与背景图
+    var focusedHomeItem by remember(dashboardSessionKey) { mutableStateOf<BaseItemDto?>(null) }
+    val focusedDetailsCache = remember(dashboardSessionKey) { HashMap<String, BaseItemDto>() }
+    val focusedHomeDetails = rememberSettledDetails(focusedHomeItem, mediaRepository, focusedDetailsCache)
+    val settledHomeItem = focusedHomeDetails ?: focusedHomeItem?.takeIf { it.type !in setOf("Movie", "Series", "Episode") }
     val dashboardBringIntoViewSpec = remember {
         object : BringIntoViewSpec {
             override fun calculateScrollDistance(
@@ -1769,11 +1775,41 @@ fun Dashboard(
         }
 
         if (isNetworkAvailable) {
+            // 未开启轮播时使用 Emby TV 式首页：焦点条目的背景图铺满全屏，顶部固定信息区，横排在下方滚动
+            val embyHome = !featureCarouselEnabled
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+            ) {
+            if (embyHome) {
+                HomeFocusBackdrop(item = settledHomeItem, mediaRepository = mediaRepository)
+            }
+            Column(modifier = Modifier.fillMaxSize()) {
+            if (embyHome) {
+                HomeFocusHeader(
+                    item = focusedHomeItem,
+                    details = focusedHomeDetails,
+                    mediaRepository = mediaRepository,
+                    trailing = {
+                        HomeHeaderAccountControls(
+                            // 第一行卡片按上键的目标（focusProperties.up），没有轮播时挂在这里
+                            entryFocusRequester = heroActionEntryFocusRequester,
+                            serverName = currentServerName,
+                            serverTypeRaw = currentServerType,
+                            userImageUrl = noCarouselProfileImageUrl,
+                            onServerClick = serverSwitchDialogsState::openServers,
+                            onProfileClick = { showAccountOverview = true }
+                        )
+                    }
+                )
+            }
+            CompositionLocalProvider(LocalHomeItemFocus provides { item -> focusedHomeItem = item }) {
             LazyColumn(
                 state = lazyColumnState,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black),
+                    .fillMaxWidth()
+                    .weight(1f),
                 verticalArrangement = Arrangement.spacedBy(1.dp),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
@@ -1799,17 +1835,6 @@ fun Dashboard(
                                 onHomeReturnTargetChanged?.invoke(heroActionEntryFocusRequester)
                                 scope.launch { lazyColumnState.animateScrollToItem(0) }
                             }
-                        )
-                    }
-                } else {
-                    item(key = "no_carousel_top_header") {
-                        TopHeader(
-                            serverName = currentServerName,
-                            serverTypeRaw = currentServerType,
-                            userName = HeaderUserName,
-                            userImageUrl = noCarouselProfileImageUrl,
-                            onProfileClick = { showAccountOverview = true },
-                            onServerClick = serverSwitchDialogsState::openServers
                         )
                     }
                 }
@@ -1958,8 +1983,7 @@ fun Dashboard(
                                     null
                                 },
                                 onReturnTargetChanged = onHomeReturnTargetChanged,
-                                onItemClick = onNavigateToDetail,
-                                onNavigateToViewAll = onNavigateToViewAll
+                                onItemClick = onNavigateToDetail
                             )
 
                             if (index < libraries.lastIndex) {
@@ -2002,6 +2026,9 @@ fun Dashboard(
                         }
                     }
                 }
+            }
+            }
+            }
             }
         }
     }
@@ -2056,29 +2083,6 @@ fun Dashboard(
                 onRemoveComplete = onRemoveComplete
             )
         }
-    )
-}
-
-@Composable
-private fun TopHeader(
-    serverName: String?,
-    serverTypeRaw: String?,
-    userName: String?,
-    userImageUrl: String?,
-    onProfileClick: (() -> Unit)? = null,
-    onServerClick: (() -> Unit)? = null
-) {
-    BrandHeader(
-        serverName = serverName,
-        modifier = Modifier
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-            .padding(top = 4.dp),
-        showUserIcon = true,
-        userName = userName,
-        userImageUrl = userImageUrl,
-        userServerTypeRaw = serverTypeRaw,
-        onProfileClick = onProfileClick,
-        onServerClick = onServerClick
     )
 }
 
@@ -2157,6 +2161,45 @@ private fun BrandHeader(
         }
     }
 }
+/** Emby 式首页右上角：服务器名（切换服务器）与用户头像（账号菜单）。 */
+@Composable
+private fun HomeHeaderAccountControls(
+    entryFocusRequester: FocusRequester,
+    serverName: String?,
+    serverTypeRaw: String?,
+    userImageUrl: String?,
+    onServerClick: () -> Unit,
+    onProfileClick: () -> Unit
+) {
+    val chipShape = RoundedCornerShape(18.dp)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = serverName?.takeIf { it.isNotBlank() } ?: stringResource(R.string.dashboard_server_fallback),
+            color = Color.White.copy(alpha = 0.85f),
+            fontSize = 15.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .widthIn(max = 200.dp)
+                .focusRequester(entryFocusRequester)
+                .tvFocusHighlight(chipShape)
+                .clickable(onClick = onServerClick)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+        )
+        UserProfileAvatar(
+            imageUrl = userImageUrl,
+            serverTypeRaw = serverTypeRaw,
+            onClick = onProfileClick,
+            modifier = Modifier
+                .size(34.dp)
+                .tvFocusHighlight(CircleShape)
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AccountOverview(
@@ -2363,14 +2406,12 @@ private fun HomeMyMediaSection(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color.Black)
+        modifier = Modifier.fillMaxWidth()
     ) {
         Text(
             text = stringResource(R.string.libraries),
             fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.Medium,
             color = Color.White,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
@@ -2443,14 +2484,12 @@ private fun ContinueWatchingSection(
     val mediaRepository = remember { MediaRepositoryProvider.getInstance(context) }
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color.Black) // AMOLED black background
+        modifier = Modifier.fillMaxWidth()
     ) {
         Text(
             text = stringResource(titleRes),
             fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.Medium,
             color = Color.White,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
@@ -2527,8 +2566,7 @@ private fun ContinueWatchingSection(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(200.dp)
-                        .background(Color.Black),
+                        .height(200.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -2618,6 +2656,11 @@ private fun ContinueWatchingCard(
         }
     }
 
+    val reportFocus = LocalHomeItemFocus.current
+    var isFocused by remember(item.id) { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (isFocused) HOME_FOCUSED_CARD_SCALE else 1f, label = "continue_card_scale")
+    val cardShape = RoundedCornerShape(HOME_CARD_CORNER)
+
     Column(
         modifier = Modifier
             .width(200.dp)
@@ -2627,9 +2670,17 @@ private fun ContinueWatchingCard(
             modifier = cardModifier
                 .width(200.dp)
                 .height(120.dp)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .onFocusChanged { state ->
+                    isFocused = state.isFocused
+                    if (state.isFocused) reportFocus(item)
+                }
                 .then(item.id?.let { Modifier.tvRestorableFocus("continue:$it") } ?: Modifier)
-                .tvFocusHighlight(RoundedCornerShape(12.dp)),
-            shape = RoundedCornerShape(12.dp),
+                .border(HOME_FOCUS_BORDER, if (isFocused) HomeAccent else Color.Transparent, cardShape),
+            shape = cardShape,
             colors = CardDefaults.cardColors(
                 containerColor = Color.Transparent
             ),
@@ -2650,7 +2701,7 @@ private fun ContinueWatchingCard(
                     contentDescription = stableItem.name,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
-                    cornerRadius = 12,
+                    cornerRadius = HOME_CARD_CORNER.value.toInt(),
                     crossfadeMillis = 0,
                     mediaRepository = mediaRepository,
                     imageMetadata = item,
@@ -2677,7 +2728,7 @@ private fun ContinueWatchingCard(
                             .fillMaxWidth()
                             .height(4.dp)
                             .align(Alignment.BottomCenter),
-                        color = Color.Red,
+                        color = HomeAccent,
                         trackColor = Color.White.copy(alpha = 0.3f)
                     )
                 }
@@ -2695,9 +2746,9 @@ private fun ContinueWatchingCard(
         ) {
             Text(
                 text = itemName,
-                color = Color.White,
+                color = if (isFocused) Color.White else Color.White.copy(alpha = 0.9f),
                 fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 16.sp,
@@ -2786,8 +2837,7 @@ private fun BurstLibrarySection(
     initialFocusRequester: FocusRequester? = null,
     returnFocusRequester: FocusRequester? = null,
     onReturnTargetChanged: ((FocusRequester) -> Unit)? = null,
-    onItemClick: (BaseItemDto) -> Unit = {},
-    onNavigateToViewAll: (String, String?, String) -> Unit = { _, _, _ -> }
+    onItemClick: (BaseItemDto) -> Unit = {}
 ) {
     val libraryRowState = rememberLazyListState()
     val libraryFlingBehavior = ScrollOptimization.rememberUltraSmoothFlingBehavior()
@@ -2813,29 +2863,10 @@ private fun BurstLibrarySection(
             Text(
                 text = stringResource(R.string.dashboard_recently_added, sectionTitle),
                 fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Medium,
                 color = Color.White,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f).padding(vertical = 4.dp)
             )
-
-            IconButton(
-                onClick = {
-                    val contentType = when (section.collectionType) {
-                        "movies" -> "MOVIES"
-                        "tvshows" -> "SERIES"
-                        else -> "ALL"
-                    }
-                    onNavigateToViewAll(contentType, section.libraryId, sectionTitle)
-                },
-                modifier = Modifier.size(32.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = stringResource(R.string.dashboard_view_all),
-                    tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
         }
 
         if (section.items.isEmpty()) {
@@ -2886,6 +2917,10 @@ private fun BurstLibrarySection(
     }
 }
 
+/**
+ * 首页 / 发现页的条目卡片（Emby TV 样式）：竖版海报或横版缩略图，下方是标题与元数据。
+ * 获得焦点时放大并描绿边，同时通过 [LocalHomeItemFocus] 上报条目，驱动首页顶部信息区。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LibraryItemCard(
@@ -2904,6 +2939,7 @@ internal fun LibraryItemCard(
     val unknownTitle = stringResource(R.string.search_result_unknown_title)
     val unknownEpisode = stringResource(R.string.search_result_unknown_episode)
     val landscapeLayout = useLandscapeLayout || useWatchedEpisodeImage
+    val reportFocus = LocalHomeItemFocus.current
 
     val displayName = if (useWatchedEpisodeImage) {
         item.episodeSeriesTitle(unknownTitle, unknownEpisode)
@@ -2912,92 +2948,40 @@ internal fun LibraryItemCard(
     }
 
     var isFocused by remember(item.id) { mutableStateOf(false) }
-    var navigatingVertically by remember { mutableStateOf(false) }
-    var navJob by remember { mutableStateOf<Job?>(null) }
-    val focusManager = LocalFocusManager.current
-    val coroutineScope = rememberCoroutineScope()
+    val scale by animateFloatAsState(if (isFocused) HOME_FOCUSED_CARD_SCALE else 1f, label = "home_card_scale")
+    val cardWidth = if (landscapeLayout) 200.dp else 112.dp
+    val cardHeight = if (landscapeLayout) 120.dp else 166.dp
+    val cardShape = RoundedCornerShape(HOME_CARD_CORNER)
 
-    val expanded = isFocused && !landscapeLayout
-    val showBackdrop = expanded && !navigatingVertically
-
-    // Dimensions
-    val baseWidth = if (landscapeLayout) 200.dp else 112.dp
-    val baseHeight = if (landscapeLayout) 120.dp else 166.dp
-    val expandedWidth = 240.dp
-    val expandedHeight = 166.dp
-
-    val cardWidth by animateDpAsState(
-        targetValue = if (expanded) expandedWidth else baseWidth,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium),
-        label = "card_width"
-    )
-    val cardHeight by animateDpAsState(
-        targetValue = if (expanded) expandedHeight else baseHeight,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium),
-        label = "card_height"
-    )
-    val displayWidth = if (navigatingVertically) baseWidth else cardWidth
-    val displayHeight = if (navigatingVertically) baseHeight else cardHeight
-
-    // Preload logo for expanded state
-    val preloadLogoUrl = if (!landscapeLayout) {
-        rememberImageUrl(
-            itemId = stableItem.seriesId?.takeIf { it.isNotBlank() } ?: stableItem.id,
-            imageType = "Logo",
-            width = 400,
-            quality = 90,
-            enableImageEnhancers = false,
-            mediaRepository = mediaRepository
-        )
-    } else null
-    WarmImageUrl(imageUrl = preloadLogoUrl)
-
-    // Title area sizing
     val titleAreaHeight = if (landscapeLayout) 64.dp else 46.dp
-    val titleTopPadding = if (landscapeLayout) 10.dp else 4.dp
+    val titleTopPadding = if (landscapeLayout) 10.dp else 6.dp
     val titleFontSize = if (landscapeLayout) 16.sp else 13.sp
     val titleLineHeight = if (landscapeLayout) 18.sp else 15.sp
     val titleMaxLines = if (useWatchedEpisodeImage) 1 else if (landscapeLayout) 2 else 1
     val metadataFontSize = if (landscapeLayout) 14.sp else 12.sp
     val metadataLineHeight = if (landscapeLayout) 16.sp else 13.sp
 
-    Column(modifier = modifier.width(displayWidth)) {
+    Column(modifier = modifier.width(cardWidth)) {
         Card(
             modifier = cardModifier
-                .width(displayWidth)
-                .height(displayHeight)
+                .width(cardWidth)
+                .height(cardHeight)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
                 .onFocusChanged { state ->
                     isFocused = state.isFocused
-                    if (!state.isFocused) navigatingVertically = false
-                }
-                .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown &&
-                        isFocused && !landscapeLayout &&
-                        (event.key == Key.DirectionDown || event.key == Key.DirectionUp)
-                    ) {
-                        val direction = if (event.key == Key.DirectionDown)
-                            FocusDirection.Down else FocusDirection.Up
-                        navJob?.cancel()
-                        navigatingVertically = true
-                        navJob = coroutineScope.launch {
-                            delay(50)
-                            focusManager.moveFocus(direction)
-                            navigatingVertically = false
-                        }
-                        true
-                    } else false
+                    if (state.isFocused) reportFocus(item)
                 }
                 .then(item.id?.let { Modifier.tvRestorableFocus("item:$it") } ?: Modifier)
-                // 横版卡片获得焦点时不放大，靠描边标出遥控器位置
-                .tvFocusHighlight(RoundedCornerShape(12.dp)),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                .border(HOME_FOCUS_BORDER, if (isFocused) HomeAccent else Color.Transparent, cardShape),
+            shape = cardShape,
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1F)),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             onClick = onClick
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-
-                // Base layer: always visible primary/thumb image
                 ImageLoader(
                     itemId = stableItem.id,
                     seriesId = stableItem.seriesId,
@@ -3010,7 +2994,7 @@ internal fun LibraryItemCard(
                     contentDescription = item.name,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
-                    cornerRadius = 12,
+                    cornerRadius = HOME_CARD_CORNER.value.toInt(),
                     crossfadeMillis = 0,
                     mediaRepository = mediaRepository,
                     imageMetadata = item,
@@ -3019,93 +3003,35 @@ internal fun LibraryItemCard(
                     imageTag = null
                 )
 
-                // Expanded overlay: backdrop + gradient + logo
-                val backdropAlpha by animateFloatAsState(
-                    targetValue = if (showBackdrop) 1f else 0f,
-                    animationSpec = tween(if (showBackdrop) 280 else 150, easing = LinearOutSlowInEasing),
-                    label = "backdrop_alpha"
-                )
-                if (backdropAlpha > 0f) {
-                    Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = backdropAlpha }) {
-                        ImageLoader(
-                            itemId = stableItem.seriesId ?: stableItem.id,
-                            seriesId = stableItem.seriesId,
-                            imageType = "Backdrop",
-                            fallbackImageType = "Thumb",
-                            extraFallbackImageTypes = listOf("Primary"),
-                            preferSeriesIdForThumbBackdrop = true,
-                            preferSeriesIdForEpisodePrimary = false,
-                            contentDescription = item.name,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                            cornerRadius = 12,
-                            crossfadeMillis = 300,
-                            mediaRepository = mediaRepository,
-                            imageMetadata = item,
-                            itemType = stableItem.type,
-                            hasImageEnhancers = !disableImageEnhancers,
-                            imageTag = null
+                // 右上角状态：剧集未看集数（绿色圆标）或已看完对勾
+                val episodeCount = when {
+                    item.type == "Series" && item.userData?.unplayedItemCount != null -> item.userData?.unplayedItemCount
+                    useWatchedSeriesBadge -> null
+                    item.type == "Series" && item.episodeCount != null && item.episodeCount!! > 0 -> item.episodeCount!!
+                    item.type == "Series" && item.recursiveItemCount != null && item.recursiveItemCount!! > 0 -> item.recursiveItemCount!!
+                    else -> null
+                }
+                val isFullyWatched = item.type == "Series" && item.userData?.unplayedItemCount == 0
+
+                episodeCount?.takeIf { it > 0 }?.let { count ->
+                    if (useWatchedSeriesBadge) {
+                        PosterTextBadge(
+                            text = stringResource(R.string.count_left, count),
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 8.dp)
                         )
-                        Box(
-                            modifier = Modifier.fillMaxSize().background(
-                                Brush.verticalGradient(
-                                    colorStops = arrayOf(
-                                        0.0f to Color.Transparent,
-                                        0.4f to Color.Transparent,
-                                        0.8f to Color.Black.copy(alpha = 0.6f),
-                                        1.0f to Color.Black.copy(alpha = 0.88f)
-                                    )
-                                )
-                            )
+                    } else {
+                        HomeCountBadge(
+                            count = count,
+                            modifier = Modifier.align(Alignment.TopEnd).padding(5.dp)
                         )
-                        if (!preloadLogoUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = preloadLogoUrl,
-                                contentDescription = item.name,
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(horizontal = 10.dp, vertical = 10.dp)
-                                    .fillMaxWidth(0.82f)
-                                    .height(38.dp),
-                                alignment = Alignment.BottomStart
-                            )
-                        }
                     }
                 }
-
-                // Badges
-                if (!showBackdrop) {
-                    val episodeCount = when {
-                        item.type == "Series" && item.userData?.unplayedItemCount != null -> item.userData?.unplayedItemCount
-                        useWatchedSeriesBadge -> null
-                        item.type == "Series" && item.episodeCount != null && item.episodeCount!! > 0 -> item.episodeCount!!
-                        item.type == "Series" && item.recursiveItemCount != null && item.recursiveItemCount!! > 0 -> item.recursiveItemCount!!
-                        else -> null
-                    }
-                    val isFullyWatched = item.type == "Series" && item.userData?.unplayedItemCount == 0
-
-                    episodeCount?.takeIf { it > 0 }?.let { count ->
-                        if (useWatchedSeriesBadge) {
-                            PosterTextBadge(
-                                text = stringResource(R.string.count_left, count),
-                                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 8.dp)
-                            )
-                        } else {
-                            PosterCountBadge(
-                                count = count,
-                                modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 4.dp)
-                            )
-                        }
-                    }
-                    if (!watchedFeedStyle && (isFullyWatched || (episodeCount == null && stableItem.isWatched))) {
-                        WatchedIndicatorBadge(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp))
-                    }
+                if (!watchedFeedStyle && (isFullyWatched || (episodeCount == null && stableItem.isWatched))) {
+                    HomeWatchedBadge(modifier = Modifier.align(Alignment.TopEnd).padding(5.dp))
                 }
             }
         }
 
-        // Title area
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -3119,9 +3045,9 @@ internal fun LibraryItemCard(
             ) {
                 Text(
                     text = displayName,
-                    color = Color.White,
+                    color = if (isFocused) Color.White else Color.White.copy(alpha = 0.9f),
                     fontSize = titleFontSize,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = titleMaxLines,
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = titleLineHeight,
@@ -3132,7 +3058,7 @@ internal fun LibraryItemCard(
                 if (metadataText.isNotEmpty()) {
                     Text(
                         text = metadataText,
-                        color = Color.White.copy(alpha = 0.7f),
+                        color = Color.White.copy(alpha = 0.55f),
                         fontSize = metadataFontSize,
                         lineHeight = metadataLineHeight,
                         maxLines = 1,
@@ -3143,6 +3069,33 @@ internal fun LibraryItemCard(
                 }
             }
         }
+    }
+}
+
+/** Emby TV 的强调绿：焦点描边、角标、进度条。 */
+internal val HomeAccent = Color(0xFF52B54B)
+private val HOME_CARD_CORNER = 6.dp
+private val HOME_FOCUS_BORDER = 3.dp
+/** 获得焦点的卡片放大比例：经验值，放大后不压到相邻卡片（行内间距 10dp）。 */
+private const val HOME_FOCUSED_CARD_SCALE = 1.06f
+
+@Composable
+private fun HomeCountBadge(count: Int, modifier: Modifier) {
+    Surface(modifier = modifier, shape = CircleShape, color = HomeAccent) {
+        Text(
+            text = if (count > 99) "99+" else count.toString(),
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+        )
+    }
+}
+
+@Composable
+private fun HomeWatchedBadge(modifier: Modifier) {
+    Surface(modifier = modifier.size(22.dp), shape = CircleShape, color = HomeAccent) {
+        Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.padding(3.dp))
     }
 }
 

@@ -1069,4 +1069,9 @@
     <string name="player_settings_mpv_dynamic_brightness_summary">Adapt tone mapping per scene</string>
     <string name="player_settings_mpv_hdr_to_sdr">HDR to SDR tone mapping</string>
     <string name="player_settings_mpv_hdr_to_sdr_summary">Tone map HDR content to SDR for accurate colors</string>
+    <string name="tv_library_tab_favorites">Favorites</string>
+    <string name="tv_library_tab_collections">Collections</string>
+    <string name="tv_library_filter_unplayed">Unplayed only</string>
+    <string name="tv_detail_ends_at">Ends at %1$s</string>
+    <string name="tv_detail_seasons">Seasons</string>
 </resources>

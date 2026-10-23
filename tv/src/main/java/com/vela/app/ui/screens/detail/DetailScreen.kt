@@ -626,13 +626,14 @@ internal fun episodeHeaderText(item: BaseItemDto): String? {
 internal fun SeasonsSection(
     seriesId: String,
     mediaRepository: MediaRepository,
+    initialSeasonIndex: Int = 0,
     onEpisodeClick: (String) -> Unit = {},
     onDismiss: () -> Unit = {},
     onNextSection: () -> Unit = {}
 ) {
     var seasons by remember { mutableStateOf<List<BaseItemDto>>(emptyList()) }
     var isLoadingSeasons by remember { mutableStateOf(true) }
-    var selectedSeasonIndex by remember { mutableStateOf(0) }
+    var selectedSeasonIndex by remember(initialSeasonIndex) { mutableStateOf(initialSeasonIndex) }
     var episodes by remember { mutableStateOf<List<BaseItemDto>>(emptyList()) }
     var isLoadingEpisodes by remember { mutableStateOf(false) }
     val episodeListState = rememberLazyListState()

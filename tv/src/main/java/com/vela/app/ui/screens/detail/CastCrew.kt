@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vela.app.ui.components.tvFocusHighlight
+import com.vela.app.ui.components.tvCardFocus
 import com.vela.data.model.BaseItemDto
 import com.vela.data.model.BaseItemPerson
 import com.vela.data.repository.MediaRepository
@@ -72,7 +73,7 @@ internal fun CastCrewSection(
         item = item,
         mediaRepository = mediaRepository,
         modifier = modifier,
-        itemModifier = Modifier.tvFocusHighlight(RoundedCornerShape(12.dp)),
+        itemModifier = Modifier.tvCardFocus(RoundedCornerShape(12.dp)),
         onPersonClick = onPersonClick
     )
 }

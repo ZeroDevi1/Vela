@@ -1056,4 +1056,9 @@
     <string name="player_settings_mpv_dynamic_brightness_summary">按场景调整色调映射</string>
     <string name="player_settings_mpv_hdr_to_sdr">HDR 转 SDR 色调映射</string>
     <string name="player_settings_mpv_hdr_to_sdr_summary">将 HDR 内容色调映射到 SDR，以获得准确色彩</string>
+    <string name="tv_library_tab_favorites">收藏夹</string>
+    <string name="tv_library_tab_collections">合集</string>
+    <string name="tv_library_filter_unplayed">仅未观看</string>
+    <string name="tv_detail_ends_at">结束于 %1$s</string>
+    <string name="tv_detail_seasons">季</string>
 </resources>

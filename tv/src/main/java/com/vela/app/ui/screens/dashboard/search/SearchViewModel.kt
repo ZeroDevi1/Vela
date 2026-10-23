@@ -20,6 +20,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import com.vela.app.util.text.TitleIndex
 import java.util.Locale
 import javax.inject.Inject
 
@@ -51,6 +56,13 @@ class SearchViewModel @Inject constructor(
 
     private var searchJob: Job? = null
     private var seerrScopeId: String? = null
+
+    /**
+     * 拼音首字母搜索用的影视名目录（电影 + 剧集，不含单集），按服务器缓存，切换服务器后重新加载。
+     * 由 [initialsCatalogMutex] 保护；加载失败不缓存，下次搜索重试。
+     */
+    private var initialsCatalog: InitialsCatalog? = null
+    private val initialsCatalogMutex = Mutex()
 
     init {
         loadsuggestions()
@@ -141,12 +153,24 @@ class SearchViewModel @Inject constructor(
             emptyList()
         }
 
-        val localItems = mediaRepository.searchItems(
-            searchTerm = query,
-            selectedTypes = selectedTypes,
-            limit = 60
-        ).getOrNull()?.let { items ->
-            filterSearchItems(items, query)
+        val (serverItems, initialsItems) = coroutineScope {
+            val initials = async { searchByInitials(query, selectedTypes, activeServerId) }
+            val server = mediaRepository.searchItems(
+                searchTerm = query,
+                selectedTypes = selectedTypes,
+                limit = 60
+            ).getOrNull()?.let { items ->
+                filterSearchItems(items, query)
+            }
+            server to initials.await()
+        }
+        // 文本匹配优先，拼音首字母匹配补在其后；服务器搜索失败但首字母有结果时仍展示
+        val localItems = when {
+            serverItems == null && initialsItems.isEmpty() -> null
+            else -> {
+                val known = serverItems.orEmpty().mapNotNullTo(HashSet()) { it.id }
+                serverItems.orEmpty() + initialsItems.filter { it.id !in known }
+            }
         }
         if (localItems == null) {
             if (seerrTitles.isNotEmpty()) {
@@ -303,6 +327,68 @@ class SearchViewModel @Inject constructor(
                 )
             }
 
+    /**
+     * 拼音首字母匹配：查询为纯字母数字（如 `atm`）时，在影视名目录中找首字母串以其开头或包含它的中文标题。
+     * 只匹配含非 ASCII 字符的标题，纯英文标题已由服务器文本搜索覆盖。不支持单集。
+     *
+     * @return 按「前缀匹配优先、标题越短越靠前」排序的结果；查询不适用或目录加载失败时为空列表。
+     */
+    private suspend fun searchByInitials(
+        query: String,
+        selectedTypes: Set<SearchMediaType>,
+        activeServerId: String?
+    ): List<BaseItemDto> {
+        val key = query.lowercase(Locale.ROOT).filterNot(Char::isWhitespace)
+        if (key.isEmpty() || !key.all { it in 'a'..'z' || it in '0'..'9' }) return emptyList()
+        val types = selectedTypes
+            .filter { it != SearchMediaType.EPISODE }
+            .mapTo(HashSet()) { it.serverValue }
+        if (types.isEmpty()) return emptyList()
+
+        val entries = loadInitialsCatalog(activeServerId)
+        return entries.asSequence()
+            .filter { it.item.type in types }
+            .mapNotNull { entry ->
+                when {
+                    entry.initials.startsWith(key) -> entry to 0
+                    // 单个字母做包含匹配命中过多，只做前缀匹配
+                    key.length > 1 && entry.initials.contains(key) -> entry to 1
+                    else -> null
+                }
+            }
+            .sortedWith(compareBy<Pair<InitialsEntry, Int>> { it.second }.thenBy { it.first.initials.length })
+            .map { it.first.item }
+            .toList()
+    }
+
+    private suspend fun loadInitialsCatalog(activeServerId: String?): List<InitialsEntry> =
+        initialsCatalogMutex.withLock {
+            initialsCatalog?.takeIf { it.serverId == activeServerId }?.let { return@withLock it.entries }
+
+            val collected = mutableListOf<BaseItemDto>()
+            do {
+                val page = mediaRepository.getUserItems(
+                    includeItemTypes = "Movie,Series",
+                    recursive = true,
+                    sortBy = "SortName",
+                    sortOrder = "Ascending",
+                    limit = INITIALS_CATALOG_BATCH_SIZE,
+                    startIndex = collected.size,
+                    fields = "ProductionYear,UserData"
+                ).getOrElse { return@withLock emptyList() }
+                val batch = page.items.orEmpty()
+                collected += batch
+                val total = page.totalRecordCount ?: collected.size
+            } while (batch.isNotEmpty() && collected.size < total)
+
+            val entries = collected.mapNotNull { item ->
+                val name = item.name?.takeIf { name -> name.any { it.code >= 0x80 } } ?: return@mapNotNull null
+                InitialsEntry(item = item, initials = TitleIndex.initialsOf(name))
+            }
+            initialsCatalog = InitialsCatalog(activeServerId, entries)
+            entries
+        }
+
     private fun filterSearchItems(items: List<BaseItemDto>, query: String): List<BaseItemDto> {
         return items
             .mapNotNull { item ->
@@ -434,6 +520,10 @@ class SearchViewModel @Inject constructor(
         ).getOrElse { emptyList() }
     }
 
+    private data class InitialsEntry(val item: BaseItemDto, val initials: String)
+
+    private class InitialsCatalog(val serverId: String?, val entries: List<InitialsEntry>)
+
     private enum class SearchMatch(val priority: Int) {
         EXACT(0),
         EXACT_TEXT(1),
@@ -444,6 +534,9 @@ class SearchViewModel @Inject constructor(
     }
 
 }
+
+/** 首字母目录每批条数：经验值，兼顾单次响应体积与请求次数。 */
+private const val INITIALS_CATALOG_BATCH_SIZE = 500
 
 private fun List<BaseItemDto>.resultsFor(
     type: SearchMediaType,

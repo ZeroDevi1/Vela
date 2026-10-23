@@ -46,6 +46,10 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import com.vela.shared.R
+import com.vela.app.ui.components.TvAccentGreen
+import com.vela.app.ui.screens.dashboard.media.TvClock
+import android.text.format.DateFormat
+import java.util.Date
 import com.vela.detail.SpatializationResult
 import com.vela.player.core.ChapterMarker
 import java.util.Locale
@@ -93,11 +97,11 @@ fun ControlsOverlay(
     val overlayGradient = remember {
         Brush.verticalGradient(
             listOf(
-                Color.Black.copy(alpha = 0.65f),
+                Color.Black.copy(alpha = 0.45f),
                 Color.Transparent,
                 Color.Transparent,
-                Color.Transparent,
-                Color.Black.copy(alpha = 0.80f)
+                Color.Black.copy(alpha = 0.55f),
+                Color.Black.copy(alpha = 0.92f)
             )
         )
     }
@@ -109,6 +113,10 @@ fun ControlsOverlay(
                 .build()
         }
     }
+    val endsAtText = remember(currentPosition / 60_000, duration) {
+        if (duration <= 0 || currentPosition >= duration) null
+        else DateFormat.getTimeFormat(context).format(Date(System.currentTimeMillis() + duration - currentPosition))
+    }
 
     LaunchedEffect(Unit) {
         playPauseFocus.requestFocus()
@@ -119,186 +127,66 @@ fun ControlsOverlay(
             .fillMaxSize()
             .background(overlayGradient)
     ) {
-        Column(
+        TvClock(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 48.dp, end = 48.dp, top = 32.dp)
-                .align(Alignment.TopStart)
-        ) {
-            if (logoRequest != null) {
-                AsyncImage(
-                    model = logoRequest,
-                    contentDescription = "$title logo",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .height(28.dp)
-                        .widthIn(min = 28.dp, max = 220.dp)
-                )
-            } else if (title.isNotBlank()) {
-                Text(
-                    text = title,
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (!seasonEpisodeLabel.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(3.dp))
-                Text(
-                    text = seasonEpisodeLabel,
-                    color = Color.White.copy(alpha = 0.75f),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
+                .align(Alignment.TopEnd)
+                .padding(top = 24.dp, end = 48.dp)
+        )
 
-        Row(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (canPlayPreviousEpisode) {
-                TvIconButton(
-                    onClick = onPlayPreviousEpisode,
-                    icon = Icons.Filled.SkipPrevious,
-                    contentDescription = stringResource(R.string.player_previous_episode),
-                    size = 46.dp,
-                    iconSize = 32.dp
-                )
-            }
-
-            TvIconButton(
-                onClick = onSeekBackward,
-                icon = replayIcon(seekBackwardSeconds),
-                contentDescription = "Rewind $seekBackwardSeconds seconds",
-                size = 48.dp,
-                iconSize = 34.dp
-            )
-
-            TvPlayPauseButton(
-                isPlaying = isPlaying,
-                onClick = onPlayPause,
-                focusRequester = playPauseFocus
-            )
-
-            TvIconButton(
-                onClick = onSeekForward,
-                icon = replayforwardIcon(seekForwardSeconds),
-                contentDescription = "Forward $seekForwardSeconds seconds",
-                size = 48.dp,
-                iconSize = 34.dp,
-                iconModifier = Modifier.graphicsLayer {
-                    if (seekForwardSeconds != 5 &&
-                        seekForwardSeconds != 10 &&
-                        seekForwardSeconds != 30
-                    ) {
-                        scaleX = -1f
-                    }
-                }
-            )
-
-            if (canPlayNextEpisode) {
-                TvIconButton(
-                    onClick = onPlayNextEpisode,
-                    icon = Icons.Filled.SkipNext,
-                    contentDescription = stringResource(R.string.player_next_episode),
-                    size = 46.dp,
-                    iconSize = 32.dp
-                )
-            }
-        }
-
+        // Emby TV 式底部控制面板：标题信息 → 进度条与时间 → 操作按钮
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 48.dp)
-                .padding(bottom = 36.dp)
+                .padding(bottom = 28.dp)
                 .align(Alignment.BottomCenter),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Bottom
             ) {
-                if (isHdrEnabled) {
-                    Surface(
-                        color = Color(0xFFFFB300).copy(alpha = 0.18f),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.HdrOn,
-                            contentDescription = "HDR",
-                            tint = Color(0xFFFFB300),
-                            modifier = Modifier.padding(4.dp).size(16.dp)
+                Column(modifier = Modifier.weight(1f)) {
+                    if (logoRequest != null) {
+                        AsyncImage(
+                            model = logoRequest,
+                            contentDescription = "$title logo",
+                            contentScale = ContentScale.Fit,
+                            alignment = Alignment.CenterStart,
+                            modifier = Modifier
+                                .height(40.dp)
+                                .widthIn(min = 40.dp, max = 280.dp)
+                        )
+                    } else if (title.isNotBlank()) {
+                        Text(
+                            text = title,
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Spacer(modifier = Modifier.width(6.dp))
-                }
-                if (isSpatialAudioEnabled) {
-                    Surface(
-                        color = Color(0xFF4CAF50).copy(alpha = 0.18f),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Icon(
-                                imageVector = ImageVector.vectorResource(R.drawable.ic_spatial_audio),
-                                contentDescription = null,
-                                tint = Color(0xFF4CAF50),
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = "Spatial",
-                                color = Color(0xFF4CAF50),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
+                    if (!seasonEpisodeLabel.isNullOrBlank()) {
+                        Text(
+                            text = seasonEpisodeLabel,
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
                 }
-
-                TvSmallActionButton(
-                    onClick = onShowMediaInfo,
-                    icon = Icons.Outlined.Info,
-                    contentDescription = "Media Info",
-                    tint = Color(0xFF4CAF50)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                TvSmallActionButton(
-                    onClick = onCycleAspectRatio,
-                    icon = Icons.Outlined.AspectRatio,
-                    contentDescription = "Aspect Ratio"
-                )
-                if (showPlaybackSettingsButton) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    TvSmallActionButton(
-                        onClick = onShowPlaybackSettings,
-                        icon = Icons.Outlined.Settings,
-                        contentDescription = "Playback Settings"
+                PlaybackBadges(isHdrEnabled = isHdrEnabled, isSpatialAudioEnabled = isSpatialAudioEnabled)
+                endsAtText?.let { endsAt ->
+                    Text(
+                        text = stringResource(R.string.tv_detail_ends_at, endsAt),
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 15.sp,
+                        modifier = Modifier.padding(start = 16.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(6.dp))
-                TvSmallActionButton(
-                    onClick = onShowAudioTrackSelection,
-                    icon = Icons.Outlined.Audiotrack,
-                    contentDescription = "Audio Tracks"
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                TvSmallActionButton(
-                    onClick = onShowSubtitleTrackSelection,
-                    icon = Icons.Outlined.Subtitles,
-                    contentDescription = "Subtitles"
-                )
             }
 
             TvSeekBar(
@@ -311,141 +199,170 @@ fun ControlsOverlay(
                 onScrubStateChange = onScrubStateChange
             )
 
-            Text(
-                text = "${formatTime(currentPosition)} / ${formatTime(if (duration > 0) duration else 0L)}",
-                color = Color.White.copy(alpha = 0.85f),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
-    }
-}
-
-@Composable
-private fun TvPlayPauseButton(
-    isPlaying: Boolean,
-    onClick: () -> Unit,
-    focusRequester: FocusRequester
-) {
-    var isFocused by remember { mutableStateOf(false) }
-
-    Box(
-        modifier = Modifier
-            .size(64.dp)
-            .focusRequester(focusRequester)
-            .onFocusChanged { isFocused = it.isFocused }
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when (event.key) {
-                        Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                            onClick()
-                            true
-                        }
-                        else -> false
-                    }
-                } else false
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = formatTime(currentPosition),
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = formatTime(if (duration > 0) duration else 0L),
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 14.sp
+                )
             }
-            .focusable()
-            .background(
-                color = if (isFocused) Color.White.copy(alpha = 0.25f)
-                else Color.White.copy(alpha = 0.10f),
-                shape = CircleShape
-            )
-            .then(
-                if (isFocused) Modifier.border(2.5.dp, Color.White, CircleShape)
-                else Modifier
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        if (isPlaying) {
+
             Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(7.dp)
-                        .height(28.dp)
-                        .background(Color.White, RoundedCornerShape(3.dp))
+                if (canPlayPreviousEpisode) {
+                    OsdButton(
+                        onClick = onPlayPreviousEpisode,
+                        icon = Icons.Filled.SkipPrevious,
+                        contentDescription = stringResource(R.string.player_previous_episode)
+                    )
+                }
+                OsdButton(
+                    onClick = onSeekBackward,
+                    icon = replayIcon(seekBackwardSeconds),
+                    contentDescription = "Rewind $seekBackwardSeconds seconds"
                 )
-                Box(
-                    modifier = Modifier
-                        .width(7.dp)
-                        .height(28.dp)
-                        .background(Color.White, RoundedCornerShape(3.dp))
+                OsdButton(
+                    onClick = onPlayPause,
+                    icon = if (isPlaying) Icons.Filled.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    size = 56.dp,
+                    iconSize = 34.dp,
+                    focusRequester = playPauseFocus
+                )
+                OsdButton(
+                    onClick = onSeekForward,
+                    icon = replayforwardIcon(seekForwardSeconds),
+                    contentDescription = "Forward $seekForwardSeconds seconds",
+                    iconModifier = Modifier.graphicsLayer {
+                        if (seekForwardSeconds != 5 &&
+                            seekForwardSeconds != 10 &&
+                            seekForwardSeconds != 30
+                        ) {
+                            scaleX = -1f
+                        }
+                    }
+                )
+                if (canPlayNextEpisode) {
+                    OsdButton(
+                        onClick = onPlayNextEpisode,
+                        icon = Icons.Filled.SkipNext,
+                        contentDescription = stringResource(R.string.player_next_episode)
+                    )
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                OsdButton(
+                    onClick = onShowSubtitleTrackSelection,
+                    icon = Icons.Outlined.Subtitles,
+                    contentDescription = "Subtitles"
+                )
+                OsdButton(
+                    onClick = onShowAudioTrackSelection,
+                    icon = Icons.Outlined.Audiotrack,
+                    contentDescription = "Audio Tracks"
+                )
+                OsdButton(
+                    onClick = onCycleAspectRatio,
+                    icon = Icons.Outlined.AspectRatio,
+                    contentDescription = "Aspect Ratio"
+                )
+                if (showPlaybackSettingsButton) {
+                    OsdButton(
+                        onClick = onShowPlaybackSettings,
+                        icon = Icons.Outlined.Settings,
+                        contentDescription = "Playback Settings"
+                    )
+                }
+                OsdButton(
+                    onClick = onShowMediaInfo,
+                    icon = Icons.Outlined.Info,
+                    contentDescription = "Media Info"
                 )
             }
-        } else {
-            Icon(
-                imageVector = Icons.Rounded.PlayArrow,
-                contentDescription = "Play",
-                tint = Color.White,
-                modifier = Modifier.size(42.dp)
-            )
         }
     }
 }
 
+/** HDR / 空间音频状态标签，只在对应功能生效时显示。 */
 @Composable
-private fun TvIconButton(
+private fun PlaybackBadges(isHdrEnabled: Boolean, isSpatialAudioEnabled: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (isHdrEnabled) {
+            Surface(
+                color = Color(0xFFFFB300).copy(alpha = 0.18f),
+                shape = RoundedCornerShape(6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.HdrOn,
+                    contentDescription = "HDR",
+                    tint = Color(0xFFFFB300),
+                    modifier = Modifier.padding(4.dp).size(16.dp)
+                )
+            }
+        }
+        if (isSpatialAudioEnabled) {
+            Surface(
+                color = TvAccentGreen.copy(alpha = 0.18f),
+                shape = RoundedCornerShape(6.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = ImageVector.vectorResource(R.drawable.ic_spatial_audio),
+                        contentDescription = null,
+                        tint = TvAccentGreen,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = "Spatial",
+                        color = TvAccentGreen,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 控制面板的圆形按钮（Emby TV 样式）：获得焦点时白底黑图标并放大。
+ * 确认键在 onPreviewKeyEvent 中处理，避免按住确认键时被播放器的按键逻辑抢走。
+ */
+@Composable
+private fun OsdButton(
     onClick: () -> Unit,
     icon: ImageVector,
     contentDescription: String,
-    modifier: Modifier = Modifier,
-    tint: Color = Color.White,
-    size: Dp = 56.dp,
-    iconSize: Dp = 36.dp,
+    size: Dp = 44.dp,
+    iconSize: Dp = 26.dp,
+    focusRequester: FocusRequester? = null,
     iconModifier: Modifier = Modifier
 ) {
     var isFocused by remember { mutableStateOf(false) }
-
-    Box(
-        modifier = modifier
-            .size(size)
-            .onFocusChanged { isFocused = it.isFocused }
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when (event.key) {
-                        Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                            onClick()
-                            true
-                        }
-                        else -> false
-                    }
-                } else false
-            }
-            .focusable()
-            .background(
-                color = if (isFocused) Color.White.copy(alpha = 0.18f) else Color.Transparent,
-                shape = CircleShape
-            )
-            .then(
-                if (isFocused) Modifier.border(2.dp, Color.White.copy(alpha = 0.7f), CircleShape)
-                else Modifier
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = tint,
-            modifier = iconModifier.size(iconSize)
-        )
-    }
-}
-
-@Composable
-private fun TvSmallActionButton(
-    onClick: () -> Unit,
-    icon: ImageVector,
-    contentDescription: String,
-    tint: Color = Color.White.copy(alpha = 0.85f)
-) {
-    var isFocused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (isFocused) 1.1f else 1f, label = "osd_button_scale")
 
     Box(
         modifier = Modifier
-            .size(36.dp)
+            .size(size)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
             .onFocusChanged { isFocused = it.isFocused }
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
@@ -460,20 +377,16 @@ private fun TvSmallActionButton(
             }
             .focusable()
             .background(
-                color = if (isFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent,
+                color = if (isFocused) Color.White else Color.White.copy(alpha = 0.12f),
                 shape = CircleShape
-            )
-            .then(
-                if (isFocused) Modifier.border(1.5.dp, Color.White.copy(alpha = 0.6f), CircleShape)
-                else Modifier
             ),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = if (isFocused) Color.White else tint,
-            modifier = Modifier.size(20.dp)
+            tint = if (isFocused) Color.Black else Color.White,
+            modifier = iconModifier.size(iconSize)
         )
     }
 }
@@ -587,7 +500,7 @@ private fun TvSeekBar(
             if (renderedProgress > 0f) {
                 val progressX = trackStart.x + (trackEnd.x - trackStart.x) * renderedProgress
                 drawLine(
-                    color = Color.White,
+                    color = TvAccentGreen,
                     start = trackStart,
                     end = Offset(progressX, yOffset),
                     strokeWidth = currentTrackHeight,

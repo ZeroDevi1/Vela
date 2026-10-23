@@ -643,7 +643,8 @@ fun PlayerScreen(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(end = 24.dp, bottom = 28.dp)
+                // 只随控制层出现，放在底部控制面板上方，避免压住右侧按钮
+                .padding(end = 48.dp, bottom = CONTROLS_PANEL_CLEARANCE)
         ) {
             FilledTonalButton(
                 onClick = {
@@ -683,7 +684,11 @@ fun PlayerScreen(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(end = 24.dp, bottom = 28.dp)
+                // 控制层显示时上移到面板上方，隐藏时贴近底部
+                .padding(
+                    end = if (uiState.controlsVisible) 48.dp else 24.dp,
+                    bottom = if (uiState.controlsVisible) CONTROLS_PANEL_CLEARANCE else 28.dp
+                )
         ) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -837,3 +842,6 @@ fun PlayerScreen(
         }
     }
 }
+
+/** 底部控制面板（标题行、进度条、时间、按钮行）的总高度加间距：经验值，面板布局变化时需同步调整。 */
+private val CONTROLS_PANEL_CLEARANCE = 236.dp

@@ -59,6 +59,7 @@ import com.vela.shared.playback.UserDataRefreshEvent
 import com.vela.shared.playback.UserDataRefreshSignals
 import java.util.Locale
 import kotlinx.coroutines.launch
+import com.vela.app.ui.screens.dashboard.media.TvClock
 
 
 @Composable
@@ -80,13 +81,6 @@ fun DetailContent(
     val playerPreferences = remember { PlayerPreferences(context) }
     val preferences = remember { Preferences(context) }
     val coroutineScope = rememberCoroutineScope()
-    var userProfileImageUrl by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) {
-        val user = runCatching { mediaRepository.getCurrentUser().getOrNull() }.getOrNull()
-        userProfileImageUrl = runCatching {
-            mediaRepository.getUserProfileImageUrl(user?.primaryImageTag)
-        }.getOrNull()
-    }
     val userDataRefreshEvent by UserDataRefreshSignals.refreshEvent.collectAsState()
     val mergeVersionsEnabled by preferences.MergeVersionsEnabled()
         .collectAsState(initial = preferences.isMergeVersionsEnabled())
@@ -152,12 +146,6 @@ fun DetailContent(
     val runtimeTicks = item.runTimeTicks
     val playbackPositionTicks = item.userData?.playbackPositionTicks ?: 0L
     val isPartiallyWatched = runtimeTicks != null && playbackPositionTicks > 0L && playbackPositionTicks < runtimeTicks
-    val playButtonText = if (isPartiallyWatched) {
-        val remainingTicks = (runtimeTicks - playbackPositionTicks).coerceAtLeast(0L)
-        "${CodecUtils.formatRuntime(remainingTicks)} left"
-    } else {
-        "Play"
-    }
     val logoFallbackTitle = if (isEpisode) {
         item.seriesName?.takeIf { it.isNotBlank() }
             ?: item.name?.takeIf { it.isNotBlank() }
@@ -343,13 +331,6 @@ fun DetailContent(
             }
     }
 
-    val moreFromSeasonTitle = remember(item.seasonName, item.parentIndexNumber) {
-        val seasonLabel = item.parentIndexNumber?.let { "Season $it" }
-            ?: item.seasonName?.takeIf { it.isNotBlank() }
-            ?: "Season"
-        "More from $seasonLabel"
-    }
-
     val baseVideoOptions = remember(effectiveMediaStreams) { buildVideoOptions(effectiveMediaStreams) }
     val videoFallbackLabel = stringResource(R.string.detail_video_fallback)
     val smallFileSizeLabel = stringResource(R.string.detail_file_size_under_1_mb)
@@ -453,12 +434,60 @@ fun DetailContent(
         }
     }
 
-    val playFocusRequester = remember { FocusRequester() }
-    val favoriteFocusRequester = remember { FocusRequester() }
-    val watchedFocusRequester = remember { FocusRequester() }
-    val profileFocusRequester = remember { FocusRequester() }
-    var contentPanelPage by remember { mutableStateOf(0) }
-    val showContentPanel = contentPanelPage > 0
+    val primaryActionRequester = remember(item.id) { FocusRequester() }
+    // 选集面板打开时选中的季；null 表示面板关闭
+    var seasonPanelIndex by remember(item.id) { mutableStateOf<Int?>(null) }
+    var seasons by remember(item.id) { mutableStateOf<List<BaseItemDto>>(emptyList()) }
+    val endsAtText = if (isSeries) null else rememberEndsAtText(runtimeTicks, playbackPositionTicks)
+    val playLabel = stringResource(if (isPartiallyWatched) R.string.resume else R.string.play)
+    val watchedLabel = stringResource(R.string.watched)
+    val favoriteLabel = stringResource(R.string.favorite)
+
+    LaunchedEffect(item.id, isSeries) {
+        val seriesId = item.id
+        seasons = if (isSeries && seriesId != null) {
+            mediaRepository.getSeasons(seriesId).getOrNull().orEmpty().sortedBy { it.indexNumber ?: 0 }
+        } else {
+            emptyList()
+        }
+    }
+
+    // 进入详情页时焦点落在主操作按钮上（播放 / 已观看）
+    LaunchedEffect(item.id) {
+        withFrameNanos { }
+        runCatching { primaryActionRequester.requestFocus() }
+    }
+
+    val actions = buildList {
+        if (!isSeries) {
+            add(
+                DetailAction(
+                    icon = Icons.Rounded.PlayArrow,
+                    label = playLabel,
+                    onClick = {
+                        val (selectedAudioStreamIndex, selectedSubtitleStreamIndex) =
+                            persistTrackSelection(audioOption = selectedAudio, subtitleOption = selectedSubtitle)
+                        onPlayClick(selectedAudioStreamIndex, selectedSubtitleStreamIndex)
+                    }
+                )
+            )
+        }
+        add(DetailAction(Icons.Rounded.Check, watchedLabel, active = isWatched, onClick = ::toggleWatched))
+        add(
+            DetailAction(
+                icon = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                label = favoriteLabel,
+                active = isFavorite,
+                onClick = ::toggleFavorite
+            )
+        )
+    }
+    val moreFromSeasonLabel = item.parentIndexNumber
+        ?.let { stringResource(R.string.detail_more_from_season, it) }
+        ?: stringResource(
+            R.string.detail_more_from_season_named,
+            item.seasonName?.takeIf { it.isNotBlank() } ?: stringResource(R.string.detail_season_fallback)
+        )
 
     Box(
         modifier = Modifier
@@ -483,21 +512,20 @@ fun DetailContent(
             }
         )
 
+        // Emby TV 的详情页背景整体压暗，左侧与下方再加深，保证文字和横排清晰
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.horizontalGradient(
                         colorStops = arrayOf(
-                            0.0f to Color.Black.copy(alpha = 0.35f),
-                            0.20f to Color.Black.copy(alpha = 0.20f),
-                            0.45f to Color.Black.copy(alpha = 0.04f),
-                            1.0f to Color.Transparent
+                            0.0f to Color.Black.copy(alpha = 0.9f),
+                            0.5f to Color.Black.copy(alpha = 0.65f),
+                            1.0f to Color.Black.copy(alpha = 0.35f)
                         )
                     )
                 )
         )
-
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -505,171 +533,84 @@ fun DetailContent(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
                             0.0f to Color.Transparent,
-                            0.55f to Color.Transparent,
-                            0.72f to Color.Black.copy(alpha = 0.22f),
-                            0.88f to Color.Black.copy(alpha = 0.55f),
-                            1.0f to Color.Black.copy(alpha = 0.80f)
+                            0.55f to Color.Black.copy(alpha = 0.3f),
+                            1.0f to Color.Black.copy(alpha = 0.9f)
                         )
                     )
                 )
         )
 
-        // User profile avatar
-        var profileFocused by remember { mutableStateOf(false) }
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 24.dp, end = 32.dp)
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(
-                    if (profileFocused) Color.White.copy(alpha = 0.3f)
-                    else Color.White.copy(alpha = 0.12f)
-                )
-                .focusRequester(profileFocusRequester)
-                .onFocusChanged { profileFocused = it.isFocused }
-                .focusProperties {
-                    down = if (isSeries) watchedFocusRequester else playFocusRequester
-                }
-                .focusable(),
-            contentAlignment = Alignment.Center
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 56.dp, bottom = 48.dp)
         ) {
-            if (!userProfileImageUrl.isNullOrBlank()) {
-                JellyfinPosterImage(
-                    imageUrl = userProfileImageUrl,
-                    contentDescription = "User",
-                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                    context = context,
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Rounded.Person,
-                    contentDescription = "User",
-                    tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-
-        AnimatedVisibility(
-            visible = !showContentPanel,
-            modifier = Modifier.align(Alignment.BottomStart),
-            enter = fadeIn(tween(300)),
-            exit = fadeOut(tween(200))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth(0.58f)
-                    .padding(start = 40.dp, bottom = 36.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                    if (!genresText.isNullOrBlank()) {
-                        Text(
-                            text = genresText.replace(", ", " • "),
-                            fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    if (!logoImageUrl.isNullOrBlank() && !logoLoadError) {
-                        JellyfinPosterImage(
-                            imageUrl = logoImageUrl,
-                            contentDescription = item.name,
-                            modifier = Modifier
-                                .fillMaxWidth(0.8f)
-                                .height(56.dp),
-                            context = context,
-                            contentScale = ContentScale.Fit,
-                            alignment = Alignment.CenterStart,
-                            onErrorStateChange = { hasError ->
-                                logoLoadError = hasError
-                            }
-                        )
-                    } else if (showTitleFallback) {
-                        Text(
-                            text = logoFallbackTitle,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            lineHeight = 28.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    if (isEpisode) {
-                        episodeHeaderText?.let { header ->
+            item(key = "hero") {
+                Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+                    DetailPoster(item = item, mediaRepository = mediaRepository)
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (!logoImageUrl.isNullOrBlank() && !logoLoadError) {
+                            JellyfinPosterImage(
+                                imageUrl = logoImageUrl,
+                                contentDescription = item.name,
+                                modifier = Modifier
+                                    .fillMaxWidth(0.6f)
+                                    .height(64.dp),
+                                context = context,
+                                contentScale = ContentScale.Fit,
+                                alignment = Alignment.CenterStart,
+                                onErrorStateChange = { hasError -> logoLoadError = hasError }
+                            )
+                        } else if (showTitleFallback) {
                             Text(
-                                text = header,
-                                fontSize = 11.sp,
-                                color = Color.White.copy(alpha = 0.85f),
+                                text = logoFallbackTitle,
+                                fontSize = 30.sp,
                                 fontWeight = FontWeight.SemiBold,
+                                color = Color.White,
+                                lineHeight = 34.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        if (isEpisode) {
+                            episodeHeaderText?.let { header ->
+                                Text(
+                                    text = header,
+                                    fontSize = 18.sp,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        DetailMetadataRow(item = item, endsAtText = endsAtText)
+
+                        if (!genresText.isNullOrBlank()) {
+                            Text(
+                                text = genresText.replace(", ", " / "),
+                                fontSize = 14.sp,
+                                color = Color.White.copy(alpha = 0.7f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                    }
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        item.productionYear?.let { year ->
+                        item.overview?.takeIf { it.isNotBlank() }?.let { overviewText ->
                             Text(
-                                text = year.toString(),
-                                fontSize = 12.sp,
-                                color = Color.White.copy(alpha = 0.9f),
-                                fontWeight = FontWeight.Medium
+                                text = overviewText,
+                                fontSize = 14.sp,
+                                lineHeight = 21.sp,
+                                color = Color.White.copy(alpha = 0.85f),
+                                maxLines = 4,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 4.dp)
                             )
                         }
 
-                        item.runTimeTicks?.let { ticks ->
-                            Text(
-                                text = "• ${CodecUtils.formatRuntime(ticks)}",
-                                fontSize = 12.sp,
-                                color = Color.White.copy(alpha = 0.9f),
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-
-                        val officialRatingLabel = item.officialRating?.takeIf { it.isNotBlank() } ?: "NR"
-                        Surface(
-                            color = Color.Transparent,
-                            shape = RoundedCornerShape(3.dp),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.6f))
-                        ) {
-                            Text(
-                                text = officialRatingLabel,
-                                fontSize = 11.sp,
-                                color = Color.White.copy(alpha = 0.9f),
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                            )
-                        }
-                    }
-
-                    val overviewText = item.overview?.takeIf { it.isNotBlank() }
-                    if (overviewText != null) {
-                        Text(
-                            text = overviewText,
-                            fontSize = 13.sp,
-                            lineHeight = 19.sp,
-                            color = Color.White,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 2.dp)
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.padding(top = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
                         if (directors.isNotEmpty()) {
                             DirectorCreditRow(
                                 label = "Director:",
@@ -678,202 +619,147 @@ fun DetailContent(
                             )
                         }
 
-                        item.communityRating?.let { rating ->
-                            Row(
-                                verticalAlignment = Alignment.Bottom,
-                                horizontalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                Text(
-                                    text = String.format(Locale.US, "%.1f", rating),
-                                    fontSize = 18.sp,
-                                    color = Color(0xFFFFC107),
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "/10",
-                                    fontSize = 11.sp,
-                                    color = Color.White.copy(alpha = 0.5f),
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.padding(bottom = 1.dp)
-                                )
-                            }
+                        if (!isSeries) {
+                            TrackSection(
+                                displayedSelectedVideo = displayedSelectedVideo,
+                                videoOptions = videoOptions,
+                                videoInlineMetaText = videoInlineMetaText,
+                                selectedAudio = selectedAudio,
+                                audioOptions = audioOptions,
+                                selectedSubtitle = selectedSubtitle,
+                                subtitleOptions = subtitleOptions,
+                                onVideoOptionSelected = onVideoOptionSelected,
+                                onAudioOptionSelected = onAudioOptionSelected,
+                                onSubtitleOptionSelected = onSubtitleOptionSelected
+                            )
                         }
-                    }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    TrackSection(
-                        displayedSelectedVideo = displayedSelectedVideo,
-                        videoOptions = videoOptions,
-                        videoInlineMetaText = videoInlineMetaText,
-                        selectedAudio = selectedAudio,
-                        audioOptions = audioOptions,
-                        selectedSubtitle = selectedSubtitle,
-                        subtitleOptions = subtitleOptions,
-                        onVideoOptionSelected = onVideoOptionSelected,
-                        onAudioOptionSelected = onAudioOptionSelected,
-                        onSubtitleOptionSelected = onSubtitleOptionSelected
-                    )
-
-                    if (isSeries) {
-                        SeriesHeroActions(
-                            isFavorite = isFavorite,
-                            isWatched = isWatched,
-                            watchedFocusRequester = watchedFocusRequester,
-                            favoriteFocusRequester = favoriteFocusRequester,
-                            onWatchedClick = ::toggleWatched,
-                            onFavoriteClick = ::toggleFavorite,
-                            onDownPressed = { contentPanelPage = 1 }
-                        )
-                    } else {
-                        DetailHeroActions(
-                            playButtonText = playButtonText,
-                            isFavorite = isFavorite,
-                            playFocusRequester = playFocusRequester,
-                            favoriteFocusRequester = favoriteFocusRequester,
-                            onPlayClick = {
-                                val (selectedAudioStreamIndex, selectedSubtitleStreamIndex) =
-                                    persistTrackSelection(
-                                        audioOption = selectedAudio,
-                                        subtitleOption = selectedSubtitle
-                                    )
-                                onPlayClick(selectedAudioStreamIndex, selectedSubtitleStreamIndex)
-                            },
-                            onFavoriteClick = ::toggleFavorite,
-                            onDownPressed = { contentPanelPage = 1 }
+                        DetailActionRow(
+                            actions = actions,
+                            firstFocusRequester = primaryActionRequester,
+                            modifier = Modifier.padding(top = 12.dp)
                         )
                     }
                 }
-        }
-
-        AnimatedVisibility(
-            visible = showContentPanel,
-            enter = fadeIn(tween(300)),
-            exit = fadeOut(tween(200))
-        ) {
-            BackHandler {
-                contentPanelPage = 0
             }
 
-            when {
-                isSeries && contentPanelPage == 1 -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.92f))
-                            .padding(horizontal = 48.dp, vertical = 32.dp)
-                    ) {
-                        item.id?.let { seriesId ->
-                            SeasonsSection(
-                                seriesId = seriesId,
-                                mediaRepository = mediaRepository,
-                                onEpisodeClick = onSimilarItemClick,
-                                onDismiss = { contentPanelPage = 0 },
-                                onNextSection = { contentPanelPage = 2 }
-                            )
-                        }
-                    }
+            if (isSeries && seasons.isNotEmpty()) {
+                item(key = "seasons") {
+                    SeasonPosterRow(
+                        seasons = seasons,
+                        mediaRepository = mediaRepository,
+                        onSeasonClick = { index -> seasonPanelIndex = index }
+                    )
                 }
+            }
 
-                isSeries && contentPanelPage >= 2 -> {
-                    val castListState = rememberLazyListState()
-                    val castIsAtTop = remember {
-                        derivedStateOf {
-                            castListState.firstVisibleItemIndex == 0 &&
-                                castListState.firstVisibleItemScrollOffset == 0
-                        }
-                    }
-                    LazyColumn(
-                        state = castListState,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.92f))
-                            .onPreviewKeyEvent { event ->
-                                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp && castIsAtTop.value) {
-                                    contentPanelPage = 1
-                                    true
-                                } else {
-                                    false
-                                }
-                            },
-                        contentPadding = PaddingValues(horizontal = 48.dp, vertical = 32.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        item(key = "cast") {
-                            CastCrewSection(
-                                item = item,
-                                mediaRepository = mediaRepository,
-                                onPersonClick = onPersonClick
-                            )
-                        }
-
-                        item(key = "recs") {
-                            Recommendations(
-                                item = item,
-                                directors = directors,
-                                mediaRepository = mediaRepository,
-                                onItemClick = onSimilarItemClick
-                            )
-                        }
-                    }
+            if (isEpisode && moreFromSeasonEpisodes.isNotEmpty()) {
+                item(key = "more_from_season") {
+                    MoreFromSeasonSection(
+                        episodes = moreFromSeasonEpisodes,
+                        mediaRepository = mediaRepository,
+                        title = moreFromSeasonLabel,
+                        onEpisodeClick = onSimilarItemClick
+                    )
                 }
+            }
 
-                else -> {
-                    val contentListState = rememberLazyListState()
-                    val isAtTop = remember {
-                        derivedStateOf {
-                            contentListState.firstVisibleItemIndex == 0 &&
-                                contentListState.firstVisibleItemScrollOffset == 0
-                        }
-                    }
-                    LazyColumn(
-                        state = contentListState,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.90f))
-                            .onPreviewKeyEvent { event ->
-                                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp && isAtTop.value) {
-                                    contentPanelPage = 0
-                                    true
-                                } else {
-                                    false
-                                }
-                            },
-                        contentPadding = PaddingValues(horizontal = 48.dp, vertical = 32.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        if (isEpisode && moreFromSeasonEpisodes.isNotEmpty()) {
-                            item(key = "more_from_season") {
-                                MoreFromSeasonSection(
-                                    episodes = moreFromSeasonEpisodes,
-                                    mediaRepository = mediaRepository,
-                                    title = moreFromSeasonTitle,
-                                    onEpisodeClick = onSimilarItemClick
-                                )
-                            }
-                        }
+            item(key = "cast") {
+                CastCrewSection(
+                    item = item,
+                    mediaRepository = mediaRepository,
+                    onPersonClick = onPersonClick
+                )
+            }
 
-                        item(key = "cast") {
-                            CastCrewSection(
-                                item = item,
-                                mediaRepository = mediaRepository,
-                                onPersonClick = onPersonClick
-                            )
-                        }
+            item(key = "recs") {
+                Recommendations(
+                    item = item,
+                    directors = directors,
+                    mediaRepository = mediaRepository,
+                    onItemClick = onSimilarItemClick
+                )
+            }
+        }
 
-                        item(key = "recs") {
-                            Recommendations(
-                                item = item,
-                                directors = directors,
-                                mediaRepository = mediaRepository,
-                                onItemClick = onSimilarItemClick
-                            )
-                        }
-                    }
+        TvClock(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 20.dp, end = 40.dp)
+        )
+
+        // 选集面板：从「季」横排进入，返回键关闭
+        AnimatedVisibility(
+            visible = seasonPanelIndex != null,
+            enter = fadeIn(tween(250)),
+            exit = fadeOut(tween(200))
+        ) {
+            BackHandler { seasonPanelIndex = null }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.94f))
+                    .padding(horizontal = 48.dp, vertical = 32.dp)
+            ) {
+                item.id?.let { seriesId ->
+                    SeasonsSection(
+                        seriesId = seriesId,
+                        mediaRepository = mediaRepository,
+                        initialSeasonIndex = seasonPanelIndex ?: 0,
+                        onEpisodeClick = onSimilarItemClick,
+                        onDismiss = { seasonPanelIndex = null }
+                    )
                 }
             }
         }
     }
+}
+
+/** 「年份 · 时长 · 分级 · ★评分 · 结束于 HH:mm」，缺失的项省略；分级用描边小标签。 */
+@Composable
+private fun DetailMetadataRow(item: BaseItemDto, endsAtText: String?) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(top = 2.dp)
+    ) {
+        val startYear = item.productionYear ?: item.premiereDate?.take(4)?.toIntOrNull()
+        val years = when {
+            startYear == null -> null
+            item.type == "Series" -> item.endDate?.take(4)?.toIntOrNull()
+                ?.takeIf { it != startYear }
+                ?.let { "$startYear - $it" } ?: startYear.toString()
+            else -> startYear.toString()
+        }
+        years?.let { MetadataText(it) }
+        item.runTimeTicks?.takeIf { it > 0 && item.type != "Series" }?.let { MetadataText(CodecUtils.formatRuntime(it)) }
+        item.officialRating?.takeIf { it.isNotBlank() }?.let { rating ->
+            Surface(
+                color = Color.Transparent,
+                shape = RoundedCornerShape(3.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.6f))
+            ) {
+                Text(
+                    text = rating,
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.9f),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                )
+            }
+        }
+        item.communityRating?.takeIf { it > 0 }?.let { rating ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Star, contentDescription = null, tint = Color(0xFFFFC107), modifier = Modifier.size(16.dp))
+                MetadataText(String.format(Locale.US, "%.1f", rating), Modifier.padding(start = 2.dp))
+            }
+        }
+        endsAtText?.let { MetadataText(it) }
+    }
+}
+
+@Composable
+private fun MetadataText(text: String, modifier: Modifier = Modifier) {
+    Text(text = text, fontSize = 15.sp, color = Color.White.copy(alpha = 0.85f), modifier = modifier)
 }
 
 private fun List<BaseItemDto>.withUserDataRefresh(
