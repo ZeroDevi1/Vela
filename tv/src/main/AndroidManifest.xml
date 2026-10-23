@@ -22,10 +22,22 @@
     <uses-feature
         android:name="android.software.leanback"
         android:required="false" />
+    <!-- 电视、投影和智能屏通常没有触摸屏，部分机型只有有线网卡；
+         ACCESS_WIFI_STATE 会隐式要求 wifi 特性，厂商安装器据此拒装 -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.faketouch"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.wifi"
+        android:required="false" />
 
     <application
         android:name=".VelaApplication"
         android:allowBackup="true"
+        android:banner="@drawable/tv_banner"
         android:largeHeap="true"
         android:enableOnBackInvokedCallback="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -48,12 +60,13 @@
                 android:value="true" />
         </service>
         
+        <!-- 蓝牙遥控器 / 键盘接入会触发 keyboard、navigation 变化，避免播放中 Activity 被重建 -->
         <activity
             android:name=".ui.activity.VelaActivity"
             android:exported="true"
             android:theme="@style/Theme.Vela.Splash"
             android:launchMode="singleTop"
-            android:configChanges="orientation|screenSize|keyboardHidden">
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

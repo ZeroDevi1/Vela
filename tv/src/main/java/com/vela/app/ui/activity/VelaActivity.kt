@@ -110,6 +110,8 @@ class VelaActivity : ComponentActivity() {
 
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        // 电视没有通知栏，首启弹权限框只会挡住遥控器焦点；前台下载服务不依赖该权限
+        if (packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)) return
 
         if (appPrefs.getBoolean(KEY_NOTIFICATION_PERMISSION_PROMPTED, false)) return
 

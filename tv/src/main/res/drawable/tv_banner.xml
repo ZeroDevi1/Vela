@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Leanback 启动器横幅，规格 320x180dp（16:9）；部分厂商启动器缺少 banner 时不展示应用入口。
+     layer-list 的尺寸取各层最大值，所以由背景 shape 的 <size> 决定 16:9，Logo 居中留白。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <size
+                android:width="320dp"
+                android:height="180dp" />
+            <solid android:color="#0A0A0A" />
+        </shape>
+    </item>
+    <item
+        android:drawable="@drawable/vela_logo"
+        android:gravity="center"
+        android:width="196dp"
+        android:height="148dp" />
+</layer-list>
