@@ -53,6 +53,11 @@ import com.vela.shared.util.image.JellyfinPosterImage
 import com.vela.shared.util.image.imageTagFor
 import com.vela.shared.util.image.rememberImageUrl
 
+/**
+ * 详情页的相似作品横排。
+ *
+ * @param itemModifier 加在每张媒体库作品卡片的点击区域之前；TV 端用它绘制遥控器焦点高亮，手机端保持默认。
+ */
 @Composable
 fun SimilarItemsSection(
     similarItems: List<BaseItemDto>,
@@ -60,7 +65,8 @@ fun SimilarItemsSection(
     onItemClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     title: String? = null,
-    seerrItems: List<SeerrRecommendationTitle> = emptyList()
+    seerrItems: List<SeerrRecommendationTitle> = emptyList(),
+    itemModifier: Modifier = Modifier
 ) {
     if (similarItems.isEmpty() && seerrItems.isEmpty()) return
     val sectionTitle = title ?: stringResource(R.string.detail_similar_items_title)
@@ -89,6 +95,7 @@ fun SimilarItemsSection(
                 SimilarTitleCard(
                     item = similarItem,
                     mediaRepository = mediaRepository,
+                    modifier = itemModifier,
                     onClick = {
                         similarItem.id?.let(onItemClick)
                     }
@@ -130,6 +137,7 @@ private fun LazyListScope.seerrTitleItems(
 private fun SimilarTitleCard(
     item: BaseItemDto,
     mediaRepository: MediaRepository,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -155,6 +163,7 @@ private fun SimilarTitleCard(
     Column(
         modifier = Modifier
             .width(116.dp)
+            .then(modifier)
             .clickable(
                 enabled = !item.id.isNullOrBlank(),
                 onClick = onClick

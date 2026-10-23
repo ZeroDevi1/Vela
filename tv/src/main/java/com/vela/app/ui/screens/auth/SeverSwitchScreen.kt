@@ -62,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -78,6 +79,7 @@ import coil3.compose.AsyncImage
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.vela.app.ui.components.tvFocusHighlight
 import com.vela.shared.R
 
 import com.vela.data.repository.AuthRepository
@@ -319,6 +321,8 @@ private fun AmoledDialogFrame(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.76f))
+                // 遮罩与面板的 clickable 只用于拦截触摸，不能成为遥控器的隐形焦点
+                .focusProperties { canFocus = false }
                 .clickable(
                     enabled = dismissOnRequest,
                     indication = null,
@@ -353,6 +357,7 @@ private fun AmoledDialogFrame(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .focusProperties { canFocus = false }
                         .clickable(
                             indication = null,
                             interactionSource = sheetInteractionSource
@@ -458,6 +463,7 @@ internal fun ServerSwitchDialog(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .tvFocusHighlight()
                                 .clickable(enabled = clickGroup) {
                                     if (hasMultipleUsers) {
                                         onOpenServerUsers(group.serverName, group.users)
@@ -465,7 +471,7 @@ internal fun ServerSwitchDialog(
                                         singleUser?.let(onServerSelected)
                                     }
                                 }
-                                .padding(vertical = 12.dp),
+                                .padding(horizontal = 8.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
@@ -521,6 +527,7 @@ internal fun ServerSwitchDialog(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         if (showRemoveAction && singleUser != null) {
                                             IconButton(
+                                                modifier = Modifier.tvFocusHighlight(CircleShape),
                                                 enabled = !isSwitching,
                                                 onClick = { onRequestRemoveServer(singleUser) }
                                             ) {
@@ -556,12 +563,13 @@ internal fun ServerSwitchDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (showCloseAction) {
-                    TextButton(onClick = onDismiss) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.tvFocusHighlight(CircleShape)) {
                         Text(stringResource(R.string.settings_close), color = Color(0xFFD0D0D0))
                     }
                 }
 
                 TextButton(
+                    modifier = Modifier.tvFocusHighlight(CircleShape),
                     enabled = !isSwitching,
                     onClick = onAddServer
                 ) {
@@ -612,6 +620,8 @@ internal fun UserSwitchDialog(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.76f))
+                // 遮罩与面板的 clickable 只用于拦截触摸，不能成为遥控器的隐形焦点
+                .focusProperties { canFocus = false }
                 .clickable(
                     enabled = dismissOnRequest,
                     indication = null,
@@ -646,6 +656,7 @@ internal fun UserSwitchDialog(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .focusProperties { canFocus = false }
                         .clickable(
                             indication = null,
                             interactionSource = sheetInteractionSource
@@ -802,6 +813,7 @@ internal fun UserSwitchDialog(
                             Spacer(modifier = Modifier.height(28.dp))
 
                             OutlinedButton(
+                                modifier = Modifier.tvFocusHighlight(CircleShape),
                                 enabled = !isSwitching,
                                 onClick = onAddUser,
                                 shape = RoundedCornerShape(14.dp),
@@ -842,6 +854,8 @@ private fun WhoWatchingScrollIndicator(
 
     Box(
         modifier = modifier
+            // 滚动提示仅供触摸；遥控器在卡片间移动时列表会自动滚动
+            .focusProperties { canFocus = false }
             .clickable(
                 indication = null,
                 interactionSource = interactionSource,
@@ -880,11 +894,14 @@ private fun WhoWatchingUserCard(
     val interactionSource = remember { MutableInteractionSource() }
 
     Column(
-        modifier = modifier.clickable(
-            enabled = canSelect,
-            indication = null,
-            interactionSource = interactionSource
-        ) { onUserSelected(user) },
+        modifier = modifier
+            .tvFocusHighlight(RoundedCornerShape(16.dp))
+            .clickable(
+                enabled = canSelect,
+                indication = null,
+                interactionSource = interactionSource
+            ) { onUserSelected(user) }
+            .padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
@@ -910,7 +927,8 @@ private fun WhoWatchingUserCard(
                     onClick = { onRequestRemoveUser(user) },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .size(28.dp),
+                        .size(28.dp)
+                        .tvFocusHighlight(CircleShape),
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = Color(0xCC1B2133),
                         contentColor = Color(0xFFFF7B7B),
@@ -990,6 +1008,7 @@ internal fun RemoveServerConfirmDialog(
         },
         confirmButton = {
             TextButton(
+                modifier = Modifier.tvFocusHighlight(CircleShape),
                 enabled = !isRemoving,
                 onClick = onConfirm
             ) {
@@ -1006,6 +1025,7 @@ internal fun RemoveServerConfirmDialog(
         },
         dismissButton = {
             TextButton(
+                modifier = Modifier.tvFocusHighlight(CircleShape),
                 enabled = !isRemoving,
                 onClick = onDismiss
             ) {

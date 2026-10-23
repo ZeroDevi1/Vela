@@ -24,6 +24,8 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import coil3.compose.AsyncImage
 import coil3.request.*
+import com.vela.app.ui.components.tvFocusHighlight
+import com.vela.app.ui.components.tvRestorableFocus
 import kotlinx.coroutines.flow.first
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -341,7 +343,9 @@ private fun VisualLibraryCard(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1.2f),
+                .aspectRatio(1.2f)
+                .then(library.id?.let { Modifier.tvRestorableFocus("library:$it") } ?: Modifier)
+                .tvFocusHighlight(RoundedCornerShape(16.dp)),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
                 containerColor = Color.Transparent

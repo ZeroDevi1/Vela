@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -62,6 +63,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import com.vela.app.BuildConfig
+import com.vela.app.ui.components.tvFocusHighlight
+import com.vela.app.ui.components.tvInitialFocus
 import com.vela.data.update.AUTO_DOWNLOAD_MIRROR_ID
 import com.vela.data.update.CUSTOM_DOWNLOAD_MIRROR_ID
 import com.vela.data.update.DIRECT_DOWNLOAD_MIRROR_ID
@@ -109,7 +112,7 @@ fun AboutScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBackPressed) {
+                    IconButton(onClick = onBackPressed, modifier = Modifier.tvFocusHighlight(CircleShape)) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = stringResource(R.string.cd_back_button),
@@ -129,7 +132,8 @@ fun AboutScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp)
+                .tvInitialFocus(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(bottom = 96.dp)
         ) {
@@ -246,7 +250,8 @@ private fun AboutHeader(
             color = AboutAccent.copy(alpha = 0.14f),
             shape = RoundedCornerShape(999.dp),
             border = BorderStroke(1.dp, AboutAccent.copy(alpha = 0.28f)),
-            onClick = onVersionClick
+            onClick = onVersionClick,
+            modifier = Modifier.tvFocusHighlight(CircleShape)
         ) {
             Text(
                 text = stringResource(R.string.about_version_chip, BuildConfig.VERSION_NAME),
@@ -291,6 +296,7 @@ private fun BrandIconButton(
         modifier = Modifier
             .size(40.dp)
             .semantics { this.contentDescription = contentDescription }
+            .tvFocusHighlight(CircleShape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -342,6 +348,7 @@ private fun AboutActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .tvFocusHighlight()
             .clickable(onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically

@@ -56,6 +56,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vela.app.ui.components.tvFocusHighlight
+import com.vela.app.ui.components.tvRestorableFocus
 import com.vela.shared.R
 import com.vela.shared.util.image.ImageSkeleton
 import com.vela.shared.util.image.JellyfinPosterImage
@@ -386,7 +388,9 @@ private fun FavoriteItemCard(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.68f),
+                .aspectRatio(0.68f)
+                .then(item.id?.let { Modifier.tvRestorableFocus("item:$it") } ?: Modifier)
+                .tvFocusHighlight(RoundedCornerShape(16.dp)),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color.Transparent),
             elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),

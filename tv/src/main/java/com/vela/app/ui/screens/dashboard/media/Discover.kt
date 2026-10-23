@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -39,6 +40,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vela.app.ui.components.tvFocusHighlight
+import com.vela.app.ui.components.tvRestorableFocus
 import com.vela.shared.R
 import com.vela.app.ui.screens.dashboard.home.UserProfileAvatar
 import com.vela.app.ui.screens.dashboard.home.LibraryItemCard
@@ -167,7 +170,12 @@ fun Discover(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         val awardsOnBack = awardsBack
                         if (feed == DiscoverFeed.AWARDS && awardsOnBack != null) {
-                            IconButton(onClick = awardsOnBack, modifier = Modifier.size(34.dp)) {
+                            IconButton(
+                                onClick = awardsOnBack,
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .tvFocusHighlight(CircleShape)
+                            ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                     contentDescription = null,
@@ -392,7 +400,10 @@ private fun DiscoverFeedPills(
             Surface(
                 shape = RoundedCornerShape(999.dp),
                 color = if (selected) Color.White else Color.White.copy(alpha = 0.12f),
-                modifier = Modifier.clickable { onFeedChange(tab) }
+                modifier = Modifier
+                    .tvRestorableFocus("feed:${tab.name}")
+                    .tvFocusHighlight(CircleShape)
+                    .clickable { onFeedChange(tab) }
             ) {
                 Text(
                     text = label,

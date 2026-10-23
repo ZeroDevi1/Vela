@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -47,11 +49,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.vela.app.ui.components.tvFocusHighlight
+import com.vela.app.ui.components.tvInitialFocus
 import com.vela.shared.R
 import com.vela.data.preferences.NetworkPreferences
 
@@ -77,7 +82,7 @@ fun CacheSettingsScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBackPressed) {
+                    IconButton(onClick = onBackPressed, modifier = Modifier.tvFocusHighlight(CircleShape)) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = stringResource(R.string.cd_back_button),
@@ -98,7 +103,8 @@ fun CacheSettingsScreen(
                 .fillMaxSize()
                 .background(Color.Black)
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp)
+                .tvInitialFocus(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 96.dp)
         ) {
@@ -188,6 +194,14 @@ private fun CacheSwitchItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // 整行作为唯一焦点目标，确认键切换；Switch 只展示状态，避免一行两个焦点
+            .tvFocusHighlight()
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange
+            )
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -212,7 +226,7 @@ private fun CacheSwitchItem(
         }
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = null,
             enabled = enabled
         )
     }
@@ -230,6 +244,7 @@ private fun CacheActionItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .tvFocusHighlight()
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -332,12 +347,12 @@ private fun CacheSizeValueDialog(
             }
         },
         confirmButton = {
-            TextButton(enabled = isValid, onClick = { onSave(valueToPersist) }) {
+            TextButton(enabled = isValid, onClick = { onSave(valueToPersist) }, modifier = Modifier.tvFocusHighlight(CircleShape)) {
                 Text(stringResource(R.string.settings_apply), color = Color(0xFF22D3EE))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, modifier = Modifier.tvFocusHighlight(CircleShape)) {
                 Text(stringResource(R.string.cancel), color = Color.White.copy(alpha = 0.8f))
             }
         }

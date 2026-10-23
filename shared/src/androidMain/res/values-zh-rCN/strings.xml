@@ -1007,6 +1007,7 @@
     <string name="player_server_downscale_4k">服务器转码为 4K</string>
     <string name="player_settings_long_press_exit">长按播放键退出播放器</string>
     <string name="player_settings_long_press_exit_subtitle">长按播放 / 暂停按钮关闭播放器。</string>
+    <string name="tv_press_back_again_to_exit">再按一次返回键退出</string>
     <string name="interface_preferred_version">视频首选版本</string>
     <string name="interface_preferred_version_subtitle">同一条目有多个版本且未手动选择时，起播哪一个。</string>
     <string name="interface_version_default">默认</string>

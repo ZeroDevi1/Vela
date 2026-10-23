@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Movie
@@ -39,6 +40,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.util.UnstableApi
+import com.vela.app.ui.components.tvFocusHighlight
+import com.vela.app.ui.components.tvInitialFocus
 import com.vela.shared.R
 import com.vela.shared.ui.components.common.PosterCountBadge
 import com.vela.shared.ui.components.common.ShimmerEffect
@@ -196,9 +199,11 @@ private fun PersonScreen(
             }
         }
 
-        mediaSections.forEach { (title, items) ->
+        mediaSections.forEachIndexed { index, (title, items) ->
             item {
                 RelatedTitlesSection(
+                    // 作品异步加载；只在第一个分区上请求初始焦点，跳过简介的「展开」按钮
+                    modifier = if (index == 0) Modifier.tvInitialFocus(key = items.size) else Modifier,
                     title = title,
                     items = items,
                     mediaRepository = mediaRepository,
@@ -255,8 +260,10 @@ private fun ExpandableOverviewText(
         if (remainingParagraphs.isNotBlank()) {
             TextButton(
                 onClick = { expanded = !expanded },
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.padding(top = 6.dp)
+                contentPadding = PaddingValues(horizontal = 8.dp),
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .tvFocusHighlight(CircleShape)
             ) {
                 Text(
                     text = if (expanded) {
@@ -411,10 +418,11 @@ private fun RelatedTitlesSection(
     title: String,
     items: List<BaseItemDto>,
     mediaRepository: MediaRepository,
-    onItemClick: (String) -> Unit
+    onItemClick: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier.padding(top = 14.dp),
+        modifier = modifier.padding(top = 14.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         Text(
@@ -496,6 +504,7 @@ private fun PersonTitleCard(
     Column(
         modifier = Modifier
             .width(128.dp)
+            .tvFocusHighlight(RoundedCornerShape(12.dp))
             .clickable(
                 enabled = !item.id.isNullOrBlank(),
                 onClick = onClick

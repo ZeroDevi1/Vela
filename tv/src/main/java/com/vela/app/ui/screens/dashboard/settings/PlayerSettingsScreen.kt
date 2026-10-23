@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -73,6 +74,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.vela.app.ui.components.tvFocusHighlight
+import com.vela.app.ui.components.tvInitialFocus
 import com.vela.shared.R
 import com.vela.player.preferences.PlayerPreferences
 import kotlin.math.roundToInt
@@ -104,7 +107,8 @@ fun PlayerSettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp)
+                .tvInitialFocus(),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             contentPadding = PaddingValues(bottom = 96.dp)
         ) {
@@ -370,7 +374,8 @@ fun SubtitleSettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp)
+                .tvInitialFocus(),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             contentPadding = PaddingValues(bottom = 96.dp)
         ) {
@@ -505,7 +510,7 @@ private fun topbar(
     CenterAlignedTopAppBar(
         title = { Text(title, fontWeight = FontWeight.Bold) },
         navigationIcon = {
-            IconButton(onClick = onBackPressed) {
+            IconButton(onClick = onBackPressed, modifier = Modifier.tvFocusHighlight(CircleShape)) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                     contentDescription = stringResource(R.string.cd_back_button)
@@ -570,10 +575,12 @@ private fun SwitchSettingsItem(
         subtitle = subtitle,
         enabled = enabled,
         accentColor = accentColor,
+        // 整行作为唯一焦点目标，确认键切换；Switch 只做状态展示，避免一行出现两个焦点
+        onClick = { onCheckedChange(!checked) },
         trailing = {
             Switch(
                 checked = checked,
-                onCheckedChange = onCheckedChange,
+                onCheckedChange = null,
                 enabled = enabled,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Color.White,
@@ -683,7 +690,9 @@ private fun BaseSettingsItem(
     trailing: @Composable (() -> Unit)? = null
 ) {
     val clickableModifier = if (onClick != null && enabled) {
-        Modifier.clickable { onClick() }
+        Modifier
+            .tvFocusHighlight()
+            .clickable { onClick() }
     } else {
         Modifier
     }
@@ -769,6 +778,7 @@ private fun ValueSliderSettingsItem(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .tvFocusHighlight()
             .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         Row(
@@ -864,9 +874,12 @@ private fun ValueSliderSettingsItem(
                 text = defaultLabel(defaultValue),
                 style = MaterialTheme.typography.labelMedium,
                 color = accentColor,
-                modifier = Modifier.clickable {
-                    onValueChanged(defaultValue.coerceIn(valueRange.first, valueRange.last))
-                }
+                modifier = Modifier
+                    .tvFocusHighlight(RoundedCornerShape(6.dp))
+                    .clickable {
+                        onValueChanged(defaultValue.coerceIn(valueRange.first, valueRange.last))
+                    }
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
             )
             Spacer(modifier = Modifier.weight(1f))
             Text(

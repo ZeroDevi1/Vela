@@ -1,11 +1,15 @@
 package com.vela.app.ui.screens.detail
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.vela.app.ui.components.tvFocusHighlight
 import com.vela.data.model.BaseItemDto
 import com.vela.data.model.BaseItemPerson
 import com.vela.data.repository.MediaRepository
@@ -68,13 +72,15 @@ internal fun Recommendations(
             similarItems = directorTitles,
             mediaRepository = mediaRepository,
             onItemClick = onItemClick,
-            title = "Directed by ${primaryDirector.name}"
+            title = "Directed by ${primaryDirector.name}",
+            itemModifier = Modifier.tvFocusHighlight(RoundedCornerShape(12.dp))
         )
     }
 
     SimilarItemsSection(
         similarItems = similarItems,
         mediaRepository = mediaRepository,
-        onItemClick = onItemClick
+        onItemClick = onItemClick,
+        itemModifier = Modifier.tvFocusHighlight(RoundedCornerShape(12.dp))
     )
 }

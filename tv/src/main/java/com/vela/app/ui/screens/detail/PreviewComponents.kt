@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vela.app.ui.components.tvFocusHighlight
 import com.vela.shared.util.image.JellyfinPosterImage
 import com.vela.shared.util.image.getBackdrop
 import com.vela.detail.CodecUtils
@@ -74,6 +75,7 @@ fun EpisodePreviewCard(
         onClick = onClick,
         modifier = modifier
             .width(cardWidth)
+            .tvFocusHighlight(RoundedCornerShape(12.dp))
             .pointerInput(Unit) {
                 detectTapGestures(
                     onLongPress = {

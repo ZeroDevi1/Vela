@@ -35,6 +35,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vela.app.ui.components.tvFocusHighlight
+import com.vela.app.ui.components.tvRestorableFocus
 import com.vela.shared.preferences.Preferences
 import com.vela.shared.util.image.JellyfinPosterImage
 import com.vela.shared.util.image.rememberImageUrl
@@ -2111,7 +2113,9 @@ private fun BrandHeader(
                 )
                 .then(
                     if (onServerClick != null) {
-                        Modifier.clickable(onClick = onServerClick)
+                        Modifier
+                            .tvFocusHighlight(headerChipShape)
+                            .clickable(onClick = onServerClick)
                     } else {
                         Modifier
                     }
@@ -2146,7 +2150,9 @@ private fun BrandHeader(
                 imageUrl = userImageUrl,
                 serverTypeRaw = userServerTypeRaw,
                 onClick = { onProfileClick?.invoke() },
-                modifier = Modifier.size(34.dp)
+                modifier = Modifier
+                    .size(34.dp)
+                    .tvFocusHighlight(CircleShape)
             )
         }
     }
@@ -2620,7 +2626,9 @@ private fun ContinueWatchingCard(
         Card(
             modifier = cardModifier
                 .width(200.dp)
-                .height(120.dp),
+                .height(120.dp)
+                .then(item.id?.let { Modifier.tvRestorableFocus("continue:$it") } ?: Modifier)
+                .tvFocusHighlight(RoundedCornerShape(12.dp)),
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(
                 containerColor = Color.Transparent
@@ -2978,7 +2986,10 @@ internal fun LibraryItemCard(
                         }
                         true
                     } else false
-                },
+                }
+                .then(item.id?.let { Modifier.tvRestorableFocus("item:$it") } ?: Modifier)
+                // 横版卡片获得焦点时不放大，靠描边标出遥控器位置
+                .tvFocusHighlight(RoundedCornerShape(12.dp)),
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(containerColor = Color.Transparent),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),

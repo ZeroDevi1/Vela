@@ -7,8 +7,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Delete
@@ -32,9 +36,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.vela.app.ui.components.TvEditableField
+import com.vela.app.ui.components.tvFocusHighlight
 import com.vela.data.repository.AuthRepository
 import com.vela.shared.R
 
@@ -67,8 +75,19 @@ internal fun ServerLinesDialog(
                     style = MaterialTheme.typography.bodySmall
                 )
                 Spacer(modifier = Modifier.height(12.dp))
+                val autoRouteEnabled = !isBusy && server != null && lines.size > 1
+                // 整行作为唯一焦点目标，确认键切换；Switch 只展示状态
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .tvFocusHighlight()
+                        .toggleable(
+                            value = server?.autoRouteEnabled != false,
+                            enabled = autoRouteEnabled,
+                            role = Role.Switch,
+                            onValueChange = onSetAutoRoute
+                        )
+                        .padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -85,8 +104,8 @@ internal fun ServerLinesDialog(
                     }
                     Switch(
                         checked = server?.autoRouteEnabled != false,
-                        onCheckedChange = onSetAutoRoute,
-                        enabled = !isBusy && server != null && lines.size > 1,
+                        onCheckedChange = null,
+                        enabled = autoRouteEnabled,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
                             checkedTrackColor = Color(0xFF4FD06B),
@@ -117,12 +136,14 @@ internal fun ServerLinesDialog(
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(
+                    modifier = Modifier.tvFocusHighlight(CircleShape),
                     onClick = { showAddDialog = true },
                     enabled = !isBusy && server != null
                 ) {
                     Text(stringResource(R.string.settings_server_line_add), color = Color(0xFFF97316))
                 }
                 TextButton(
+                    modifier = Modifier.tvFocusHighlight(CircleShape),
                     onClick = onAutoSelect,
                     enabled = !isBusy && lines.size > 1
                 ) {
@@ -136,7 +157,7 @@ internal fun ServerLinesDialog(
                         Text(stringResource(R.string.settings_server_line_auto_select), color = Color.White)
                     }
                 }
-                TextButton(onClick = onDismiss) {
+                TextButton(onClick = onDismiss, modifier = Modifier.tvFocusHighlight(CircleShape)) {
                     Text(stringResource(R.string.settings_close), color = Color.White.copy(alpha = 0.8f))
                 }
             }
@@ -175,7 +196,9 @@ private fun ServerLineRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled && !isActive, onClick = onSwitch),
+            .tvFocusHighlight()
+            .clickable(enabled = enabled && !isActive, onClick = onSwitch)
+            .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -206,7 +229,7 @@ private fun ServerLineRow(
             )
         }
         if (canRemove) {
-            IconButton(onClick = onRemove, enabled = enabled) {
+            IconButton(onClick = onRemove, enabled = enabled, modifier = Modifier.tvFocusHighlight(CircleShape)) {
                 Icon(
                     imageVector = Icons.Rounded.Delete,
                     contentDescription = stringResource(R.string.settings_server_line_remove),
@@ -233,27 +256,39 @@ private fun AddServerLineDialog(
         },
         text = {
             Column {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
+                TvEditableField(
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.settings_server_line_name)) },
-                    placeholder = { Text(stringResource(R.string.settings_server_line_name_placeholder)) },
-                    singleLine = true
-                )
+                    enabled = true
+                ) { fieldModifier ->
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        modifier = fieldModifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.settings_server_line_name)) },
+                        placeholder = { Text(stringResource(R.string.settings_server_line_name_placeholder)) },
+                        singleLine = true
+                    )
+                }
                 Spacer(modifier = Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
+                TvEditableField(
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.settings_server_line_url)) },
-                    placeholder = { Text(stringResource(R.string.auth_server_url_placeholder)) },
-                    singleLine = true
-                )
+                    enabled = true
+                ) { fieldModifier ->
+                    OutlinedTextField(
+                        value = url,
+                        onValueChange = { url = it },
+                        modifier = fieldModifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.settings_server_line_url)) },
+                        placeholder = { Text(stringResource(R.string.auth_server_url_placeholder)) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(
+                modifier = Modifier.tvFocusHighlight(CircleShape),
                 onClick = { onConfirm(url.trim(), name.trim()) },
                 enabled = url.trim().isNotEmpty()
             ) {
@@ -261,7 +296,7 @@ private fun AddServerLineDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, modifier = Modifier.tvFocusHighlight(CircleShape)) {
                 Text(stringResource(R.string.cancel), color = Color.White.copy(alpha = 0.8f))
             }
         }

@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import com.vela.app.ui.components.tvFocusHighlight
 import com.vela.shared.util.image.JellyfinPosterImage
 import com.vela.shared.util.image.getBackdrop
 import com.vela.shared.ui.components.common.AnimatedCard
@@ -60,7 +61,9 @@ fun EpisodeCard(
 
     AnimatedCard(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .tvFocusHighlight(RoundedCornerShape(12.dp)),
         colors = CardDefaults.cardColors(
             containerColor = Color(0xFF1A1A1A)
         ),

@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -42,9 +44,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.vela.app.ui.components.tvFocusHighlight
+import com.vela.app.ui.components.tvInitialFocus
 import com.vela.shared.R
 import com.vela.shared.preferences.Preferences
 import com.vela.data.repository.AuthRepositoryProvider
@@ -92,7 +97,7 @@ fun InterfaceSettingsScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBackPressed) {
+                    IconButton(onClick = onBackPressed, modifier = Modifier.tvFocusHighlight(CircleShape)) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = stringResource(R.string.cd_back_button),
@@ -113,7 +118,8 @@ fun InterfaceSettingsScreen(
                 .fillMaxSize()
                 .background(Color.Black)
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp)
+                .tvInitialFocus(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 96.dp)
         ) {
@@ -215,6 +221,9 @@ private fun InterfaceSwitchItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // 整行作为唯一焦点目标，确认键切换；Switch 只展示状态，避免一行两个焦点
+            .tvFocusHighlight()
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -239,7 +248,7 @@ private fun InterfaceSwitchItem(
         }
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = null
         )
     }
 }

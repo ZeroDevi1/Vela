@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -31,6 +32,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.vela.app.ui.components.tvFocusHighlight
+import com.vela.app.ui.components.tvRestorableFocus
 import com.vela.app.ui.screens.auth.ProfileImageLoader
 import com.vela.app.ui.screens.auth.ServerSwitchDialogsHost
 import com.vela.app.ui.screens.auth.ServerSwitchViewModel
@@ -89,13 +92,23 @@ fun Settings(
             CenterAlignedTopAppBar(
                 title = { Text(stringResource(R.string.settings)) },
                 actions = {
-                    IconButton(onClick = { openAppLanguageSettings(context) }) {
+                    IconButton(
+                        onClick = { openAppLanguageSettings(context) },
+                        modifier = Modifier
+                            .tvRestorableFocus("language")
+                            .tvFocusHighlight(CircleShape)
+                    ) {
                         Icon(
                             imageVector = Icons.Rounded.Translate,
                             contentDescription = stringResource(R.string.settings_language)
                         )
                     }
-                    IconButton(onClick = onNavigateToAbout) {
+                    IconButton(
+                        onClick = onNavigateToAbout,
+                        modifier = Modifier
+                            .tvRestorableFocus("about")
+                            .tvFocusHighlight(CircleShape)
+                    ) {
                         Icon(
                             imageVector = Icons.Rounded.Info,
                             contentDescription = stringResource(R.string.cd_about_button)
@@ -353,38 +366,31 @@ private fun UserProfileSection(
             modifier = Modifier.padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            ProfileImageLoader(
-                imageUrl = profileImageUrl,
-                serverTypeRaw = serverTypeRaw,
+            // 头像、用户名和"+"触发同一操作，合成一个焦点目标，遥控器不必连按三次才能离开
+            Column(
                 modifier = Modifier
-                    .size(120.dp)
+                    .tvRestorableFocus("user")
+                    .tvFocusHighlight(RoundedCornerShape(16.dp))
                     .clickable(onClick = onUserClick)
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Box(
-                modifier = Modifier
-                    .wrapContentSize()
-                    .padding(horizontal = 10.dp)
-                    .clickable(onClick = onUserClick)
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = user?.name ?: username,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ProfileImageLoader(
+                    imageUrl = profileImageUrl,
+                    serverTypeRaw = serverTypeRaw,
+                    modifier = Modifier.size(120.dp)
                 )
-                IconButton(
-                    onClick = onUserClick,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 16.dp, y = (-8).dp)
-                        .size(36.dp)
-                ) {
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = user?.name ?: username,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Icon(
                         imageVector = Icons.Rounded.AddCircle,
                         contentDescription = stringResource(R.string.settings_add_user),
@@ -418,12 +424,15 @@ private fun UserProfileSection(
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp)
+                    modifier = Modifier.padding(8.dp)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable(onClick = onServerClick),
+                            .tvRestorableFocus("server")
+                            .tvFocusHighlight()
+                            .clickable(onClick = onServerClick)
+                            .padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
@@ -501,7 +510,10 @@ private fun ActionTile(
     onClick: () -> Unit
 ) {
     Card(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier
+            .tvRestorableFocus("tile:$title")
+            .tvFocusHighlight(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
         border = BorderStroke(
             width = 1.dp,
@@ -609,9 +621,12 @@ private fun SettingsItem(
     onClick: (() -> Unit)? = null
 ) {
     val clickableModifier = if (onClick != null) {
-        Modifier.clickable {
-            if (!isLoading) onClick()
-        }
+        Modifier
+            .tvRestorableFocus("item:$title")
+            .tvFocusHighlight()
+            .clickable {
+                if (!isLoading) onClick()
+            }
     } else Modifier
 
     Row(
@@ -733,7 +748,7 @@ private fun NetworkSettingsDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, modifier = Modifier.tvFocusHighlight(CircleShape)) {
                 Text(stringResource(R.string.settings_close), color = Color(0xFF22D3EE))
             }
         }
@@ -749,8 +764,9 @@ private fun NetworkDialogItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .tvFocusHighlight()
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            .padding(horizontal = 8.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -836,6 +852,7 @@ private fun TimeoutValueDialog(
         },
         confirmButton = {
             TextButton(
+                modifier = Modifier.tvFocusHighlight(CircleShape),
                 enabled = isValid,
                 onClick = { parsedValue?.let(onSave) }
             ) {
@@ -843,7 +860,7 @@ private fun TimeoutValueDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, modifier = Modifier.tvFocusHighlight(CircleShape)) {
                 Text(stringResource(R.string.cancel), color = Color.White.copy(alpha = 0.8f))
             }
         }

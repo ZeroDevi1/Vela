@@ -1021,6 +1021,7 @@
     <string name="player_server_downscale_4k">Server transcode to 4K</string>
     <string name="player_settings_long_press_exit">Long-press play/pause to exit</string>
     <string name="player_settings_long_press_exit_subtitle">Long-press the play/pause button to close the player.</string>
+    <string name="tv_press_back_again_to_exit">Press back again to exit</string>
     <string name="interface_preferred_version">Preferred video version</string>
     <string name="interface_preferred_version_subtitle">Which version to play when an item has several and none was chosen.</string>
     <string name="interface_version_default">Default</string>

@@ -1,5 +1,9 @@
 package com.vela.app.ui.screens.dashboard
 
+import android.os.SystemClock
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -24,17 +28,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.vela.app.ui.components.TvFocusRestoreScope
 import com.vela.app.ui.screens.dashboard.favorites.Favorites
 import com.vela.app.ui.screens.dashboard.home.Dashboard
 import com.vela.app.ui.screens.dashboard.media.Discover
@@ -42,6 +49,10 @@ import com.vela.app.ui.screens.dashboard.search.SearchContainer
 import com.vela.app.ui.screens.dashboard.settings.Settings
 import com.vela.data.model.BaseItemDto
 import com.vela.data.network.NetworkModule
+import com.vela.shared.R
+
+/** 两次返回键之间允许的最长间隔（ms），与常见 TV 应用的"再按一次退出"一致。 */
+private const val EXIT_CONFIRM_WINDOW_MS = 2_000L
 
 private fun dashboardEnterTransition(): EnterTransition {
     return fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing))
@@ -103,6 +114,55 @@ fun DashboardContainer(
         }
     }
 
+    // 遥控器返回键：内容区 → 侧边栏 → 首页 → 再按一次退出。
+    // 回调按注册先后决定优先级（后注册的先处理），所以分三层：
+    // 1. 这里的回调在 NavHost 之前注册，优先级最低，只在首页（NavHost 无可出栈项）生效；
+    // 2. NavHost 自带的出栈：非首页标签时把侧边栏上的返回交给它回到首页；
+    // 3. 各标签内容开头的 tabBackToRail 比 NavHost 晚、比页面自身的 BackHandler
+    //    （搜索键盘、奖项二级列表）早注册，焦点在内容区时先回侧边栏。
+    val activity = LocalActivity.current
+    val exitHint = stringResource(R.string.tv_press_back_again_to_exit)
+    var lastExitBackAt by remember { mutableStateOf(0L) }
+    val focusRail: () -> Boolean = {
+        runCatching {
+            dashboardFocus.sidebar.requestFocus()
+            true
+        }.getOrDefault(false)
+    }
+    val tabBackToRail: @Composable () -> Unit = {
+        BackHandler(enabled = !railHasFocus) {
+            if (!focusRail()) navigateToDestination(DashboardDestination.Home)
+        }
+    }
+
+    BackHandler {
+        when {
+            !railHasFocus -> {
+                if (!focusRail()) activity?.finish()
+            }
+            currentRoute != DashboardDestination.Home.route -> {
+                navigateToDestination(DashboardDestination.Home)
+            }
+            else -> {
+                val now = SystemClock.uptimeMillis()
+                if (now - lastExitBackAt <= EXIT_CONFIRM_WINDOW_MS) {
+                    activity?.finish()
+                } else {
+                    lastExitBackAt = now
+                    Toast.makeText(context, exitHint, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // 侧边栏获得焦点时切换了路由（如返回键回到首页），entryFocusRequester 已跟随新选中项，
+    // 等一帧让它挂上后把焦点移过去，避免焦点停在旧标签上
+    LaunchedEffect(currentRoute) {
+        if (!railHasFocus) return@LaunchedEffect
+        withFrameNanos { }
+        focusRail()
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -129,20 +189,22 @@ fun DashboardContainer(
                     enterTransition = { dashboardEnterTransition() },
                     exitTransition = { dashboardExitTransition() }
                 ) {
-                    Dashboard(
-                        onLogout = onLogout,
-                        onNavigateToDetail = onNavigateToDetail,
-                        onNavigateToViewAll = onNavigateToViewAll,
-                        onNavigateToPlayer = onNavigateToPlayer,
-                        onAddServer = onAddServer,
-                        onAddUser = onAddUser,
-                        isTabActive = true,
-                        sidebarFocusRequester = dashboardFocus.sidebar,
-                        headerFocusRequester = dashboardFocus.homeHeader,
-                        headerEndFocusRequester = dashboardFocus.homeHeaderEnd,
-                        contentFocusRequester = dashboardFocus.homeContent,
-                        onHomeReturnTargetChanged = dashboardFocus::updateHomeReturnFocus
-                    )
+                    TvFocusRestoreScope(fallback = dashboardFocus.homeContent) {
+                        Dashboard(
+                            onLogout = onLogout,
+                            onNavigateToDetail = onNavigateToDetail,
+                            onNavigateToViewAll = onNavigateToViewAll,
+                            onNavigateToPlayer = onNavigateToPlayer,
+                            onAddServer = onAddServer,
+                            onAddUser = onAddUser,
+                            isTabActive = true,
+                            sidebarFocusRequester = dashboardFocus.sidebar,
+                            headerFocusRequester = dashboardFocus.homeHeader,
+                            headerEndFocusRequester = dashboardFocus.homeHeaderEnd,
+                            contentFocusRequester = dashboardFocus.homeContent,
+                            onHomeReturnTargetChanged = dashboardFocus::updateHomeReturnFocus
+                        )
+                    }
                 }
 
                 composable(
@@ -150,13 +212,16 @@ fun DashboardContainer(
                     enterTransition = { dashboardEnterTransition() },
                     exitTransition = { dashboardExitTransition() }
                 ) {
-                    Discover(
-                        onItemClick = onNavigateToDetail,
-                        onWatchedItemClick = onNavigateToMergedDetail,
-                        onNavigateToViewAll = { contentType, parentId, title ->
-                            onNavigateToViewAll(contentType.name, parentId, title)
-                        }
-                    )
+                    TvFocusRestoreScope {
+                        tabBackToRail()
+                        Discover(
+                            onItemClick = onNavigateToDetail,
+                            onWatchedItemClick = onNavigateToMergedDetail,
+                            onNavigateToViewAll = { contentType, parentId, title ->
+                                onNavigateToViewAll(contentType.name, parentId, title)
+                            }
+                        )
+                    }
                 }
 
                 composable(
@@ -164,10 +229,13 @@ fun DashboardContainer(
                     enterTransition = { dashboardEnterTransition() },
                     exitTransition = { dashboardExitTransition() }
                 ) {
-                    SearchContainer(
-                        onNavigateToDetail = onNavigateToDetail,
-                        onCancel = { navigateToDestination(DashboardDestination.Home) }
-                    )
+                    TvFocusRestoreScope {
+                        tabBackToRail()
+                        SearchContainer(
+                            onNavigateToDetail = onNavigateToDetail,
+                            onCancel = { navigateToDestination(DashboardDestination.Home) }
+                        )
+                    }
                 }
 
                 composable(
@@ -175,7 +243,10 @@ fun DashboardContainer(
                     enterTransition = { dashboardEnterTransition() },
                     exitTransition = { dashboardExitTransition() }
                 ) {
-                    Favorites(onItemClick = onNavigateToDetail)
+                    TvFocusRestoreScope {
+                        tabBackToRail()
+                        Favorites(onItemClick = onNavigateToDetail)
+                    }
                 }
 
                 composable(
@@ -183,16 +254,19 @@ fun DashboardContainer(
                     enterTransition = { dashboardEnterTransition() },
                     exitTransition = { dashboardExitTransition() }
                 ) {
-                    Settings(
-                        onLogout = onLogout,
-                        onNavigateToPlayerSettings = onNavigateToPlayerSettings,
-                        onNavigateToInterfaceSettings = onNavigateToInterfaceSettings,
-                        onNavigateToDownloads = onNavigateToDownloads,
-                        onNavigateToCacheSettings = onNavigateToCacheSettings,
-                        onNavigateToAbout = onNavigateToAbout,
-                        onAddServer = onAddServer,
-                        onAddUser = onAddUser
-                    )
+                    TvFocusRestoreScope {
+                        tabBackToRail()
+                        Settings(
+                            onLogout = onLogout,
+                            onNavigateToPlayerSettings = onNavigateToPlayerSettings,
+                            onNavigateToInterfaceSettings = onNavigateToInterfaceSettings,
+                            onNavigateToDownloads = onNavigateToDownloads,
+                            onNavigateToCacheSettings = onNavigateToCacheSettings,
+                            onNavigateToAbout = onNavigateToAbout,
+                            onAddServer = onAddServer,
+                            onAddUser = onAddUser
+                        )
+                    }
                 }
             }
 

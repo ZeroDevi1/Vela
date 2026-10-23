@@ -45,12 +45,18 @@ import com.vela.shared.R
 import com.vela.shared.util.image.primaryImageTagOrNull
 import kotlinx.coroutines.flow.first
 
+/**
+ * 详情页的演职员横排。
+ *
+ * @param itemModifier 加在每张成员卡片的点击区域之前；TV 端用它绘制遥控器焦点高亮，手机端保持默认。
+ */
 @Composable
 fun CastSection(
     item: BaseItemDto,
     mediaRepository: MediaRepository,
     modifier: Modifier = Modifier,
     title: String? = null,
+    itemModifier: Modifier = Modifier,
     onPersonClick: (String) -> Unit = {}
 ) {
     val sectionTitle = title ?: stringResource(R.string.detail_cast_and_crew)
@@ -81,6 +87,7 @@ fun CastSection(
                     CastCrewMemberCard(
                         person = person,
                         mediaRepository = mediaRepository,
+                        modifier = itemModifier,
                         onClick = {
                             person.id?.takeIf { it.isNotBlank() }?.let(onPersonClick)
                         }
@@ -95,6 +102,7 @@ fun CastSection(
 private fun CastCrewMemberCard(
     person: BaseItemPerson,
     mediaRepository: MediaRepository,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     var personImageUrl by remember(person.id) { mutableStateOf<String?>(null) }
@@ -118,6 +126,7 @@ private fun CastCrewMemberCard(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .width(116.dp)
+            .then(modifier)
             .clickable(
                 enabled = hasValidPersonId,
                 onClick = onClick

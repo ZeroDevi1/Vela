@@ -18,7 +18,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Lock
@@ -53,12 +56,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.vela.app.ui.components.TvEditableField
+import com.vela.app.ui.components.tvFocusHighlight
+import com.vela.app.ui.components.tvInitialFocus
 import com.vela.shared.R
 import com.vela.data.repository.AuthRepositoryProvider
 import com.vela.shared.ui.theme.velaMotion
@@ -346,7 +354,8 @@ private fun ConnectionForm(
 ) {
     val motion = MaterialTheme.velaMotion
     Column(
-        modifier = modifier,
+        // 打开即聚焦第一个输入框（不弹键盘），免得先按方向键才看到焦点
+        modifier = modifier.tvInitialFocus(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
@@ -356,22 +365,33 @@ private fun ConnectionForm(
             fontWeight = FontWeight.SemiBold
         )
 
-        OutlinedTextField(
-            value = serverUrl,
-            onValueChange = onServerUrlChange,
-            label = { Text(stringResource(R.string.server_url)) },
-            placeholder = {
-                Text(
-                    stringResource(R.string.auth_server_url_placeholder),
-                    color = Color.White.copy(alpha = 0.5f)
-                )
-            },
+        TvEditableField(
             modifier = Modifier.fillMaxWidth(),
-            enabled = !isLoading,
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            colors = tvTextFieldColors()
-        )
+            enabled = !isLoading
+        ) { fieldModifier ->
+            OutlinedTextField(
+                value = serverUrl,
+                onValueChange = onServerUrlChange,
+                label = { Text(stringResource(R.string.server_url)) },
+                placeholder = {
+                    Text(
+                        stringResource(R.string.auth_server_url_placeholder),
+                        color = Color.White.copy(alpha = 0.5f)
+                    )
+                },
+                modifier = fieldModifier.fillMaxWidth(),
+                enabled = !isLoading,
+                singleLine = true,
+                // 键盘上点「前往」直接连接
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Go
+                ),
+                keyboardActions = KeyboardActions(onGo = { if (serverUrl.isNotBlank()) onConnect() }),
+                shape = RoundedCornerShape(12.dp),
+                colors = tvTextFieldColors()
+            )
+        }
 
         AnimatedVisibility(
             visible = errorMessage != null,
@@ -390,7 +410,8 @@ private fun ConnectionForm(
             enabled = !isLoading && serverUrl.isNotBlank(),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
+                .height(52.dp)
+                .tvFocusHighlight(RoundedCornerShape(12.dp)),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -434,49 +455,69 @@ private fun LoginForm(
     val motion = MaterialTheme.velaMotion
 
     Column(
-        modifier = modifier,
+        // 打开即聚焦第一个输入框（不弹键盘），免得先按方向键才看到焦点
+        modifier = modifier.tvInitialFocus(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        OutlinedTextField(
-            value = username,
-            onValueChange = onUsernameChange,
-            label = { Text(stringResource(R.string.username)) },
-            leadingIcon = {
-                Icon(imageVector = Icons.Rounded.Person, contentDescription = null)
-            },
+        TvEditableField(
             modifier = Modifier.fillMaxWidth(),
-            enabled = !isBusy,
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            colors = tvTextFieldColors()
-        )
+            enabled = !isBusy
+        ) { fieldModifier ->
+            OutlinedTextField(
+                value = username,
+                onValueChange = onUsernameChange,
+                label = { Text(stringResource(R.string.username)) },
+                leadingIcon = {
+                    Icon(imageVector = Icons.Rounded.Person, contentDescription = null)
+                },
+                modifier = fieldModifier.fillMaxWidth(),
+                enabled = !isBusy,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                shape = RoundedCornerShape(12.dp),
+                colors = tvTextFieldColors()
+            )
+        }
 
-        OutlinedTextField(
-            value = password,
-            onValueChange = onPasswordChange,
-            label = { Text(stringResource(R.string.password)) },
-            leadingIcon = {
-                Icon(imageVector = Icons.Rounded.Lock, contentDescription = null)
-            },
-            visualTransformation = if (isPasswordVisible) VisualTransformation.None
-                else PasswordVisualTransformation(),
-            trailingIcon = {
-                IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
-                    Icon(
-                        imageVector = if (isPasswordVisible) Icons.Rounded.VisibilityOff
-                            else Icons.Rounded.Visibility,
-                        contentDescription = if (isPasswordVisible)
-                            stringResource(R.string.auth_hide_password)
-                        else stringResource(R.string.auth_show_password)
-                    )
-                }
-            },
+        TvEditableField(
             modifier = Modifier.fillMaxWidth(),
-            enabled = !isBusy,
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            colors = tvTextFieldColors()
-        )
+            enabled = !isBusy
+        ) { fieldModifier ->
+            OutlinedTextField(
+                value = password,
+                onValueChange = onPasswordChange,
+                label = { Text(stringResource(R.string.password)) },
+                leadingIcon = {
+                    Icon(imageVector = Icons.Rounded.Lock, contentDescription = null)
+                },
+                visualTransformation = if (isPasswordVisible) VisualTransformation.None
+                    else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(
+                        onClick = { isPasswordVisible = !isPasswordVisible },
+                        modifier = Modifier.tvFocusHighlight(CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = if (isPasswordVisible) Icons.Rounded.VisibilityOff
+                                else Icons.Rounded.Visibility,
+                            contentDescription = if (isPasswordVisible)
+                                stringResource(R.string.auth_hide_password)
+                            else stringResource(R.string.auth_show_password)
+                        )
+                    }
+                },
+                modifier = fieldModifier.fillMaxWidth(),
+                enabled = !isBusy,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(onDone = { if (username.isNotBlank()) onLogin() }),
+                shape = RoundedCornerShape(12.dp),
+                colors = tvTextFieldColors()
+            )
+        }
 
         AnimatedVisibility(
             visible = errorMessage != null,
@@ -495,7 +536,8 @@ private fun LoginForm(
             enabled = !isBusy && username.isNotBlank(),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
+                .height(52.dp)
+                .tvFocusHighlight(RoundedCornerShape(12.dp)),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -523,7 +565,8 @@ private fun LoginForm(
                 enabled = !isBusy,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp),
+                    .height(52.dp)
+                    .tvFocusHighlight(RoundedCornerShape(12.dp)),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 if (isQuickConnectLoading && quickConnectCode == null) {
