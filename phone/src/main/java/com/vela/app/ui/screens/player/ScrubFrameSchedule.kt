@@ -9,8 +9,9 @@ internal const val SCRUB_FRAME_BUCKET_MS = 1_000L
 internal const val SCRUB_FRAME_NEAR_MS = 8_000L
 
 /**
- * 内存里保留的预览帧数量。超出后丢掉最久未用的一帧。
- * 320px 宽的 RGB_565 帧约 115 KB，满额约 15 MB；需大于 [SCRUB_SWEEP_LEVELS] 的最细一档。
+ * 内存里保留的预览帧数量（按关键帧去重后计）。超出后先丢最久未用的现场抽帧，见 [ScrubFrameCache]。
+ * 320px 宽的 RGB_565 帧约 115 KB，满额约 15 MB；需大于 [SCRUB_SWEEP_LEVELS] 的最细一档，
+ * 网格帧固定保留后仍留出余量给拖动现场抽出的帧。
  */
 internal const val SCRUB_FRAME_CACHE_CAPACITY = 128
 
@@ -37,23 +38,100 @@ internal fun scrubFrameBucket(positionMs: Long): Long {
 }
 
 /**
- * 在已缓存的格子里找离目标最近、且不超过 [maxDistanceMs] 的一格。
+ * 在已缓存的关键帧里找离目标最近、且不超过 [maxDistanceMs] 的一张。
  *
- * @param buckets 已有帧的格号
+ * @param keyframesMs 已缓存帧对应的关键帧时间，单位毫秒
  * @param positionMs 拖动位置，单位毫秒
  * @param maxDistanceMs 可接受的最大距离，单位毫秒；见 [scrubNearDistanceMs]
- * @return 可先显示的格号；没有足够近的缓存时为 null
+ * @return 可先显示的关键帧时间；没有足够近的缓存时为 null
  */
-internal fun nearestScrubFrameBucket(
-    buckets: Set<Long>,
+internal fun nearestScrubFrameKey(
+    keyframesMs: Collection<Long>,
     positionMs: Long,
     maxDistanceMs: Long = SCRUB_FRAME_NEAR_MS
 ): Long? {
-    if (buckets.isEmpty()) return null
-    val target = scrubFrameBucket(positionMs)
-    val nearest = buckets.minBy { bucket -> abs(bucket - target) }
-    val distanceMs = abs(nearest - target) * SCRUB_FRAME_BUCKET_MS
-    return nearest.takeIf { distanceMs <= maxDistanceMs }
+    val nearest = keyframesMs.minByOrNull { abs(it - positionMs) } ?: return null
+    return nearest.takeIf { abs(it - positionMs) <= maxDistanceMs }
+}
+
+/**
+ * 预览帧缓存：帧按解出的关键帧时间存放，请求位置所在的秒格只记一个指向关键帧的别名。
+ *
+ * 关键帧间隔通常 2～10 秒，按请求秒格直接存图时，同一张关键帧会被不同秒格各存一份，
+ * 既浪费内存又把网格帧挤出缓存；按关键帧去重后每张图只存一次。
+ * 后台预生成的网格帧（[put] 的 `grid`）固定保留，淘汰时先淘汰最久未用的现场抽帧，
+ * 保证来回拖动之后全片仍有均匀的邻近帧可用。
+ *
+ * 不是线程安全的，由调用方加锁。
+ *
+ * @param capacity 最多保留的帧数，可在换片时调整
+ * @param onEvict 帧被淘汰或因重复而丢弃时调用，由调用方决定是否回收
+ */
+internal class ScrubFrameCache<T : Any>(
+    var capacity: Int,
+    private val onEvict: (T) -> Unit
+) {
+    /** 关键帧时间（毫秒）→ 帧。访问顺序即淘汰顺序，最近用过的在后面。 */
+    private val frames = LinkedHashMap<Long, T>(capacity, 0.75f, true)
+    /** 请求秒格 → 关键帧时间（毫秒）。只记录仍在 [frames] 里的关键帧。 */
+    private val aliases = HashMap<Long, Long>()
+    /** 网格帧的关键帧时间，淘汰时最后考虑。 */
+    private val gridKeys = HashSet<Long>()
+
+    val size: Int get() = frames.size
+
+    /** 请求位置所在秒格已经确定对应的帧；没有时为 null。 */
+    fun exact(positionMs: Long): T? = aliases[scrubFrameBucket(positionMs)]?.let { frames[it] }
+
+    /** 离 [positionMs] 最近、距离不超过 [maxDistanceMs] 的帧；没有时为 null。 */
+    fun nearest(positionMs: Long, maxDistanceMs: Long): T? =
+        nearestScrubFrameKey(frames.keys, positionMs, maxDistanceMs)?.let { frames[it] }
+
+    /** 这张关键帧是否已缓存。抽帧器据此跳过重复解码。 */
+    fun containsKeyframe(keyframeMs: Long): Boolean = frames.containsKey(keyframeMs)
+
+    /**
+     * 记下请求位置对应的关键帧，并在需要时存入新帧。
+     *
+     * @param positionMs 请求位置，单位毫秒
+     * @param keyframeMs 实际解出的关键帧时间，单位毫秒
+     * @param frame 新解出的帧；为 null 表示抽帧器发现该关键帧已缓存、没有解码
+     * @param grid 是否为后台预生成的网格帧
+     * @return 该关键帧当前对应的帧；关键帧未缓存且没有新帧时为 null
+     */
+    fun put(positionMs: Long, keyframeMs: Long, frame: T?, grid: Boolean): T? {
+        val existing = frames[keyframeMs]
+        val stored = when {
+            existing != null -> {
+                if (frame != null && frame !== existing) onEvict(frame)
+                existing
+            }
+            frame != null -> frame.also { frames[keyframeMs] = it }
+            else -> return null
+        }
+        aliases[scrubFrameBucket(positionMs)] = keyframeMs
+        if (grid) gridKeys += keyframeMs
+        trim()
+        return frames[keyframeMs]
+    }
+
+    /** 清空并对所有帧调用 [onEvict]。 */
+    fun clear() {
+        frames.values.forEach(onEvict)
+        frames.clear()
+        aliases.clear()
+        gridKeys.clear()
+    }
+
+    /** 超出容量时先淘汰最久未用的非网格帧；全是网格帧时才淘汰最久未用的网格帧。 */
+    private fun trim() {
+        while (frames.size > capacity) {
+            val victim = frames.keys.firstOrNull { it !in gridKeys } ?: frames.keys.first()
+            frames.remove(victim)?.let(onEvict)
+            gridKeys -= victim
+            aliases.values.removeAll { it == victim }
+        }
+    }
 }
 
 /**

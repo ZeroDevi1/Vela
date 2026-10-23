@@ -205,15 +205,15 @@ class PlayerViewModel @Inject constructor(
     private var scrubWarmJob: Job? = null
     /** 后台由粗到细预生成整片缩略图网格的任务；换片或释放时取消。 */
     private var scrubSweepJob: Job? = null
-    /** 预览帧缓存上限；低内存设备收紧，见 [configureScrubPreviewSource]。 */
-    private var scrubFrameCapacity = SCRUB_FRAME_CACHE_CAPACITY
     /** 保护关键帧缓存。拖动线程和抽帧线程都会读写。 */
     private val scrubFrameLock = Any()
     /**
-     * 已抽出的关键帧，键是秒级格号。
-     * 访问顺序作为淘汰顺序，最近用过的留在后面。
+     * 已抽出的关键帧，按关键帧去重，网格帧固定保留（见 [ScrubFrameCache]）。容量在换片时按内存档位调整。
+     * 淘汰的位图正在显示时不回收，等下一次替换后由 GC 收走。
      */
-    private val scrubFrames = LinkedHashMap<Long, Bitmap>(SCRUB_FRAME_CACHE_CAPACITY, 0.75f, true)
+    private val scrubFrames = ScrubFrameCache<Bitmap>(SCRUB_FRAME_CACHE_CAPACITY) { bitmap ->
+        if (bitmap !== scrubPreviewFrame && !bitmap.isRecycled) bitmap.recycle()
+    }
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
@@ -228,10 +228,8 @@ class PlayerViewModel @Inject constructor(
                 val frame = runCatching {
                     loadKeyframeFrame(request.source, request.positionMs)
                 }.getOrNull()
-                if (frame != null) {
-                    rememberScrubFrame(request.positionMs, frame)
-                    publishScrubFrame(request.version, frame)
-                }
+                val stored = frame?.let { rememberScrubFrame(request.positionMs, it, grid = false) }
+                if (stored != null) publishScrubFrame(request.version, stored)
             }
         }
     }
@@ -1751,7 +1749,9 @@ class PlayerViewModel @Inject constructor(
         scrubPreviewFrame = null
         clearScrubFrames()
         val lowRam = context.getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
-        scrubFrameCapacity = if (lowRam) SCRUB_FRAME_CACHE_CAPACITY_LOW_RAM else SCRUB_FRAME_CACHE_CAPACITY
+        synchronized(scrubFrameLock) {
+            scrubFrames.capacity = if (lowRam) SCRUB_FRAME_CACHE_CAPACITY_LOW_RAM else SCRUB_FRAME_CACHE_CAPACITY
+        }
         val source = uri?.let {
             val remote = it.scheme?.lowercase(Locale.ROOT) in setOf("http", "https")
             ScrubPreviewSource(
@@ -1821,14 +1821,14 @@ class PlayerViewModel @Inject constructor(
             try {
                 ensureActive()
             } catch (cancelled: CancellationException) {
-                if (!frame.isRecycled) frame.recycle()
+                frame.bitmap?.takeIf { !it.isRecycled }?.recycle()
                 throw cancelled
             }
             if (scrubPreviewSource !== source) {
-                if (!frame.isRecycled) frame.recycle()
+                frame.bitmap?.takeIf { !it.isRecycled }?.recycle()
                 return@launch
             }
-            rememberScrubFrame(positionMs, frame)
+            rememberScrubFrame(positionMs, frame, grid = false)
         }
     }
 
@@ -1878,12 +1878,12 @@ class PlayerViewModel @Inject constructor(
                 try {
                     ensureActive()
                 } catch (cancelled: CancellationException) {
-                    if (!frame.isRecycled) frame.recycle()
+                    frame.bitmap?.takeIf { !it.isRecycled }?.recycle()
                     throw cancelled
                 }
-                rememberScrubFrame(positionMs, frame)
-                // 每张之间让出一下抽帧锁和网络，保证拖动请求随时能插队。
-                delay(sweepGapMs)
+                rememberScrubFrame(positionMs, frame, grid = true)
+                // 关键帧已缓存、没有解码时不占解码器和网络，不必等待。
+                if (frame.bitmap != null) delay(sweepGapMs)
             }
         }
     }
@@ -1911,57 +1911,44 @@ class PlayerViewModel @Inject constructor(
      * 读取缓存帧。
      *
      * @param positionMs 目标位置，单位毫秒
-     * @param exact 为 true 时只返回同一秒的帧；为 false 时允许 [scrubNearDistanceMs] 内的邻近帧
+     * @param exact 为 true 时只返回已确定对应这一秒的帧；为 false 时允许 [scrubNearDistanceMs] 内最近的关键帧
      * @return 可显示的位图；没有缓存时为 null
      */
     private fun cachedScrubFrame(positionMs: Long, exact: Boolean): Bitmap? {
         synchronized(scrubFrameLock) {
-            val target = scrubFrameBucket(positionMs)
-            val bucket = if (exact) {
-                target.takeIf { bucket ->
-                    scrubFrames[bucket]?.isRecycled == false
-                }
+            val frame = if (exact) {
+                scrubFrames.exact(positionMs)
             } else {
-                nearestScrubFrameBucket(
-                    scrubFrames.keys.toSet(),
-                    positionMs,
-                    scrubNearDistanceMs(_playerState.value.duration)
-                )
+                scrubFrames.nearest(positionMs, scrubNearDistanceMs(_playerState.value.duration))
             }
-            return bucket?.let { scrubFrames[it] }?.takeIf { !it.isRecycled }
+            return frame?.takeIf { !it.isRecycled }
         }
     }
 
     /**
-     * 把刚抽出的关键帧放进秒级缓存，并淘汰最久未用的帧。
+     * 把抽帧结果放进缓存：同一张关键帧只存一份，请求位置所在秒格记为它的别名。
      *
      * @param positionMs 该帧对应的请求位置，单位毫秒
-     * @param frame 预览位图。调用后由缓存负责回收
+     * @param frame 抽帧结果。其中的位图调用后由缓存负责回收
+     * @param grid 是否为后台预生成的网格帧；网格帧不会被现场抽帧挤出缓存
+     * @return 该关键帧当前缓存的位图；没有可用位图时为 null
      */
-    private fun rememberScrubFrame(positionMs: Long, frame: Bitmap) {
+    private fun rememberScrubFrame(positionMs: Long, frame: ScrubFrame, grid: Boolean): Bitmap? {
         synchronized(scrubFrameLock) {
-            val bucket = scrubFrameBucket(positionMs)
-            val previous = scrubFrames.put(bucket, frame)
-            if (previous != null && previous !== frame && previous !== scrubPreviewFrame && !previous.isRecycled) {
-                previous.recycle()
-            }
-            while (scrubFrames.size > scrubFrameCapacity) {
-                val eldest = scrubFrames.entries.firstOrNull() ?: break
-                scrubFrames.remove(eldest.key)
-                val bitmap = eldest.value
-                if (bitmap !== frame && bitmap !== scrubPreviewFrame && !bitmap.isRecycled) {
-                    bitmap.recycle()
-                }
-            }
+            return scrubFrames.put(positionMs, frame.keyframeMs, frame.bitmap, grid)?.takeIf { !it.isRecycled }
+        }
+    }
+
+    /** 这张关键帧是否已缓存；抽帧线程据此跳过重复解码。 */
+    private fun isScrubKeyframeCached(keyframeMs: Long): Boolean {
+        synchronized(scrubFrameLock) {
+            return scrubFrames.containsKeyframe(keyframeMs)
         }
     }
 
     /** 清空关键帧缓存并回收位图。 */
     private fun clearScrubFrames() {
         synchronized(scrubFrameLock) {
-            scrubFrames.values.forEach { bitmap ->
-                if (!bitmap.isRecycled) bitmap.recycle()
-            }
             scrubFrames.clear()
         }
     }
@@ -2000,17 +1987,17 @@ class PlayerViewModel @Inject constructor(
     /**
      * 从片源抽取离目标最近的关键帧。
      *
-     * 抽帧器保持打开。同一张关键帧不会再次硬解。
+     * 抽帧器保持打开。已缓存的关键帧不会再次硬解，结果只带关键帧时间。
      *
      * @param source 播放地址和请求头
      * @param positionMs 目标位置，单位毫秒
-     * @return 预览位图；地址已更换或这一帧解不出来时为 null
+     * @return 抽帧结果；地址已更换或这一帧解不出来时为 null
      */
-    private fun loadKeyframeFrame(source: ScrubPreviewSource, positionMs: Long): Bitmap? {
+    private fun loadKeyframeFrame(source: ScrubPreviewSource, positionMs: Long): ScrubFrame? {
         return synchronized(scrubGrabberLock) {
             if (source !== scrubPreviewSource) return@synchronized null
             val grabber = scrubGrabber ?: ScrubFrameGrabber().also { scrubGrabber = it }
-            grabber.frameAt(source, positionMs, SCRUB_PREVIEW_WIDTH_PX)
+            grabber.frameAt(source, positionMs, SCRUB_PREVIEW_WIDTH_PX, ::isScrubKeyframeCached)
         }
     }
 

@@ -17,10 +17,47 @@ class ScrubFrameScheduleTest {
 
     @Test
     fun nearestCacheStaysInsideEightSeconds() {
-        val cached = setOf(0L, 10L, 40L)
-        assertEquals(10L, nearestScrubFrameBucket(cached, 12_400L))
-        assertNull(nearestScrubFrameBucket(cached, 25_000L))
-        assertNull(nearestScrubFrameBucket(emptySet(), 1_000L))
+        val cached = setOf(0L, 10_000L, 40_000L)
+        assertEquals(10_000L, nearestScrubFrameKey(cached, 12_400L))
+        assertNull(nearestScrubFrameKey(cached, 25_000L))
+        assertNull(nearestScrubFrameKey(emptySet(), 1_000L))
+    }
+
+    /** 同一关键帧被不同秒格请求时只存一份；失败表示缓存按请求位置重复存图。 */
+    @Test
+    fun cacheStoresEachKeyframeOnce() {
+        val evicted = mutableListOf<String>()
+        val cache = ScrubFrameCache<String>(capacity = 8) { evicted += it }
+        assertEquals("a", cache.put(positionMs = 10_200L, keyframeMs = 10_000L, frame = "a", grid = false))
+        // 第 12 秒落在同一张关键帧上：新解出的副本被丢弃，返回已缓存的那张。
+        assertEquals("a", cache.put(positionMs = 12_500L, keyframeMs = 10_000L, frame = "a2", grid = false))
+        assertEquals(listOf("a2"), evicted)
+        assertEquals(1, cache.size)
+        assertEquals("a", cache.exact(12_900L))
+        assertNull(cache.exact(14_000L))
+        // 抽帧器跳过解码（没有新帧）时只记别名。
+        assertEquals("a", cache.put(positionMs = 13_100L, keyframeMs = 10_000L, frame = null, grid = false))
+        assertEquals("a", cache.exact(13_000L))
+        assertTrue(cache.containsKeyframe(10_000L))
+        assertNull(cache.put(positionMs = 30_000L, keyframeMs = 30_000L, frame = null, grid = false))
+    }
+
+    /** 现场抽帧占满容量时先淘汰非网格帧；失败表示来回拖动会把预生成网格挤出缓存。 */
+    @Test
+    fun cacheKeepsGridFramesWhenFull() {
+        val evicted = mutableListOf<String>()
+        val cache = ScrubFrameCache<String>(capacity = 3) { evicted += it }
+        cache.put(0L, 0L, "grid0", grid = true)
+        cache.put(60_000L, 60_000L, "grid1", grid = true)
+        cache.put(5_000L, 5_000L, "user0", grid = false)
+        cache.put(7_000L, 7_000L, "user1", grid = false)
+        assertEquals(listOf("user0"), evicted)
+        assertNull(cache.exact(5_000L))
+        assertEquals("grid0", cache.nearest(1_000L, SCRUB_FRAME_NEAR_MS))
+        assertEquals("grid1", cache.exact(60_500L))
+        cache.clear()
+        assertEquals(0, cache.size)
+        assertEquals(4, evicted.size)
     }
 
     @Test
@@ -60,8 +97,8 @@ class ScrubFrameScheduleTest {
         assertEquals(SCRUB_FRAME_NEAR_MS, scrubNearDistanceMs(0L))
         assertEquals(SCRUB_FRAME_NEAR_MS, scrubNearDistanceMs(10 * 60_000L))
         assertEquals(75_000L, scrubNearDistanceMs(120 * 60_000L))
-        val cached = setOf(0L, 75L)
-        assertEquals(75L, nearestScrubFrameBucket(cached, 120_000L, scrubNearDistanceMs(120 * 60_000L)))
+        val cached = setOf(0L, 75_000L)
+        assertEquals(75_000L, nearestScrubFrameKey(cached, 120_000L, scrubNearDistanceMs(120 * 60_000L)))
     }
 
     @Test

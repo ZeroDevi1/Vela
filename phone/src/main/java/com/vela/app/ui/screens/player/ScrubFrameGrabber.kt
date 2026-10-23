@@ -20,8 +20,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * 为进度预览保持一条独立的硬解抽帧管线。
  *
- * 抽帧器打开一次后就留着。拖动落在同一张关键帧上时只做一次定位并复用上一张图；
- * 跨关键帧才解这一帧。解码器按“原 MIME 硬解 → 杜比视界退回 HEVC/AVC 基础层 → 软解”
+ * 抽帧器打开一次后就留着。每次定位到离目标最近的关键帧：调用方已缓存这张关键帧时不解码，
+ * 只报告关键帧时间；落在上一张已解出的关键帧上时复用上一张图；其余情况才解这一帧。解码器按“原 MIME 硬解 → 杜比视界退回 HEVC/AVC 基础层 → 软解”
  * 依次回退，保证没有对应硬解时仍能出图。解码器输出直接渲染到 [ScrubFrameRenderer] 的 Surface，
  * 在 GPU 上缩到预览尺寸，不把整帧映射回 CPU。直链通过播放器的缓存数据源读取，
  * 已缓冲的区间不再走网络。
@@ -60,18 +60,25 @@ internal class ScrubFrameGrabber {
     private var rendererUnavailable = false
 
     /**
-     * 取目标时间附近的关键帧预览。
+     * 取离目标时间最近的关键帧预览。
      *
      * 同一张关键帧会复制一张小图返回，调用方可以自己缓存或回收。
      *
      * @param source 播放地址和请求头
      * @param positionMs 目标位置，单位毫秒
      * @param maxEdgePx 预览长边上限，单位像素
-     * @return 预览位图；片源打不开或这一帧解不出来时为 null
+     * @param isKnownKeyframe 在抽帧线程上调用，参数为关键帧时间（毫秒）；返回 true 时不解码，
+     *   结果的 [ScrubFrame.bitmap] 为 null
+     * @return 关键帧时间与预览位图；片源打不开、定位失败或这一帧解不出来时为 null
      */
-    fun frameAt(source: ScrubPreviewSource, positionMs: Long, maxEdgePx: Int): Bitmap? {
+    fun frameAt(
+        source: ScrubPreviewSource,
+        positionMs: Long,
+        maxEdgePx: Int,
+        isKnownKeyframe: (Long) -> Boolean = { false }
+    ): ScrubFrame? {
         if (!alive.get()) return null
-        val task = FutureTask { grab(source, positionMs, maxEdgePx) }
+        val task = FutureTask { grab(source, positionMs, maxEdgePx, isKnownKeyframe) }
         if (!handler.post(task)) return null
         return runCatching { task.get(GRAB_WAIT_MS, TimeUnit.MILLISECONDS) }.getOrNull()
     }
@@ -99,15 +106,24 @@ internal class ScrubFrameGrabber {
         thread.quitSafely()
     }
 
-    private fun grab(source: ScrubPreviewSource, positionMs: Long, maxEdgePx: Int): Bitmap? {
+    private fun grab(
+        source: ScrubPreviewSource,
+        positionMs: Long,
+        maxEdgePx: Int,
+        isKnownKeyframe: (Long) -> Boolean
+    ): ScrubFrame? {
         if (!alive.get()) return null
         if (!ensureSource(source)) return null
         val extractor = extractor ?: return null
         val timeUs = positionMs.coerceAtLeast(0L) * 1_000L
-        extractor.seekTo(timeUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+        // 取前后最近的关键帧而不是前一张：长 GOP 片源上前一张可能落后目标近 10 秒，最近的平均误差减半。
+        extractor.seekTo(timeUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
         val syncUs = extractor.sampleTime
+        if (syncUs < 0L) return null
+        val keyframeMs = syncUs / 1_000L
+        if (isKnownKeyframe(keyframeMs)) return ScrubFrame(null, keyframeMs)
         if (shouldReuseScrubSync(lastSyncUs, syncUs)) {
-            return lastBitmap?.takeIf { !it.isRecycled }?.safeCopy()
+            return lastBitmap?.takeIf { !it.isRecycled }?.safeCopy()?.let { ScrubFrame(it, keyframeMs) }
         }
         if (decoderUnavailable) return null
         val renderer = ensureRenderer() ?: return null
@@ -120,7 +136,7 @@ internal class ScrubFrameGrabber {
         lastSyncUs = syncUs
         lastBitmap?.takeIf { !it.isRecycled }?.recycle()
         lastBitmap = bitmap
-        return bitmap.safeCopy()
+        return bitmap.safeCopy()?.let { ScrubFrame(it, keyframeMs) }
     }
 
     /**
@@ -416,6 +432,14 @@ internal class ScrubFrameGrabber {
         }
     }
 }
+
+/**
+ * 一次抽帧的结果。
+ *
+ * @property bitmap 预览位图；调用方已缓存这张关键帧、抽帧器跳过解码时为 null
+ * @property keyframeMs 实际定位到的关键帧时间，单位毫秒
+ */
+internal class ScrubFrame(val bitmap: Bitmap?, val keyframeMs: Long)
 
 /**
  * 复制一张互不影响回收的预览图。原图已回收时为 null。
