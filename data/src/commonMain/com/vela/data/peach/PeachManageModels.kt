@@ -386,7 +386,8 @@ data class PeachPreferences(
     val searchHistoryLimit: Int?,
     val feedHideGroupCompilations: Boolean,
     val feedHideSoloCompilations: Boolean,
-    val feedHideExcerpts: Boolean
+    val feedHideExcerpts: Boolean,
+    val codePatterns: List<String> = emptyList()
 ) {
     companion object {
         const val KEY_FOLLOW_INITIAL_DAYS = "followInitialDays"
@@ -394,6 +395,7 @@ data class PeachPreferences(
         const val KEY_HIDE_GROUP = "feedHideGroupCompilations"
         const val KEY_HIDE_SOLO = "feedHideSoloCompilations"
         const val KEY_HIDE_EXCERPTS = "feedHideExcerpts"
+        const val KEY_CODE_PATTERNS = "codePatterns"
         val FOLLOW_INITIAL_DAY_OPTIONS = listOf(0, 7, 30, 90)
 
         fun parse(json: JsonObject) = PeachPreferences(
@@ -401,7 +403,8 @@ data class PeachPreferences(
             searchHistoryLimit = json.int(KEY_SEARCH_HISTORY_LIMIT),
             feedHideGroupCompilations = json.bool(KEY_HIDE_GROUP) == true,
             feedHideSoloCompilations = json.bool(KEY_HIDE_SOLO) == true,
-            feedHideExcerpts = json.bool(KEY_HIDE_EXCERPTS) == true
+            feedHideExcerpts = json.bool(KEY_HIDE_EXCERPTS) == true,
+            codePatterns = json.strings(KEY_CODE_PATTERNS)
         )
     }
 }

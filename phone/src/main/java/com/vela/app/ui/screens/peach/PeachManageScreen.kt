@@ -827,6 +827,19 @@ private fun PeachPreferencesPage(onBack: () -> Unit) {
                     }
                 }
             }
+            item {
+                PeachSection(stringResource(R.string.peach_pref_code_patterns)) {
+                    var patterns by remember(prefs.codePatterns) { mutableStateOf(prefs.codePatterns.joinToString("\n")) }
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PeachHint(stringResource(R.string.peach_pref_code_patterns_hint))
+                        OutlinedTextField(value = patterns, onValueChange = { patterns = it }, minLines = 3, modifier = Modifier.fillMaxWidth())
+                        TextButton(enabled = !actions.isBusy, onClick = {
+                            val list = patterns.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                            actions.run(onDone = preferences::reload) { updatePreference(PeachPreferences.KEY_CODE_PATTERNS, list) }
+                        }) { Text(stringResource(R.string.peach_save)) }
+                    }
+                }
+            }
             item { PeachHint(stringResource(R.string.peach_preferences_hint)) }
         }
     }
