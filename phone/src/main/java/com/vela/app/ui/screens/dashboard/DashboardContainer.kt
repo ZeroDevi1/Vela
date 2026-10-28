@@ -171,6 +171,7 @@ fun DashboardContainer(
     onNavigateToCacheSettings: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
     onNavigateToServerInfo: () -> Unit = {},
+    onNavigateToPeach: () -> Unit = {},
     onAddServer: () -> Unit = {},
     onAddUser: (serverUrl: String, serverName: String?) -> Unit = { _, _ -> }
 ) {
@@ -583,6 +584,7 @@ fun DashboardContainer(
                             onNavigateToCacheSettings = onNavigateToCacheSettings,
                             onNavigateToAbout = onNavigateToAbout,
                             onNavigateToServerInfo = onNavigateToServerInfo,
+                            onNavigateToPeach = onNavigateToPeach,
                             onNavigateToRequestedItem = onNavigateToDetail,
                             onAddServer = onAddServer,
                             onAddUser = onAddUser

@@ -43,6 +43,8 @@ import com.vela.app.ui.screens.dashboard.settings.CacheSettingsScreen
 import com.vela.app.ui.screens.dashboard.settings.ConnectionsSettingsScreen
 import com.vela.app.ui.screens.home.AppHomeContainer
 import com.vela.app.ui.screens.admin.ServerInfoScreen
+import com.vela.app.ui.screens.peach.PeachManageScreen
+import com.vela.app.ui.screens.peach.PeachWebScreen
 import com.vela.app.ui.screens.dashboard.settings.AboutScreen
 import com.vela.app.ui.screens.dashboard.settings.PlayerSettingsScreen
 import com.vela.app.ui.screens.dashboard.settings.SubtitleSettingsScreen
@@ -450,6 +452,9 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                     onNavigateToServerInfo = {
                         navController.navigate("server_info")
                     },
+                    onNavigateToPeach = {
+                        navController.navigate("peach_manage")
+                    },
                     onAddServer = {
                         navController.openServerPicker()
                     },
@@ -827,6 +832,9 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                     onNavigateToServerInfo = {
                         navController.navigate("server_info")
                     },
+                    onNavigateToPeach = {
+                        navController.navigate("peach_manage")
+                    },
                     onAddUser = { serverUrl, serverName ->
                         val encodedServerUrl = java.net.URLEncoder.encode(serverUrl, "UTF-8")
                         val encodedServerName = java.net.URLEncoder.encode(serverName.orEmpty(), "UTF-8")
@@ -875,6 +883,34 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                     onBackPressed = {
                         navController.popBackStack()
                     }
+                )
+            }
+
+            scene(
+                "peach_manage?section={section}",
+                arguments = listOf(navArgument("section") { type = NavType.StringType; nullable = true; defaultValue = null }),
+                enterTransition = { NavTransitions.enter() },
+                exitTransition = { NavTransitions.exit() }
+            ) { backStackEntry ->
+                PeachManageScreen(
+                    section = backStackEntry.arguments?.getString("section"),
+                    onBack = { navController.popBackStack() },
+                    onOpenSection = { section -> navController.navigate("peach_manage?section=${section.route}") },
+                    onOpenWeb = { path ->
+                        navController.navigate("peach_web?path=${java.net.URLEncoder.encode(path, "UTF-8")}")
+                    }
+                )
+            }
+
+            scene(
+                "peach_web?path={path}",
+                arguments = listOf(navArgument("path") { type = NavType.StringType; defaultValue = "/" }),
+                enterTransition = { NavTransitions.enter() },
+                exitTransition = { NavTransitions.exit() }
+            ) { backStackEntry ->
+                PeachWebScreen(
+                    path = backStackEntry.arguments?.getString("path") ?: "/",
+                    onBack = { navController.popBackStack() }
                 )
             }
 

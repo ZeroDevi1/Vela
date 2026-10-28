@@ -1,5 +1,7 @@
 package com.vela.app.ui.screens.detail
 
+import com.vela.app.ui.screens.peach.PeachFollowPerformerButton
+import com.vela.data.peach.PeachIds
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -318,6 +320,16 @@ private fun PersonScreen(
                     color = Color.White.copy(alpha = 0.84f),
                     fontSize = 14.sp,
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 18.dp)
+                )
+            }
+        }
+
+        // Peach 的出镜者可以订阅新作：服务端按实体自行拼来源地址。
+        PeachIds.entity(person?.id)?.takeIf { it.first == "performer" }?.let { (_, entityId) ->
+            item {
+                PeachFollowPerformerButton(
+                    entityId = entityId,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
                 )
             }
         }
