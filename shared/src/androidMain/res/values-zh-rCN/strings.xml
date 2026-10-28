@@ -1060,4 +1060,13 @@
     <string name="tv_library_filter_unplayed">仅未观看</string>
     <string name="tv_detail_ends_at">结束于 %1$s</string>
     <string name="tv_detail_seasons">季</string>
+    <string name="auth_peach_secret">访问口令或密码</string>
+    <string name="auth_peach_secret_hint">Peach 没有用户名。填写访问口令（运行 peach token 查看）或访问密码；服务器未设口令时可留空。</string>
+    <string name="auth_certificate_untrusted_title">核对服务器证书</string>
+    <string name="auth_certificate_changed_title">服务器证书已变更</string>
+    <string name="auth_certificate_message">%1$s 使用的证书不受系统信任（例如 Peach 本机自签的证书）。请先与服务器上的指纹核对一致，再选择信任。</string>
+    <string name="auth_certificate_fingerprint">公钥 SHA-256 指纹</string>
+    <string name="auth_certificate_details">签发者：%1$s\n有效期至：%2$s</string>
+    <string name="auth_certificate_trust">信任</string>
+    <string name="auth_certificate_not_trusted">未信任服务器证书，没有建立连接。</string>
 </resources>

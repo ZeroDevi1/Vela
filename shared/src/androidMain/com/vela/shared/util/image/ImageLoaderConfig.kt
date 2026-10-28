@@ -12,7 +12,9 @@ import coil3.request.CachePolicy
 import com.vela.data.DataModuleConfig
 import com.vela.data.datastore.DataStoreProvider
 import com.vela.data.model.AuthHeaderDto
+import com.vela.data.network.ServerTrust.applyServerTrust
 import com.vela.data.network.ServerType
+import com.vela.data.peach.PeachCredential
 import com.vela.data.preferences.NetworkPreferences
 import com.vela.data.security.AuthSessionIds
 import com.vela.data.security.LEGACY_ACCESS_TOKEN_KEY
@@ -22,6 +24,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.Interceptor
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okio.Path.Companion.toOkioPath
 import java.io.File
@@ -34,6 +37,7 @@ object ImageLoaderConfig {
     private val SERVER_URL_KEY = stringPreferencesKey("server_url")
     private val USER_ID_KEY = stringPreferencesKey("user_id")
     private val SERVER_TYPE_KEY = stringPreferencesKey("server_type")
+    private val ACTIVE_SERVER_ID_KEY = stringPreferencesKey("active_server_id")
     private const val BYTES_PER_MB = 1024L * 1024L
 
     private val deviceId by lazy { UUID.randomUUID().toString() }
@@ -99,16 +103,17 @@ object ImageLoaderConfig {
         val dataStore = DataStoreProvider.getDataStore(context)
         val secureSessionStore = SecureSessionStore(context)
         val authHeaderLock = Any()
-        var cachedAuthHeader: String? = null
+        var cachedAuthHeaders: Map<String, String>? = null
+        var cachedPeachHost: String? = null
         var cachedAuthHeaderAt = 0L
         val authHeaderTtlMs = 1200L
 
-        fun buildAuthHeader(): String {
+        fun buildAuthHeaders(): Map<String, String> {
             val now = System.currentTimeMillis()
             synchronized(authHeaderLock) {
-                val existingHeader = cachedAuthHeader
-                if (existingHeader != null && (now - cachedAuthHeaderAt) < authHeaderTtlMs) {
-                    return existingHeader
+                val existingHeaders = cachedAuthHeaders
+                if (existingHeaders != null && (now - cachedAuthHeaderAt) < authHeaderTtlMs) {
+                    return existingHeaders
                 }
 
                 val preferences = runBlocking {
@@ -116,32 +121,46 @@ object ImageLoaderConfig {
                 }
                 val serverUrl = preferences?.get(SERVER_URL_KEY)
                 val userId = preferences?.get(USER_ID_KEY)
-                val accessToken = if (!serverUrl.isNullOrBlank() && !userId.isNullOrBlank()) {
-                    secureSessionStore.getToken(AuthSessionIds.buildServerId(serverUrl, userId))
-                } else {
-                    null
-                } ?: preferences?.get(LEGACY_ACCESS_TOKEN_KEY)
+                val accessToken = preferences?.get(ACTIVE_SERVER_ID_KEY)
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { secureSessionStore.getToken(it) }
+                    ?: if (!serverUrl.isNullOrBlank() && !userId.isNullOrBlank()) {
+                        secureSessionStore.getToken(AuthSessionIds.buildServerId(serverUrl, userId))
+                    } else {
+                        null
+                    } ?: preferences?.get(LEGACY_ACCESS_TOKEN_KEY)
                 val serverType = preferences?.get(SERVER_TYPE_KEY)?.let {
                     runCatching { ServerType.valueOf(it) }.getOrNull()
                 }
-                val header = AuthHeaderDto.fromServerType(
-                    serverType = serverType,
-                    deviceId = deviceId,
-                    version = DataModuleConfig.CLIENT_VERSION,
-                    accessToken = accessToken
-                ).asHeaderValue()
-                cachedAuthHeader = header
+                val headers = if (serverType == ServerType.PEACH) {
+                    // Peach 的封面、预览与实体图都要鉴权：带口令头或会话 Cookie，只发给 Peach 自己的主机。
+                    cachedPeachHost = serverUrl?.toHttpUrlOrNull()?.host
+                    (PeachCredential.decode(accessToken) ?: PeachCredential.Open).headers()
+                } else {
+                    cachedPeachHost = null
+                    val header = AuthHeaderDto.fromServerType(
+                        serverType = serverType,
+                        deviceId = deviceId,
+                        version = DataModuleConfig.CLIENT_VERSION,
+                        accessToken = accessToken
+                    ).asHeaderValue()
+                    mapOf("Authorization" to header, "X-Emby-Authorization" to header)
+                }
+                cachedAuthHeaders = headers
                 cachedAuthHeaderAt = now
-                return header
+                return headers
             }
         }
 
         val authInterceptor = Interceptor { chain ->
             val originalRequest = chain.request()
-            val authHeader = buildAuthHeader()
-            val newRequest = originalRequest.newBuilder()
-                .addHeader("Authorization", authHeader)
-                .addHeader("X-Emby-Authorization", authHeader)
+            val requestBuilder = originalRequest.newBuilder()
+            val headers = buildAuthHeaders()
+            val peachHost = cachedPeachHost
+            if (peachHost == null || originalRequest.url.host.equals(peachHost, ignoreCase = true)) {
+                headers.forEach { (name, value) -> requestBuilder.addHeader(name, value) }
+            }
+            val newRequest = requestBuilder
                 .addHeader("Content-Type", "application/json")
                 .build()
 
@@ -168,6 +187,7 @@ object ImageLoaderConfig {
             .writeTimeout(15, TimeUnit.SECONDS)
             .dispatcher(dispatcher)
             .connectionPool(ConnectionPool(24, 5, TimeUnit.MINUTES))
+            .applyServerTrust()
             .addInterceptor(authInterceptor)
             .build()
     }

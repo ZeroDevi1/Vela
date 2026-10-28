@@ -14,6 +14,13 @@ import com.vela.data.model.AuthenticationResult
 import com.vela.data.model.QuickConnectDto
 import com.vela.data.model.QuickConnectResult
 import com.vela.data.model.ServerInfo
+import com.vela.data.model.User
+import com.vela.data.network.UntrustedServerCertificateException
+import com.vela.data.network.serverTypeOf
+import com.vela.data.peach.PeachApiException
+import com.vela.data.peach.PeachClient
+import com.vela.data.peach.PeachCredential
+import com.vela.data.peach.PeachIds
 import com.vela.data.network.ServerEndpoint
 import com.vela.data.network.ServerType
 import com.vela.data.network.NetworkAccess
@@ -233,6 +240,7 @@ class AuthRepository(private val context: Context) {
         return when (serverType) {
             ServerType.EMBY -> "Emby Server"
             ServerType.JELLYFIN -> "Jellyfin Server"
+            ServerType.PEACH -> "Peach"
             ServerType.UNKNOWN -> "Media Server"
         }
     }
@@ -578,6 +586,9 @@ class AuthRepository(private val context: Context) {
             val endpoint = probeServerEndpoint(trimmedUrl).getOrElse { error ->
                 return Result.failure(error)
             }
+            if ((serverTypeOf(target.serverTypeRaw) == ServerType.PEACH) != (endpoint.serverType == ServerType.PEACH)) {
+                return Result.failure(Exception(string(R.string.auth_error_server_line_mismatch)))
+            }
             val instanceId = endpoint.serverInfo.id?.takeIf { it.isNotBlank() }
             if (
                 !target.serverInstanceId.isNullOrBlank() &&
@@ -862,6 +873,7 @@ class AuthRepository(private val context: Context) {
                     storageDir = context.filesDir,
                     timeoutConfig = networkPreferences.getTimeoutConfig()
                 ).getOrElse { error ->
+                if (error is UntrustedServerCertificateException) return Result.failure(error)
                 return Result.failure(Exception(error.message ?: string(R.string.auth_error_unable_to_connect)))
             }
 
@@ -956,6 +968,7 @@ class AuthRepository(private val context: Context) {
                         productName = when (savedServerType) {
                             ServerType.EMBY -> "Emby"
                             ServerType.JELLYFIN -> "Jellyfin"
+                            ServerType.PEACH -> "Peach"
                             ServerType.UNKNOWN -> "Media Server"
                         }
                     )
@@ -967,8 +980,13 @@ class AuthRepository(private val context: Context) {
                     storageDir = context.filesDir,
                     timeoutConfig = networkPreferences.getTimeoutConfig()
                 ).getOrElse { error ->
+                    if (error is UntrustedServerCertificateException) return Result.failure(error)
                     return Result.failure(Exception(error.message ?: string(R.string.data_error_server_endpoint_unresolved)))
                 }
+            }
+
+            if (endpoint.serverType == ServerType.PEACH) {
+                return authenticatePeach(endpoint, username, password, note)
             }
 
             val serverName = serverName(
@@ -1021,6 +1039,99 @@ class AuthRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Peach 登录。Peach 单用户、没有账号：[secret] 先当访问口令验证，不通过再当访问密码
+     * 走 `POST /login` 换会话 Cookie；留空则按开放访问验证。凭据只存在 SecureSessionStore。
+     */
+    private suspend fun authenticatePeach(
+        endpoint: ServerEndpoint,
+        username: String,
+        secret: String,
+        note: String?
+    ): Result<AuthenticationResult> {
+        val timeoutConfig = networkPreferences.getTimeoutConfig()
+        suspend fun verify(credential: PeachCredential): Boolean {
+            val client = NetworkModule.createPeachClient(endpoint.baseUrl, credential, timeoutConfig)
+            return try {
+                client.get("/api/client-updates")
+                true
+            } catch (error: PeachApiException) {
+                if (error.kind == PeachApiException.Kind.UNAUTHORIZED) false else throw error
+            }
+        }
+
+        val trimmedSecret = secret.trim()
+        val credential: PeachCredential = try {
+            when {
+                trimmedSecret.isEmpty() -> {
+                    if (!verify(PeachCredential.Open)) {
+                        return Result.failure(Exception(string(R.string.auth_error_peach_secret_required)))
+                    }
+                    PeachCredential.Open
+                }
+                verify(PeachCredential.Token(trimmedSecret)) -> PeachCredential.Token(trimmedSecret)
+                else -> {
+                    val client = NetworkModule.createPeachClient(endpoint.baseUrl, PeachCredential.Open, timeoutConfig)
+                    when (val outcome = client.loginWithPassword(trimmedSecret)) {
+                        is PeachClient.LoginOutcome.Session -> PeachCredential.Session(outcome.cookie)
+                            .takeIf { verify(it) }
+                            ?: return Result.failure(Exception(string(R.string.auth_error_peach_secret_invalid)))
+                        PeachClient.LoginOutcome.NoSession -> PeachCredential.Open.takeIf { verify(it) }
+                            ?: return Result.failure(Exception(string(R.string.auth_error_peach_secret_invalid)))
+                        is PeachClient.LoginOutcome.Rejected -> return Result.failure(Exception(outcome.reason))
+                    }
+                }
+            }
+        } catch (error: PeachApiException) {
+            return Result.failure(Exception(error.message))
+        }
+
+        val preferences = dataStore.data.first()
+        val existingServers = savedServers(preferences[SAVED_SERVERS_KEY])
+        val baseUrl = canonicalServerUrl(endpoint.baseUrl)
+        val matched = findMatchingSavedServer(existingServers, PeachIds.USER_ID, baseUrl)
+        // Peach 没有返回实例 ID 的接口；首次添加时生成一个，之后新增线路沿用。
+        val peachEndpoint = endpoint.copy(
+            serverInfo = endpoint.serverInfo.copy(
+                id = matched?.serverInstanceId ?: "peach-${UUID.randomUUID()}"
+            )
+        )
+        val displayName = username.trim().ifBlank { "Peach" }
+        val savedServer = buildAuthenticatedServer(
+            existingServers = existingServers,
+            endpoint = peachEndpoint,
+            userId = PeachIds.USER_ID,
+            username = displayName,
+            note = note
+        )
+        val serverName = serverName(peachEndpoint.serverInfo, ServerType.PEACH)
+        secureSessionStore.putToken(savedServer.id, credential.encode())
+        try {
+            dataStore.edit { prefs ->
+                val updatedServers = upsertSavedServer(savedServers(prefs[SAVED_SERVERS_KEY]), savedServer)
+                prefs[SAVED_SERVERS_KEY] = serializeSavedServers(updatedServers)
+                prefs[ACTIVE_SERVER_ID_KEY] = savedServer.id
+                prefs[SERVER_URL_KEY] = endpoint.baseUrl
+                prefs[SERVER_NAME_KEY] = serverName
+                prefs[SERVER_TYPE_KEY] = ServerType.PEACH.name
+                prefs[LEGACY_ACCESS_TOKEN_KEY] = ""
+                prefs[USER_ID_KEY] = PeachIds.USER_ID
+                prefs[USERNAME_KEY] = displayName
+                prefs[IS_AUTHENTICATED_KEY] = true
+            }
+        } catch (error: Exception) {
+            secureSessionStore.removeToken(savedServer.id)
+            return Result.failure(error)
+        }
+        return Result.success(
+            AuthenticationResult(
+                user = User(name = displayName, id = PeachIds.USER_ID),
+                accessToken = credential.encode(),
+                serverId = savedServer.serverInstanceId.orEmpty()
+            )
+        )
+    }
+
     suspend fun initiateQuickConnect(serverUrl: String): Result<QuickConnectResult> {
         return try {
             legacyStorageMigrated()
@@ -1046,13 +1157,22 @@ class AuthRepository(private val context: Context) {
         }
     }
 
+    /** 登录页据此切换 Peach 的表单：不要用户名，只要访问口令或密码。 */
+    suspend fun isPeachServer(serverUrl: String): Boolean {
+        if (serverUrl.isBlank()) return false
+        return runCatching {
+            legacyStorageMigrated()
+            authEndpoint(serverUrl, dataStore.data.first()).getOrNull()?.serverType == ServerType.PEACH
+        }.getOrDefault(false)
+    }
+
     suspend fun isQuickConnectSupported(serverUrl: String): Boolean {
         if (serverUrl.isBlank()) return false
         return runCatching {
             legacyStorageMigrated()
             val preferences = dataStore.data.first()
             val endpoint = authEndpoint(serverUrl, preferences).getOrNull()
-            endpoint?.serverType != ServerType.EMBY
+            endpoint?.serverType != ServerType.EMBY && endpoint?.serverType != ServerType.PEACH
         }.getOrDefault(true)
     }
 
@@ -1476,9 +1596,13 @@ class AuthRepository(private val context: Context) {
             ).fold(
                 onSuccess = { Result.success(it) },
                 onFailure = { error ->
-                    Result.failure(
-                        Exception(error.message ?: string(R.string.data_error_server_endpoint_unresolved))
-                    )
+                    if (error is UntrustedServerCertificateException) {
+                        Result.failure(error)
+                    } else {
+                        Result.failure(
+                            Exception(error.message ?: string(R.string.data_error_server_endpoint_unresolved))
+                        )
+                    }
                 }
             )
         }

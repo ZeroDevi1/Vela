@@ -43,6 +43,13 @@ import com.vela.data.model.toSearchQueries
 import com.vela.data.network.HttpStatusException
 import com.vela.data.network.NetworkModule
 import com.vela.data.network.ServerType
+import com.vela.data.network.serverTypeOf
+import com.vela.data.peach.PeachApiException
+import com.vela.data.peach.PeachArtwork
+import com.vela.data.peach.PeachCredential
+import com.vela.data.peach.PeachIds
+import com.vela.data.peach.PeachImageUrls
+import com.vela.data.peach.PeachMediaServerApi
 import com.vela.data.network.trimTrailingSlash
 import com.vela.data.preferences.NetworkPreferences
 import com.vela.data.preferences.NetworkTimeoutConfig
@@ -52,6 +59,7 @@ import com.vela.data.security.SecureSessionStore
 import com.vela.data.util.buildServerUrl
 import com.vela.data.util.getServerUrl
 import java.nio.charset.StandardCharsets
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -101,7 +109,8 @@ class MediaRepository(private val context: Context) {
     private val tmdbApi by lazy { CatalogNetwork.tmdb }
 
     private data class ImageAuthState(
-        val serverUrl: String?
+        val serverUrl: String?,
+        val serverType: ServerType? = null
     )
 
     private data class ApiSession(
@@ -172,7 +181,8 @@ class MediaRepository(private val context: Context) {
     private val imageAuthStateFlow: Flow<ImageAuthState> = dataStore.data
         .map { preferences ->
             ImageAuthState(
-                serverUrl = preferences[SERVER_URL_KEY]
+                serverUrl = preferences[SERVER_URL_KEY],
+                serverType = serverTypeOf(preferences[SERVER_TYPE_KEY])
             )
         }
         .distinctUntilChanged()
@@ -1436,7 +1446,8 @@ class MediaRepository(private val context: Context) {
 
         val config = getSessionConfig()
         val state = ImageAuthState(
-            serverUrl = config?.serverUrl
+            serverUrl = config?.serverUrl,
+            serverType = config?.serverType
         )
         cachedImageAuthState = state
         cachedImageAuthAt = now
@@ -1457,6 +1468,9 @@ class MediaRepository(private val context: Context) {
         if (serverUrl.isNullOrEmpty() || itemId.isBlank()) {
             return null
         }
+        if (authState.serverType == ServerType.PEACH) {
+            return peachImageUrl(serverUrl, itemId, imageType, imageTag)
+        }
 
         val queryParams = mutableListOf<Pair<String, String?>>()
         width?.let { queryParams.add((if (height == null) "maxWidth" else "fillWidth") to it.toString()) }
@@ -1468,6 +1482,18 @@ class MediaRepository(private val context: Context) {
             queryParams.add("EnableImageEnhancers" to "false")
         }
         return buildServerUrl(baseUrl = serverUrl, encodedPath = "Items/$itemId/Images/$imageType", queryParams = queryParams)
+    }
+
+    /** Peach 没有 Logo；海报、缩略图与背景都取官方封面或预览拼图，背景取大图档。 */
+    private fun peachImageUrl(serverUrl: String, itemId: String, imageType: String, imageTag: String?): String? {
+        if (imageType.equals("Logo", ignoreCase = true)) return null
+        return PeachImageUrls.imageUrl(
+            baseUrl = serverUrl,
+            itemId = itemId,
+            imageTag = imageTag,
+            coverKey = PeachArtwork.coverKey(itemId),
+            large = imageType.equals("Backdrop", ignoreCase = true)
+        )
     }
 
     suspend fun getTmdbLogoUrl(item: BaseItemDto): String? = withContext(Dispatchers.IO) {
@@ -1523,7 +1549,9 @@ class MediaRepository(private val context: Context) {
     ): Flow<String?> {
         return imageAuthStateFlow.map { authState ->
             val serverUrl = authState.serverUrl
-            if (serverUrl != null && itemId.isNotEmpty()) {
+            if (serverUrl != null && itemId.isNotEmpty() && authState.serverType == ServerType.PEACH) {
+                peachImageUrl(serverUrl, itemId, imageType, imageTag)
+            } else if (serverUrl != null && itemId.isNotEmpty()) {
                 val queryParams = mutableListOf<Pair<String, String?>>()
                 width?.let { queryParams.add((if (height == null) "maxWidth" else "fillWidth") to it.toString()) }
                 height?.let { queryParams.add((if (width == null) "maxHeight" else "fillHeight") to it.toString()) }
@@ -1551,7 +1579,9 @@ class MediaRepository(private val context: Context) {
     ): Flow<String?> {
         return imageAuthStateFlow.map { authState ->
             val serverUrl = authState.serverUrl
-            if (serverUrl != null && itemId.isNotEmpty()) {
+            if (serverUrl != null && itemId.isNotEmpty() && authState.serverType == ServerType.PEACH) {
+                peachImageUrl(serverUrl, itemId, "Backdrop", imageTag)
+            } else if (serverUrl != null && itemId.isNotEmpty()) {
                 val queryParams = mutableListOf<Pair<String, String?>>()
                 width?.let { queryParams.add((if (height == null) "maxWidth" else "fillWidth") to it.toString()) }
                 height?.let { queryParams.add((if (width == null) "maxHeight" else "fillHeight") to it.toString()) }
@@ -2057,6 +2087,7 @@ class MediaRepository(private val context: Context) {
         val config = getSessionConfig()
         val serverUrl = config?.serverUrl
         val userId = config?.userId
+        if (config?.serverType == ServerType.PEACH) return null
 
         return if (serverUrl != null && userId != null) {
             buildServerUrl(
@@ -2161,6 +2192,21 @@ class MediaRepository(private val context: Context) {
     suspend fun getItemDownloadRequest(itemId: String): Result<ItemDownloadRequest> {
         return try {
             val config = getSessionConfig() ?: return Result.failure(Exception(string(R.string.data_error_session_not_available)))
+            if (config.serverType == ServerType.PEACH) {
+                val item = getItemById(itemId).getOrNull()
+                // 下载复用外部播放的限时票据地址：单作品、6 小时有效，不携带长期凭据。
+                return Result.success(
+                    ItemDownloadRequest(
+                        itemId = itemId,
+                        displayName = item?.name?.takeIf { it.isNotBlank() } ?: "peach_$itemId",
+                        downloadUrl = peachExternalPlaybackUrl(itemId),
+                        authToken = null,
+                        fileExtension = item?.container,
+                        estimatedBytes = item?.mediaSources?.firstOrNull()?.size ?: 0L,
+                        serverType = ServerType.PEACH
+                    )
+                )
+            }
             val serverUrl = config.serverUrl
             val accessToken = config.accessToken
             if (accessToken.isNullOrBlank()) {
@@ -2221,6 +2267,10 @@ class MediaRepository(private val context: Context) {
         audioStreamIndex: Int? = null,
         startTimeTicks: Long? = null
     ): Result<ItemDownloadRequest> {
+        if (getSessionConfig()?.serverType == ServerType.PEACH) {
+            // Peach 不提供按码率转码的下载，退回原文件。
+            return getItemDownloadRequest(itemId)
+        }
         return try {
             val config = getSessionConfig()
                 ?: return Result.failure(Exception(string(R.string.data_error_session_not_available)))
@@ -2314,6 +2364,9 @@ class MediaRepository(private val context: Context) {
         mediaSourceId: String? = null
     ): Result<PlaybackRequest> {
         val config = getSessionConfig() ?: return Result.failure(Exception(string(R.string.data_error_session_not_available)))
+        if (config.serverType == ServerType.PEACH) {
+            return getPeachPlaybackRequest(itemId, mediaSourceId, playbackInfo)
+        }
         val authContext = createPlaybackAuthContext(config)
         val activePlaybackInfo = playbackInfo ?: run {
             val playbackInfoResult = getPlaybackInfo(
@@ -2362,6 +2415,9 @@ class MediaRepository(private val context: Context) {
         mediaSourceId: String? = null
     ): Result<String> {
         val config = getSessionConfig() ?: return Result.failure(Exception(string(R.string.data_error_session_not_available)))
+        if (config.serverType == ServerType.PEACH) {
+            return runCatching { peachExternalPlaybackUrl(itemId) }
+        }
         val authContext = createPlaybackAuthContext(config)
         val activePlaybackInfo = playbackInfo ?: run {
             val playbackInfoResult = getPlaybackInfo(
@@ -2396,6 +2452,46 @@ class MediaRepository(private val context: Context) {
                 mediaSourceId = mediaSourceId
             )
         )
+    }
+
+    /** 当前会话是 Peach 时的适配器；否则为 null。 */
+    suspend fun peachApi(): PeachMediaServerApi? = getApiSession()?.api as? PeachMediaServerApi
+
+    /**
+     * Peach 选流：`/api/stream-plan` 按会话返回 range 直链或 HLS 列表，播放器带 Peach 的
+     * 鉴权头请求。会话 ID 取自 PlaybackInfo 的 `playSessionId`，停止上报时据此释放服务端转码。
+     */
+    private suspend fun getPeachPlaybackRequest(
+        itemId: String,
+        mediaSourceId: String?,
+        playbackInfo: PlaybackInfoResponse?
+    ): Result<PlaybackRequest> {
+        val api = peachApi() ?: return Result.failure(Exception(string(R.string.data_error_session_not_available)))
+        val assetId = PeachIds.assetId(mediaSourceId) ?: PeachIds.assetId(itemId)
+            ?: return Result.failure(Exception(string(R.string.data_error_no_media_source_available)))
+        val session = playbackInfo?.playSessionId ?: UUID.randomUUID().toString()
+        return try {
+            val plan = api.streamPlan(assetId, session)
+            val credential = PeachCredential.decode(getSessionConfig()?.accessToken) ?: PeachCredential.Open
+            Result.success(PlaybackRequest(url = api.peach.absoluteUrl(plan.src), requestHeaders = credential.headers()))
+        } catch (error: PeachApiException) {
+            val message = when (error.status) {
+                415 -> string(R.string.data_error_peach_disc_image)
+                410 -> string(R.string.data_error_peach_stream_cancelled)
+                else -> error.message
+            }
+            Result.failure(Exception(message, error))
+        }
+    }
+
+    /** Peach 外部播放票据：投屏、外部播放器与下载共用，地址里不含长期凭据。 */
+    suspend fun peachExternalPlaybackUrl(itemId: String): String {
+        val api = peachApi() ?: throw IllegalStateException(string(R.string.data_error_session_not_available))
+        val assetId = PeachIds.assetId(itemId) ?: throw IllegalArgumentException(string(R.string.data_error_no_media_source_available))
+        val ticket = api.peach.post("/api/external-playback", query = listOf("id" to assetId))
+        val path = ticket["url"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            ?: throw IllegalStateException(string(R.string.data_error_playback_info_not_available))
+        return api.peach.absoluteUrl(path)
     }
 
     private suspend fun resolveStrmPlaybackInfo(

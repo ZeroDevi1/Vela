@@ -136,4 +136,8 @@
     <string name="seerr_credit_role_producer">制片人</string>
     <string name="seerr_credit_role_creator">创作者</string>
     <string name="seerr_credit_role_other">其他</string>
+    <string name="auth_error_peach_secret_required">此 Peach 服务器需要访问口令或密码</string>
+    <string name="auth_error_peach_secret_invalid">访问口令或密码不正确</string>
+    <string name="data_error_peach_disc_image">ISO 原盘无法在应用内播放，请在详情页用外部播放器打开</string>
+    <string name="data_error_peach_stream_cancelled">播放会话已取消，请重新开始播放</string>
 </resources>

@@ -1074,4 +1074,13 @@
     <string name="tv_library_filter_unplayed">Unplayed only</string>
     <string name="tv_detail_ends_at">Ends at %1$s</string>
     <string name="tv_detail_seasons">Seasons</string>
+    <string name="auth_peach_secret">Access token or password</string>
+    <string name="auth_peach_secret_hint">Peach has no user accounts. Enter the access token (shown by `peach token`) or the access password. Leave it empty if the server is open.</string>
+    <string name="auth_certificate_untrusted_title">Verify server certificate</string>
+    <string name="auth_certificate_changed_title">Server certificate changed</string>
+    <string name="auth_certificate_message">%1$s uses a certificate the system doesn\'t trust (for example Peach\'s self-signed local CA). Compare the fingerprint below with the one on the server before trusting it.</string>
+    <string name="auth_certificate_fingerprint">Public key SHA-256</string>
+    <string name="auth_certificate_details">Issuer: %1$s\nValid until: %2$s</string>
+    <string name="auth_certificate_trust">Trust</string>
+    <string name="auth_certificate_not_trusted">The server certificate wasn\'t trusted, so the connection was not made.</string>
 </resources>
