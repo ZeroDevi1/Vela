@@ -920,7 +920,8 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                     onOpenWeb = { path ->
                         navController.navigate("peach_web?path=${java.net.URLEncoder.encode(path, "UTF-8")}")
                     },
-                    onOpenBrowse = { navController.openPeachPage(PeachBrowsePages.HUB) }
+                    onOpenBrowse = { navController.openPeachPage(PeachBrowsePages.HUB) },
+                    onOpenItem = { item -> navController.openMediaItem(item) }
                 )
             }
 

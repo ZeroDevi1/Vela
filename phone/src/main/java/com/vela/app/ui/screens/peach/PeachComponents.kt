@@ -85,6 +85,23 @@ internal fun <T> rememberPeachLoad(block: suspend PeachRepository.() -> T): Peac
     return remember { PeachLoader(state, reloadKey) }
 }
 
+/** 参数变化时重新加载的版本：[key] 变了就清空并重新请求。 */
+@Composable
+internal fun <T> rememberPeachLoadKeyed(key: Any?, block: suspend PeachRepository.() -> T): PeachLoader<T> {
+    val context = LocalContext.current
+    val repository = remember { PeachRepository.getInstance(context) }
+    val state = remember(key) { mutableStateOf<PeachLoad<T>>(PeachLoad.Loading) }
+    val reloadKey = remember(key) { mutableStateOf(0) }
+    LaunchedEffect(key, reloadKey.value) {
+        if (state.value !is PeachLoad.Ready) state.value = PeachLoad.Loading
+        state.value = runCatching { repository.block() }.fold(
+            onSuccess = { PeachLoad.Ready(it) },
+            onFailure = { PeachLoad.Failed(it) }
+        )
+    }
+    return remember(key) { PeachLoader(state, reloadKey) }
+}
+
 /** 写操作：进行中禁用同一按钮，失败弹出服务端的说明，成功后执行 [onDone]。 */
 internal class PeachActions(
     private val scope: CoroutineScope,

@@ -1,5 +1,8 @@
 package com.vela.app.ui.screens.peach
 
+import com.vela.data.peach.peachString
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AssistChip
 import com.vela.data.peach.PeachOnlineSubtitleFile
 import com.vela.data.peach.PeachOnlineSubtitle
@@ -53,7 +56,12 @@ import com.vela.shared.R
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PeachItemPanel(itemId: String, modifier: Modifier = Modifier, onChanged: () -> Unit = {}) {
+fun PeachItemPanel(
+    itemId: String,
+    modifier: Modifier = Modifier,
+    onChanged: () -> Unit = {},
+    onOpenItem: (String) -> Unit = {}
+) {
     val assetId = PeachIds.assetId(itemId) ?: return
     val context = LocalContext.current
     val repository = remember { PeachRepository.getInstance(context) }
@@ -145,6 +153,7 @@ fun PeachItemPanel(itemId: String, modifier: Modifier = Modifier, onChanged: () 
                 label = { Text(stringResource(R.string.peach_online_subtitles)) }
             )
         }
+        PeachItemManageRow(asset = current, onOpenItem = onOpenItem, onChanged = { updated -> asset = updated; onChanged() })
     }
     if (showSubtitles) {
         PeachOnlineSubtitleDialog(
@@ -260,9 +269,13 @@ fun PeachEntityActions(
     val context = LocalContext.current
     val repository = remember { PeachRepository.getInstance(context) }
     var favorite by remember(entityId) { mutableStateOf<Boolean?>(null) }
+    var editingAliases by remember { mutableStateOf(false) }
     val actions = rememberPeachActions()
     LaunchedEffect(entityId) {
         favorite = runCatching { repository.isFavoriteEntity(kind, entityId) }.getOrNull()
+    }
+    if (editingAliases) {
+        PeachEntityAliasDialog(kind = kind, entityId = entityId, onDismiss = { editingAliases = false }, onRenamed = {})
     }
     FlowRow(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (kind == "performer") PeachFollowPerformerButton(entityId)
@@ -284,6 +297,9 @@ fun PeachEntityActions(
             onClick = { onOpenPage(PeachBrowsePages.PHOTOS, "$kind:$entityId", name) },
             label = { Text(stringResource(R.string.peach_entity_photos)) }
         )
+        if (kind != "tag") {
+            FilterChip(selected = false, onClick = { editingAliases = true }, label = { Text(stringResource(R.string.peach_entity_aliases)) })
+        }
         if (kind in setOf("performer", "creator", "studio", "series", "agency", "tag")) {
             FilterChip(
                 selected = false,
@@ -508,4 +524,171 @@ fun PeachFollowPanel(itemId: String, onOpenItem: (com.vela.data.model.BaseItemDt
             }
         }
     }
+}
+
+private val REGIONS = listOf("jp", "kr", "cn", "west", "other", "none")
+
+/**
+ * 详情页的整理类操作：编辑标签、想要高清版、产地、其他版次、加入播放列表、对账所在目录。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PeachItemManageRow(asset: PeachAsset, onOpenItem: (String) -> Unit, onChanged: (PeachAsset) -> Unit) {
+    val context = LocalContext.current
+    val repository = remember { PeachRepository.getInstance(context) }
+    val actions = rememberPeachActions()
+    var betterVersion by remember(asset.id) { mutableStateOf<Boolean?>(null) }
+    var editions by remember(asset.id) { mutableStateOf<List<PeachAsset>>(emptyList()) }
+    var editingTags by remember { mutableStateOf(false) }
+    var choosingRegion by remember { mutableStateOf(false) }
+    var choosingPlaylist by remember { mutableStateOf(false) }
+    var confirmPurge by remember { mutableStateOf(false) }
+    LaunchedEffect(asset.id) {
+        betterVersion = runCatching { repository.qualityGoal(asset.id).first }.getOrNull()
+        editions = runCatching { repository.editions(asset.id) }.getOrDefault(emptyList())
+    }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AssistChip(onClick = { editingTags = true }, label = { Text(stringResource(R.string.peach_edit_tags)) })
+        betterVersion?.let { wanted ->
+            FilterChip(
+                selected = wanted,
+                enabled = !actions.isBusy,
+                onClick = { actions.run { betterVersion = setQualityGoal(asset.id, !wanted) } },
+                label = { Text(stringResource(R.string.peach_want_better_version)) }
+            )
+        }
+        AssistChip(onClick = { choosingRegion = true }, label = { Text(asset.regionLabel ?: stringResource(R.string.peach_filter_region)) })
+        AssistChip(onClick = { choosingPlaylist = true }, label = { Text(stringResource(R.string.peach_add_to_playlist)) })
+        AssistChip(onClick = { confirmPurge = true }, label = { Text(stringResource(R.string.peach_purge_missing)) })
+    }
+    if (editions.isNotEmpty()) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.peach_other_editions), color = Color.White.copy(alpha = 0.7f), modifier = Modifier.align(Alignment.CenterVertically))
+            editions.forEach { edition ->
+                AssistChip(
+                    onClick = { onOpenItem(edition.id.toString()) },
+                    label = { Text(edition.editionLabel ?: edition.container ?: edition.displayTitle, maxLines = 1) }
+                )
+            }
+        }
+    }
+    if (editingTags) {
+        var tags by remember { mutableStateOf(asset.tags) }
+        var newTag by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { editingTags = false },
+            title = { Text(stringResource(R.string.peach_edit_tags)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        tags.forEach { tag ->
+                            AssistChip(
+                                enabled = !actions.isBusy,
+                                onClick = { actions.run { tags = editItemTag(asset.id, tag, add = false) } },
+                                label = { Text("$tag ×") }
+                            )
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.OutlinedTextField(newTag, { newTag = it.take(80) }, singleLine = true, modifier = Modifier.weight(1f))
+                        TextButton(enabled = newTag.isNotBlank() && !actions.isBusy, onClick = {
+                            val tag = newTag
+                            newTag = ""
+                            actions.run { tags = editItemTag(asset.id, tag, add = true) }
+                        }) { Text(stringResource(R.string.peach_add)) }
+                    }
+                    Text(stringResource(R.string.peach_edit_tags_hint), style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    editingTags = false
+                    actions.run { onChanged(item(asset.id)) }
+                }) { Text(stringResource(R.string.peach_close)) }
+            }
+        )
+    }
+    if (choosingRegion) {
+        AlertDialog(
+            onDismissRequest = { choosingRegion = false },
+            title = { Text(stringResource(R.string.peach_filter_region)) },
+            text = {
+                Column {
+                    REGIONS.forEach { region ->
+                        TextButton(onClick = {
+                            choosingRegion = false
+                            actions.run {
+                                batch(listOf(asset.id), "region", region = region)
+                                onChanged(item(asset.id))
+                            }
+                        }) { Text(regionName(region)) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { choosingRegion = false }) { Text(stringResource(R.string.peach_cancel)) } }
+        )
+    }
+    if (choosingPlaylist) {
+        val playlists = rememberPeachLoad { playlists().filterNot { it.isMix } }
+        var newName by remember { mutableStateOf("") }
+        val addedText = stringResource(R.string.peach_added_to_playlist)
+        AlertDialog(
+            onDismissRequest = { choosingPlaylist = false },
+            title = { Text(stringResource(R.string.peach_add_to_playlist)) },
+            text = {
+                Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                    (playlists.value as? PeachLoad.Ready)?.value?.forEach { playlist ->
+                        TextButton(enabled = !actions.isBusy, onClick = {
+                            choosingPlaylist = false
+                            actions.run(successMessage = addedText) { addToPlaylist(playlist.id, listOf(asset.id)) }
+                        }) { Text("${playlist.name} (${playlist.itemCount})") }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.OutlinedTextField(
+                            newName,
+                            { newName = it.take(80) },
+                            singleLine = true,
+                            label = { Text(stringResource(R.string.peach_playlist_create)) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(enabled = newName.isNotBlank() && !actions.isBusy, onClick = {
+                            val name = newName.trim()
+                            choosingPlaylist = false
+                            actions.run(successMessage = addedText) { createPlaylist(name, listOf(asset.id)) }
+                        }) { Text(stringResource(R.string.peach_add)) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { choosingPlaylist = false }) { Text(stringResource(R.string.peach_cancel)) } }
+        )
+    }
+    if (confirmPurge) {
+        AlertDialog(
+            onDismissRequest = { confirmPurge = false },
+            title = { Text(stringResource(R.string.peach_purge_missing)) },
+            text = { Text(stringResource(R.string.peach_purge_missing_confirm)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmPurge = false
+                    actions.run {
+                        val result = purgeMissing(asset.id)
+                        result.peachString("error")?.let { throw IllegalStateException(it) }
+                    }
+                }) { Text(stringResource(R.string.peach_confirm)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmPurge = false }) { Text(stringResource(R.string.peach_cancel)) } }
+        )
+    }
+}
+
+@Composable
+private fun regionName(region: String): String = when (region) {
+    "jp" -> stringResource(R.string.peach_region_jp)
+    "kr" -> stringResource(R.string.peach_region_kr)
+    "cn" -> stringResource(R.string.peach_region_cn)
+    "west" -> stringResource(R.string.peach_region_west)
+    "other" -> stringResource(R.string.peach_junk_other)
+    else -> stringResource(R.string.peach_region_auto)
 }

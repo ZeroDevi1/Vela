@@ -406,53 +406,6 @@ data class PeachPreferences(
     }
 }
 
-/** 服务器配置的只读摘要。分区读取失败时记在 [sectionErrors]，其余分区照常展示。 */
-data class PeachConfigurationSummary(
-    val editable: Boolean,
-    val notice: String?,
-    val libraryCount: Int?,
-    val mediaDirs: List<String>,
-    val ledgerReadOnly: Boolean,
-    val currentVersion: String?,
-    val latestVersion: String?,
-    val updateState: String?,
-    val updateMessage: String?,
-    val dataRoot: String?,
-    val freeBytes: Long?,
-    val totalBytes: Long?,
-    val downloadProblems: List<String>,
-    val sectionErrors: Map<String, String>
-) {
-    companion object {
-        fun parse(json: JsonObject): PeachConfigurationSummary {
-            val updates = json.obj("updates")
-            val storage = json.obj("storage")
-            val downloads = json.obj("downloads")
-            return PeachConfigurationSummary(
-                editable = json.bool("editable") == true,
-                notice = json.string("notice"),
-                libraryCount = json.int("library_count"),
-                mediaDirs = json.strings("media_dirs"),
-                ledgerReadOnly = json.bool("ledger_read_only") == true,
-                currentVersion = updates?.string("current_version"),
-                latestVersion = updates?.string("latest_version"),
-                updateState = updates?.string("state"),
-                updateMessage = updates?.string("message"),
-                dataRoot = storage?.string("data_root"),
-                freeBytes = storage?.long("free_bytes"),
-                totalBytes = storage?.long("total_bytes"),
-                downloadProblems = downloads?.strings("problems").orEmpty(),
-                sectionErrors = json.obj("section_errors")?.let { errors ->
-                    errors.keys.associateWith { key ->
-                        val entry = errors.obj(key)
-                        listOfNotNull(entry?.string("title"), entry?.string("message")).joinToString("：")
-                    }
-                }.orEmpty()
-            )
-        }
-    }
-}
-
 /** 回收站清空结果。 */
 data class PeachTrashResult(val purged: Int, val blocked: Int, val bytesReclaimed: Long?) {
     companion object {

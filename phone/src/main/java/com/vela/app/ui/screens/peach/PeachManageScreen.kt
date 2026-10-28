@@ -49,7 +49,31 @@ enum class PeachSection(val route: String) {
     PREFERENCES("preferences"),
     CONFIGURATION("configuration"),
     TRASH("trash"),
-    CERTIFICATES("certificates");
+    CERTIFICATES("certificates"),
+    REVIEW("review"),
+    DUPLICATES("duplicates"),
+    QUALITY("quality"),
+    JUNK("junk"),
+    CLEANUP("cleanup"),
+    ORGANIZE("organize"),
+    TAGS("tags"),
+    METADATA_SOURCES("metadata-sources"),
+    STATS("stats"),
+    TASTE("taste"),
+    CONFIG_LIBRARIES("config-libraries"),
+    CONFIG_DOWNLOADS("config-downloads"),
+    CONFIG_INDEXERS("config-indexers"),
+    CONFIG_PROXIES("config-proxies"),
+    CONFIG_UPDATES("config-updates"),
+    CONFIG_STORAGE("config-storage"),
+    CONFIG_NETWORK("config-network"),
+    CONFIG_PROCESSING("config-processing"),
+    CONFIG_PRIVACY("config-privacy"),
+    CONFIG_DIAGNOSTICS("config-diagnostics"),
+    ISSUES("issues"),
+    FEED_LOOKUP("feed-lookup"),
+    FOLLOW_RESOLVE("follow-resolve"),
+    FOLLOW_AUTHORS("follow-authors");
 
     companion object {
         fun fromRoute(route: String?): PeachSection? = entries.firstOrNull { it.route == route }
@@ -66,20 +90,45 @@ fun PeachManageScreen(
     onBack: () -> Unit,
     onOpenSection: (PeachSection) -> Unit,
     onOpenWeb: (String) -> Unit,
-    onOpenBrowse: () -> Unit = {}
+    onOpenBrowse: () -> Unit = {},
+    onOpenItem: (com.vela.data.model.BaseItemDto) -> Unit = {}
 ) {
     when (PeachSection.fromRoute(section)) {
         null -> PeachManageHome(onBack, onOpenSection, onOpenWeb, onOpenBrowse)
         PeachSection.TASKS -> PeachTasksPage(onBack)
         PeachSection.DOWNLOADS -> PeachDownloadsPage(onBack)
-        PeachSection.FEEDS -> PeachFeedsPage(onBack)
-        PeachSection.FOLLOW -> PeachFollowPage(onBack)
+        PeachSection.FEEDS -> PeachFeedsPage(onBack, onOpenSection)
+        PeachSection.FOLLOW -> PeachFollowPage(onBack, onOpenSection)
         PeachSection.WANTS -> PeachWantsPage(onBack)
         PeachSection.SOURCES -> PeachSourcesPage(onBack)
         PeachSection.PREFERENCES -> PeachPreferencesPage(onBack)
-        PeachSection.CONFIGURATION -> PeachConfigurationPage(onBack, onOpenWeb)
+        PeachSection.CONFIGURATION -> PeachConfigurationHome(onBack, onOpenSection, onOpenWeb)
         PeachSection.TRASH -> PeachTrashPage(onBack)
         PeachSection.CERTIFICATES -> PeachCertificatesPage(onBack)
+        PeachSection.REVIEW -> PeachReviewPage(onBack, onOpenItem)
+        PeachSection.DUPLICATES -> PeachDuplicatesPage(onBack, onOpenItem)
+        PeachSection.QUALITY -> PeachQualityGoalsPage(onBack, onOpenItem)
+        PeachSection.JUNK -> PeachJunkPage(onBack)
+        PeachSection.CLEANUP -> PeachCleanupPage(onBack, onOpenItem)
+        PeachSection.ORGANIZE -> PeachOrganizePage(onBack)
+        PeachSection.TAGS -> PeachTagManagementPage(onBack)
+        PeachSection.METADATA_SOURCES -> PeachMetadataSourcesPage(onBack)
+        PeachSection.STATS -> PeachStatsPage(onBack)
+        PeachSection.TASTE -> PeachTastePage(onBack)
+        PeachSection.CONFIG_LIBRARIES -> PeachLibrariesConfigPage(onBack, onOpenWeb)
+        PeachSection.CONFIG_DOWNLOADS -> PeachDownloadsConfigPage(onBack, onOpenWeb)
+        PeachSection.CONFIG_INDEXERS -> PeachIndexersConfigPage(onBack, onOpenWeb)
+        PeachSection.CONFIG_PROXIES -> PeachProxiesConfigPage(onBack, onOpenWeb)
+        PeachSection.CONFIG_UPDATES -> PeachUpdatesConfigPage(onBack, onOpenWeb)
+        PeachSection.CONFIG_STORAGE -> PeachStorageConfigPage(onBack, onOpenWeb)
+        PeachSection.CONFIG_NETWORK -> PeachNetworkConfigPage(onBack, onOpenWeb)
+        PeachSection.CONFIG_PROCESSING -> PeachProcessingConfigPage(onBack, onOpenWeb)
+        PeachSection.CONFIG_PRIVACY -> PeachPrivacyConfigPage(onBack, onOpenWeb)
+        PeachSection.CONFIG_DIAGNOSTICS -> PeachDiagnosticsPage(onBack, onOpenWeb)
+        PeachSection.ISSUES -> PeachIssuesPage(onBack, onOpenWeb)
+        PeachSection.FEED_LOOKUP -> PeachFeedLookupPage(onBack)
+        PeachSection.FOLLOW_RESOLVE -> PeachFollowResolvePage(onBack)
+        PeachSection.FOLLOW_AUTHORS -> PeachFollowAuthorsPage(onBack)
     }
 }
 
@@ -118,6 +167,25 @@ private fun PeachManageHome(
                 PeachRow(stringResource(R.string.peach_follow_title), stringResource(R.string.peach_follow_subtitle), onClick = { onOpenSection(PeachSection.FOLLOW) })
                 PeachDivider()
                 PeachRow(stringResource(R.string.peach_wants_title), stringResource(R.string.peach_wants_subtitle), onClick = { onOpenSection(PeachSection.WANTS) })
+            }
+        }
+        item {
+            PeachSection(stringResource(R.string.peach_section_library)) {
+                listOf(
+                    Triple(PeachSection.REVIEW, R.string.peach_review_title, R.string.peach_review_subtitle),
+                    Triple(PeachSection.ORGANIZE, R.string.peach_organize_title, R.string.peach_organize_subtitle),
+                    Triple(PeachSection.TAGS, R.string.peach_tags_title, R.string.peach_tags_subtitle),
+                    Triple(PeachSection.DUPLICATES, R.string.peach_duplicates_title, R.string.peach_duplicates_subtitle),
+                    Triple(PeachSection.QUALITY, R.string.peach_quality_title, R.string.peach_quality_subtitle),
+                    Triple(PeachSection.JUNK, R.string.peach_junk_title, R.string.peach_junk_subtitle),
+                    Triple(PeachSection.CLEANUP, R.string.peach_cleanup_title, R.string.peach_cleanup_subtitle),
+                    Triple(PeachSection.METADATA_SOURCES, R.string.peach_metadata_sources_title, R.string.peach_metadata_sources_subtitle),
+                    Triple(PeachSection.STATS, R.string.peach_stats_title, R.string.peach_stats_subtitle),
+                    Triple(PeachSection.TASTE, R.string.peach_taste_title, R.string.peach_taste_subtitle)
+                ).forEachIndexed { index, (section, title, subtitle) ->
+                    if (index > 0) PeachDivider()
+                    PeachRow(stringResource(title), stringResource(subtitle), onClick = { onOpenSection(section) })
+                }
             }
         }
         item {
@@ -334,7 +402,7 @@ private fun PeachDownloadsPage(onBack: () -> Unit) {
 // region 订阅源
 
 @Composable
-private fun PeachFeedsPage(onBack: () -> Unit) {
+private fun PeachFeedsPage(onBack: () -> Unit, onOpenSection: (PeachSection) -> Unit) {
     val feeds = rememberPeachLoad { feeds() }
     val discoveries = rememberPeachLoad { discoveries() }
     val schedule = rememberPeachLoad { feedSchedule() }
@@ -416,6 +484,7 @@ private fun PeachFeedsPage(onBack: () -> Unit) {
                 }
             }
             item { PeachHint(stringResource(R.string.peach_feeds_hint)) }
+            item { PeachFollowToolLinks(onOpenSection) }
         }
     }
     resourceCode?.let { code -> PeachResourceDialog(code = code, title = null, onDismiss = { resourceCode = null }) }
@@ -426,13 +495,14 @@ private fun PeachFeedsPage(onBack: () -> Unit) {
 // region 关注
 
 @Composable
-private fun PeachFollowPage(onBack: () -> Unit) {
+private fun PeachFollowPage(onBack: () -> Unit, onOpenSection: (PeachSection) -> Unit) {
     val sources = rememberPeachLoad { followSources() }
     val schedule = rememberPeachLoad { followSchedule() }
     val actions = rememberPeachActions()
     var url by remember { mutableStateOf("") }
     var interval by remember { mutableStateOf("") }
     PeachPageScaffold(stringResource(R.string.peach_follow_title), onBack, onRefresh = { sources.reload(); schedule.reload() }) {
+        item { PeachFollowToolLinks(onOpenSection) }
         item {
             PeachSection(stringResource(R.string.peach_follow_add)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -764,89 +834,7 @@ private fun PeachPreferencesPage(onBack: () -> Unit) {
 
 // endregion
 
-// region 服务器配置
 
-@Composable
-private fun PeachConfigurationPage(onBack: () -> Unit, onOpenWeb: (String) -> Unit) {
-    val configuration = rememberPeachLoad { configuration() }
-    PeachPageScaffold(stringResource(R.string.peach_configuration_title), onBack, onRefresh = configuration::reload) {
-        when (val value = configuration.value) {
-            is PeachLoad.Failed -> {
-                val localOnly = (value.error as? PeachApiException)?.kind == PeachApiException.Kind.LOCAL_ONLY
-                item {
-                    if (localOnly) {
-                        PeachSection {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(stringResource(R.string.peach_configuration_local_only), color = Color.White)
-                                Text(stringResource(R.string.peach_configuration_local_only_detail), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
-                                OutlinedButton(onClick = { onOpenWeb("/configuration") }) { Text(stringResource(R.string.peach_open_web)) }
-                            }
-                        }
-                    } else {
-                        PeachErrorCard(value.error, configuration::reload)
-                    }
-                }
-            }
-            PeachLoad.Loading -> peachLoadItems(configuration) {}
-            is PeachLoad.Ready -> {
-                val config = value.value
-                item {
-                    PeachSection(stringResource(R.string.peach_configuration_overview)) {
-                        PeachRow(stringResource(R.string.peach_configuration_editable), value = stringResource(if (config.editable) R.string.peach_yes else R.string.peach_no))
-                        config.libraryCount?.let { PeachDivider(); PeachRow(stringResource(R.string.peach_configuration_libraries), value = it.toString()) }
-                        if (config.ledgerReadOnly) { PeachDivider(); PeachRow(stringResource(R.string.peach_read_only_title)) }
-                        config.notice?.let { PeachDivider(); PeachRow(it) }
-                    }
-                }
-                if (config.mediaDirs.isNotEmpty()) {
-                    item {
-                        PeachSection(stringResource(R.string.peach_configuration_media_dirs)) {
-                            PeachRows(config.mediaDirs, "") { dir -> PeachRow(dir) }
-                        }
-                    }
-                }
-                item {
-                    PeachSection(stringResource(R.string.peach_configuration_updates)) {
-                        PeachRow(stringResource(R.string.peach_configuration_current_version), value = config.currentVersion ?: "—")
-                        PeachDivider()
-                        PeachRow(stringResource(R.string.peach_configuration_latest_version), subtitle = config.updateMessage, value = config.latestVersion ?: config.updateState ?: "—")
-                    }
-                }
-                if (config.dataRoot != null || config.freeBytes != null) {
-                    item {
-                        PeachSection(stringResource(R.string.peach_configuration_storage)) {
-                            config.dataRoot?.let { PeachRow(stringResource(R.string.peach_configuration_data_root), subtitle = it) }
-                            if (config.freeBytes != null && config.totalBytes != null) {
-                                PeachDivider()
-                                PeachRow(stringResource(R.string.peach_configuration_free_space), value = "${formatBytes(config.freeBytes!!)} / ${formatBytes(config.totalBytes!!)}")
-                            }
-                        }
-                    }
-                }
-                if (config.downloadProblems.isNotEmpty()) {
-                    item {
-                        PeachSection(stringResource(R.string.peach_downloads_channels)) {
-                            PeachRows(config.downloadProblems, "") { problem -> PeachRow(problem) }
-                        }
-                    }
-                }
-                if (config.sectionErrors.isNotEmpty()) {
-                    item {
-                        PeachSection(stringResource(R.string.peach_configuration_section_errors)) {
-                            PeachRows(config.sectionErrors.entries.toList(), "") { (key, message) -> PeachRow(key, message) }
-                        }
-                    }
-                }
-                item { PeachHint(stringResource(R.string.peach_configuration_hint)) }
-                item {
-                    OutlinedButton(onClick = { onOpenWeb("/configuration") }) { Text(stringResource(R.string.peach_open_web)) }
-                }
-            }
-        }
-    }
-}
-
-// endregion
 
 // region 回收站
 

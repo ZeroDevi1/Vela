@@ -45,6 +45,14 @@ class PeachRepository(private val context: Context) {
 
     // endregion
 
+    /** 同番号的其他版次（有码、中字、无码等），不含自身。 */
+    suspend fun editions(assetId: Long): List<PeachAsset> = runCatching {
+        client().get("/api/editions", listOf("id" to assetId)).objects("items").mapNotNull(PeachAsset::parse)
+    }.getOrDefault(emptyList()).filterNot { it.id == assetId }
+
+    /** 作品当前的产地（jp / kr / cn / west / other），由服务端推断或用户设定。 */
+    suspend fun region(assetId: Long): String? = client().get("/api/item", listOf("id" to assetId)).string("region")
+
     // region 搜索补全与历史（与 Peach 网页共享）
 
     suspend fun suggestions(query: String, limit: Int = 6): List<PeachSuggestion> {
@@ -400,9 +408,6 @@ class PeachRepository(private val context: Context) {
     suspend fun updatePreference(key: String, value: Any): PeachPreferences =
         PeachPreferences.parse(client().post("/api/settings", peachBody(key to value)))
 
-    /** 只允许本机的部署会回 403（[PeachApiException.Kind.LOCAL_ONLY]），调用方据此整页降级为只读说明。 */
-    suspend fun configuration(): PeachConfigurationSummary = PeachConfigurationSummary.parse(client().get("/api/configuration"))
-
     suspend fun serverVersion(): PeachServerVersion = PeachServerVersion.parse(client().get("/api/client-updates"))
 
     suspend fun emptyTrash(): PeachTrashResult = PeachTrashResult.parse(client().post("/api/trash/empty"))
@@ -411,6 +416,309 @@ class PeachRepository(private val context: Context) {
         val json = client().get("/api/items", listOf("state" to "trash", "limit" to 1))
         return (json.int("total") ?: 0) to (json.long("bytes") ?: 0L)
     }
+
+    // endregion
+
+    // region 馆藏维护：复核、重复文件、高清目标、垃圾文件、数据清理
+
+    /** 人工复核全量数据（分区、三个队列、计数）；界面自行分页。 */
+    suspend fun review(): JsonObject = client().get("/api/review")
+
+    /**
+     * 复核决定。`status`：approved / rejected / skipped / restore。
+     * 元数据候选需要 [candidateKey]；作品已被改动时服务端回 409（[PeachApiException.Kind.CONFLICT]）。
+     */
+    suspend fun reviewDecision(
+        category: String,
+        itemKey: String,
+        status: String,
+        candidateKey: String? = null,
+        note: String? = null,
+        expectedRevision: Int? = null
+    ): JsonObject = client().post(
+        "/api/review/decision",
+        peachBody(
+            "category" to category, "item_key" to itemKey, "status" to status,
+            "candidate_key" to candidateKey, "note" to note?.take(2000), "expected_revision" to expectedRevision
+        )
+    )
+
+    /** 把来源的类别名映射到本地标签；[tag] 为空表示「不是内容标签」。 */
+    suspend fun reviewGenre(genre: String, tag: String?): JsonObject =
+        client().post("/api/review/genre", peachBody("genre" to genre, "tag" to (tag ?: "")))
+
+    suspend fun duplicates(offset: Int = 0, limit: Int = 60): JsonObject =
+        client().get("/api/duplicates", listOf("offset" to offset, "limit" to limit))
+
+    suspend fun qualityGoals(offset: Int = 0, limit: Int = 60): JsonObject =
+        client().get("/api/quality-goals", listOf("offset" to offset, "limit" to limit))
+
+    /** 想要高清版：`wanted=false` 删除目标。返回最新状态。 */
+    suspend fun setQualityGoal(assetId: Long, wanted: Boolean, reason: String? = null): Boolean =
+        client().post("/api/quality-goal", peachBody("id" to assetId, "wanted" to wanted, "reason" to reason?.take(500)))
+            .bool("better_version") == true
+
+    suspend fun qualityGoal(assetId: Long): Pair<Boolean, String?> {
+        val json = client().get("/api/item", listOf("id" to assetId))
+        return (json.bool("better_version") == true) to json.string("better_version_reason")
+    }
+
+    /** 垃圾文件（广告、无关附件）复核队列。`status`：pending / dismissed。 */
+    suspend fun junkFiles(kind: String?, status: String, offset: Int = 0, limit: Int = 100): JsonObject =
+        client().get("/api/ads", listOf("kind" to kind, "status" to status, "offset" to offset, "limit" to limit))
+
+    suspend fun orphanRecords(): JsonObject = client().get("/api/orphan-records")
+
+    /** 把已消失文件的观看记录、评分等挂到 [target] 作品上。 */
+    suspend fun attachOrphan(orphanId: Long, target: Long): JsonObject =
+        client().post("/api/orphan-records/attach", peachBody("id" to orphanId, "target" to target))
+
+    /** 按某个作品所在目录对账：不在盘上的移入回收站或标记消失。立即生效，可用 restore 撤回。 */
+    suspend fun purgeMissing(anchorAssetId: Long): JsonObject =
+        client().post("/api/purge-missing", peachBody("id" to anchorAssetId))
+
+    /** 资源同步：后台扫描全部来源，完成后凭 `scan_id` 应用。 */
+    suspend fun resourceSyncScan(restart: Boolean = false): JsonObject =
+        client().post("/api/resource-sync/scan", peachBody("background" to true, "restart" to restart))
+
+    suspend fun resourceSyncStatus(): JsonObject =
+        client().post("/api/resource-sync/scan", peachBody("background" to true, "status_only" to true))
+
+    suspend fun resourceSyncApply(scanId: String, cleanCache: Boolean = true): JsonObject =
+        client().post(
+            "/api/resource-sync/apply",
+            peachBody("confirm" to true, "scan_id" to scanId, "background" to true, "clean_cache" to cleanCache)
+        )
+
+    suspend fun resourceSyncApplyStatus(): JsonObject = client().get("/api/resource-sync/apply")
+
+    suspend fun links(): JsonObject = client().get("/api/links")
+
+    suspend fun checkLinks(restart: Boolean = false): JsonObject =
+        client().post("/api/links/check", peachBody("restart" to if (restart) true else null))
+
+    suspend fun linkCheckStatus(): JsonObject = client().post("/api/links/check", peachBody("status_only" to true))
+
+    suspend fun pruneLinks(checkId: String, ids: List<Long>? = null): JsonObject =
+        client().post("/api/links/prune", peachBody("confirm" to true, "check_id" to checkId, "ids" to ids))
+
+    suspend fun mediaRepair(): JsonObject = client().get("/api/media-repair")
+
+    suspend fun startMediaRepair(libraryId: String, restart: Boolean = false): JsonObject =
+        client().post("/api/media-repair", peachBody("library" to libraryId, "restart" to if (restart) true else null))
+
+    suspend fun stopMediaRepair(): JsonObject = client().post("/api/media-repair", peachBody("stop" to true))
+
+    suspend fun libraries(): List<PeachLibrary> = PeachLibrary.parseList(client().get("/api/libraries"))
+
+    suspend fun libraryProcessingIssues(jobId: String, offset: Int = 0, revision: String? = null): JsonObject =
+        client().get(
+            "/api/library-processing/issues",
+            listOf("job_id" to jobId, "offset" to offset, "limit" to 50, "revision" to revision)
+        )
+
+    suspend fun backgroundIssues(): List<JsonObject> = client().get("/api/background-issues").objects("issues")
+
+    suspend fun retryBackgroundIssue(path: String): JsonObject = client().post(path)
+
+    // endregion
+
+    // region 整理、标签与元数据
+
+    /** 文件整理状态、模板与可整理的来源。 */
+    suspend fun organize(): JsonObject = client().get("/api/organize")
+
+    suspend fun organizeExample(fileTemplate: String, dirTemplate: String): JsonObject =
+        client().get("/api/organize/example", listOf("file_template" to fileTemplate, "dir_template" to dirTemplate))
+
+    suspend fun organizePreview(location: String, fileTemplate: String?, dirTemplate: String?, path: String?): JsonObject =
+        client().post(
+            "/api/organize/preview",
+            peachBody("location" to location, "file_template" to fileTemplate, "dir_template" to dirTemplate, "path" to path)
+        )
+
+    /** 按预览的同一组参数执行整理。必须先经用户确认。 */
+    suspend fun organizeApply(location: String, fileTemplate: String?, dirTemplate: String?, path: String?): JsonObject =
+        client().post(
+            "/api/organize/apply",
+            peachBody(
+                "confirm" to true, "location" to location, "file_template" to fileTemplate,
+                "dir_template" to dirTemplate, "path" to path
+            )
+        )
+
+    /** 回滚最近一批整理。 */
+    suspend fun organizeRollback(): JsonObject = client().post("/api/organize/rollback", peachBody("confirm" to true))
+
+    /** 标签管理分页列表。`scope`：local / online；`state`：active / hidden / blocked。 */
+    suspend fun tagManagement(scope: String, state: String, query: String?, offset: Int, limit: Int = 100): JsonObject =
+        client().get(
+            "/api/tag-management",
+            listOf("scope" to scope, "state" to state, "q" to query?.takeIf { it.isNotBlank() }, "offset" to offset, "limit" to limit)
+        )
+
+    /** 预览改名、合并、隐藏、恢复（在线标签另有屏蔽）；返回受影响范围与执行用的 `token`。 */
+    suspend fun tagPreview(scope: String, operation: String, ids: List<Any>, name: String? = null, targetId: Any? = null): JsonObject =
+        client().post(
+            "/api/tag-management/preview",
+            peachBody("scope" to scope, "operation" to operation, "ids" to ids, "name" to name, "target_id" to targetId)
+        )
+
+    suspend fun tagApply(scope: String, operation: String, ids: List<Any>, token: String, name: String? = null, targetId: Any? = null): JsonObject =
+        client().post(
+            "/api/tag-management",
+            peachBody(
+                "scope" to scope, "operation" to operation, "ids" to ids,
+                "name" to name, "target_id" to targetId, "token" to token
+            )
+        )
+
+    /** 给作品加标签（须是已有词表中的标签）或隐藏标签。返回作品现在的标签。 */
+    suspend fun editItemTag(assetId: Long, tag: String, add: Boolean): List<String> =
+        client().post("/api/item-tag", peachBody("id" to assetId, "operation" to if (add) "add" else "remove", "tag" to tag.trim()))
+            .strings("tags")
+
+    /** 实体改用某个别名作为规范名。 */
+    suspend fun renameEntity(kind: String, currentName: String, canonical: String): JsonObject =
+        client().post("/api/entity-name", peachBody("kind" to kind, "name" to currentName, "canonical" to canonical))
+
+    suspend fun editEntityAlias(kind: String, name: String, alias: String, remove: Boolean): JsonObject =
+        client().post("/api/entity-alias", peachBody("kind" to kind, "name" to name, "alias" to alias, "remove" to if (remove) true else null))
+
+    suspend fun entity(kind: String, entityId: Long): JsonObject = api().fetchEntity(kind, entityId)
+
+    /** 自定义元数据来源（返回 JSON 的刮削接口）。 */
+    suspend fun customMetadataSources(): List<JsonObject> = client().get("/api/custom-metadata").objects("items")
+
+    suspend fun saveCustomMetadataSource(source: Map<String, Any?>): JsonObject =
+        client().post("/api/custom-metadata", peachBody(*source.toList().toTypedArray()))
+
+    suspend fun deleteCustomMetadataSource(id: String): JsonObject =
+        client().post("/api/custom-metadata", peachBody("action" to "delete", "id" to id))
+
+    suspend fun previewCustomMetadataSource(code: String, source: Map<String, Any?>): JsonObject =
+        client().post("/api/custom-metadata", peachBody(*(source + mapOf("action" to "preview", "code" to code)).toList().toTypedArray()))
+
+    // endregion
+
+    // region 统计与口味
+
+    suspend fun stats(): JsonObject = client().get("/api/stats")
+
+    suspend fun taste(window: String = "all"): JsonObject = client().get("/api/taste", listOf("window" to window))
+
+    // endregion
+
+    // region 关注与订阅：作者、别名、标签、批量添加
+
+    suspend fun followAuthors(query: String?, offset: Int = 0): JsonObject =
+        client().get("/api/follow/authors", listOf("q" to query?.takeIf { it.isNotBlank() }, "offset" to offset, "limit" to 120))
+
+    suspend fun addAuthorAlias(canonical: String, alias: String): JsonObject =
+        client().post("/api/follow/author-alias", peachBody("action" to "add", "canonical" to canonical, "alias" to alias))
+
+    suspend fun removeAuthorAlias(alias: String): JsonObject =
+        client().post("/api/follow/author-alias", peachBody("action" to "remove", "alias" to alias))
+
+    suspend fun followTags(query: String?, offset: Int = 0): JsonObject =
+        client().get("/api/follow/tags", listOf("q" to query?.takeIf { it.isNotBlank() }, "types" to "all", "offset" to offset, "limit" to 180))
+
+    /** 帖子标签：`add` / `remove` / `restore`。 */
+    suspend fun editFollowTag(itemId: Long, tag: String, operation: String): JsonObject =
+        client().post("/api/follow/tag", peachBody("id" to itemId, "operation" to operation, "tag" to tag))
+
+    /** 批量解析链接或名字，得到可关注的来源候选。 */
+    suspend fun resolveFollowLines(lines: List<String>): JsonObject =
+        client().post("/api/follow/resolve", peachBody("lines" to lines.take(40)))
+
+    /** 按名字查 JavDB 演员，用于「按名字订阅」。 */
+    suspend fun lookupFeed(name: String): JsonObject = client().get("/api/feeds/lookup", listOf("q" to name))
+
+    suspend fun followFeedByName(name: String, ids: List<String>): JsonObject =
+        client().post("/api/feeds/source", peachBody("action" to "follow-name", "name" to name, "ids" to ids))
+
+    // endregion
+
+    // region 服务器配置（仅本机或 Docker 私有网络可写）
+
+    suspend fun rawConfiguration(): JsonObject = client().get("/api/configuration")
+
+    /** 保存媒体库与网络设置；带 GET 时的 `revision`，配置已被改动时回 409。 */
+    suspend fun saveMediaSources(revision: String, mediaSources: List<Map<String, Any?>>): JsonObject =
+        client().post("/api/configuration", peachBody("revision" to revision, "media_sources" to mediaSources))
+
+    suspend fun testSmb(path: String, username: String?, password: String?, encrypt: Boolean, rootId: String? = null): JsonObject =
+        client().post(
+            "/api/configuration/smb/test",
+            peachBody("path" to path, "smb_username" to username, "smb_password" to password, "smb_encrypt" to encrypt, "root_id" to rootId)
+        )
+
+    suspend fun saveDownloadSettings(body: Map<String, Any?>): JsonObject =
+        client().post("/api/configuration/downloads", peachBody(*body.toList().toTypedArray()))
+
+    suspend fun checkDownloadSettings(): JsonObject = client().get("/api/configuration/downloads/check")
+
+    suspend fun createDownloadFolder(path: String): JsonObject =
+        client().post("/api/configuration/downloads/folder", peachBody("path" to path))
+
+    suspend fun pikpakLogin(username: String, password: String, remember: Boolean): JsonObject =
+        client().post("/api/configuration/downloads/pikpak/login", peachBody("username" to username, "password" to password, "remember" to remember))
+
+    suspend fun pikpakLogout(): JsonObject = client().post("/api/configuration/downloads/pikpak/logout")
+
+    suspend fun indexers(): JsonObject = client().get("/api/configuration/indexers")
+
+    suspend fun saveIndexers(indexers: List<Map<String, Any?>>): JsonObject =
+        client().post("/api/configuration/indexers", peachBody("indexers" to indexers))
+
+    suspend fun cloudProxies(): JsonObject = client().get("/api/configuration/cloud-proxies")
+
+    suspend fun saveCloudProxy(accountId: String, revision: String, api: Map<String, Any?>?, data: Map<String, Any?>?): JsonObject =
+        client().post("/api/configuration/cloud-proxies", peachBody("id" to accountId, "revision" to revision, "api" to api, "data" to data))
+
+    suspend fun setAutomaticUpdates(mode: String, intervalHours: Int): JsonObject =
+        client().post("/api/configuration/automatic-updates", peachBody("mode" to mode, "interval_hours" to intervalHours))
+
+    suspend fun checkUpdates(): JsonObject = client().get("/api/configuration/updates")
+
+    suspend fun updateStatus(): JsonObject = client().get("/api/configuration/update-status")
+
+    /** 下载并安装更新；[restart] 时装好后重启 Peach，重启期间请求会失败。 */
+    suspend fun installUpdate(restart: Boolean): JsonObject =
+        client().post(if (restart) "/api/configuration/update-restart" else "/api/configuration/update")
+
+    suspend fun measureStorage(): JsonObject = client().post("/api/configuration/storage/measure")
+
+    suspend fun setRemoteReporting(enabled: Boolean): JsonObject =
+        client().post("/api/configuration/remote-reporting", peachBody("usage" to enabled, "errors" to enabled))
+
+    suspend fun librarySharingPreview(): JsonObject = client().get("/api/configuration/library-sharing/preview")
+
+    suspend fun setLibrarySharing(enabled: Boolean, previewToken: String?, schema: Any?): JsonObject =
+        client().post(
+            "/api/configuration/library-sharing",
+            peachBody("enabled" to enabled, "preview_token" to previewToken, "consent" to true, "schema" to schema)
+        )
+
+    suspend fun setPeachProxy(mode: String, proxy: String?): JsonObject =
+        client().post("/api/configuration/peach-proxy", peachBody("mode" to mode, "proxy" to proxy))
+
+    suspend fun setEntryLinks(sites: Map<String, String>): JsonObject =
+        client().post("/api/configuration/entry-links", peachBody("sites" to sites.mapValues { (_, host) -> mapOf("host" to host) }))
+
+    suspend fun networkStatus(check: Boolean = false): JsonObject =
+        if (check) client().post("/api/network-status/check") else client().get("/api/network-status")
+
+    suspend fun mediaProcessing(): JsonObject = client().get("/api/media-processing")
+
+    suspend fun setMediaProcessing(values: Map<String, Any?>): JsonObject =
+        client().post("/api/media-processing", peachBody(*values.toList().toTypedArray()))
+
+    suspend fun thumbnailJobs(): JsonObject = client().get("/api/thumbnail-jobs")
+
+    suspend fun setThumbnailMode(mode: String): JsonObject = client().post("/api/thumbnail-jobs", peachBody("mode" to mode))
+
+    suspend fun diagnostics(): JsonObject = client().get("/api/diagnostics")
 
     // endregion
 
