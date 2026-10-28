@@ -437,6 +437,7 @@ class PeachMediaServerApi(
         val subtitles = runCatching {
             PeachSubtitleTrack.parseList(peach.get("/api/assets/$assetId/subtitles"))
         }.getOrDefault(emptyList())
+        val memory = subtitleMemory(assetId)
         val durationTicks = asset.durationSeconds?.let { (it * PeachMapper.TICKS_PER_SECOND).toLong() }
         val streams = buildList {
             add(
@@ -448,23 +449,33 @@ class PeachMediaServerApi(
                     isDefault = true
                 )
             )
-            subtitles.filter { it.playable && it.src != null }.forEachIndexed { position, track ->
+            // 字幕轨的 `comment` 记 Peach 的轨道键，选择变化时据此写回字幕记忆。
+            var position = 0
+            subtitles.filter { it.playable && it.src != null }.forEach { track ->
                 add(
-                    MediaStream(
-                        type = "Subtitle",
-                        index = SUBTITLE_INDEX_BASE + position,
-                        codec = "webvtt",
-                        language = track.language,
+                    subtitleStream(
+                        index = SUBTITLE_INDEX_BASE + position++,
+                        key = track.legacyId ?: track.id,
                         title = track.label ?: track.name,
-                        displayTitle = track.label ?: track.name ?: track.language,
-                        isExternal = true,
-                        isTextSubtitleStream = true,
-                        supportsExternalStream = true,
-                        deliveryMethod = "External",
-                        deliveryUrl = peach.absoluteUrl(track.src!!)
+                        language = track.language,
+                        url = peach.absoluteUrl(track.src!!)
                     )
                 )
             }
+            memory?.tracks?.forEach { track ->
+                add(
+                    subtitleStream(
+                        index = SUBTITLE_INDEX_BASE + position++,
+                        key = track.key,
+                        title = track.name,
+                        language = null,
+                        url = peach.absoluteUrl(track.src)
+                    )
+                )
+            }
+        }
+        val rememberedSubtitle = memory?.selected?.let { key ->
+            streams.firstOrNull { it.type == "Subtitle" && it.comment == key }?.index
         }
         return PlaybackInfoResponse(
             mediaSources = listOf(
@@ -478,12 +489,94 @@ class PeachMediaServerApi(
                     supportsDirectPlay = true,
                     supportsDirectStream = true,
                     supportsTranscoding = false,
-                    mediaStreams = streams
+                    mediaStreams = streams,
+                    defaultSubtitleStreamIndex = rememberedSubtitle
                 )
             ),
             playSessionId = UUID.randomUUID().toString()
         )
     }
+
+    private fun subtitleStream(index: Int, key: String, title: String?, language: String?, url: String) = MediaStream(
+        type = "Subtitle",
+        index = index,
+        codec = "webvtt",
+        language = language,
+        title = title,
+        displayTitle = title ?: language,
+        comment = key,
+        isExternal = true,
+        isTextSubtitleStream = true,
+        supportsExternalStream = true,
+        deliveryMethod = "External",
+        deliveryUrl = url
+    )
+
+    // region 字幕与播放记忆、在线字幕
+
+    suspend fun subtitleMemory(assetId: Long): PeachSubtitleMemory? = runCatching {
+        PeachSubtitleMemory.parse(
+            peach.get("/api/subtitles/memory", listOf("video" to PeachSubtitleMemory.videoKey(assetId)))
+        )
+    }.getOrNull()
+
+    suspend fun playerRate(assetId: Long): Double? = runCatching {
+        PeachSubtitleMemory.parse(
+            peach.get("/api/player/memory", listOf("video" to PeachSubtitleMemory.videoKey(assetId)))
+        ).rate
+    }.getOrNull()
+
+    /** 倍速写回播放记忆；旋转与字幕外观仍保留本机偏好，不改。 */
+    suspend fun savePlayerRate(assetId: Long, rate: Double) {
+        peach.put(
+            "/api/player/memory",
+            peachBody("rate" to rate.coerceIn(0.25, 3.0)),
+            listOf("video" to PeachSubtitleMemory.videoKey(assetId))
+        )
+    }
+
+    /** 记住字幕选择。[key] 为 null 表示关闭字幕；Peach 不接受的键（按文件发现的配对字幕）不写。 */
+    suspend fun saveSubtitleSelection(assetId: Long, key: String?) {
+        if (key != null && !isRememberableKey(key)) return
+        peach.put(
+            "/api/subtitles/memory",
+            kotlinx.serialization.json.buildJsonObject {
+                put("selected", key?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
+            },
+            listOf("video" to PeachSubtitleMemory.videoKey(assetId))
+        )
+    }
+
+    private fun isRememberableKey(key: String): Boolean =
+        key.startsWith("native:") || Regex("sidecar:[1-9][0-9]*").matches(key) || !key.startsWith("sidecar:")
+
+    suspend fun searchOnlineSubtitles(query: String, offset: Int = 0): Pair<List<PeachOnlineSubtitle>, Boolean> {
+        val json = peach.get("/api/subtitles/search", listOf("q" to query.trim().take(200), "offset" to offset))
+        return PeachOnlineSubtitle.parseList(json) to (json.bool("more") == true)
+    }
+
+    suspend fun onlineSubtitleFiles(subtitleId: String): List<PeachOnlineSubtitleFile> =
+        PeachOnlineSubtitleFile.parseList(peach.get("/api/subtitles/subtitlecat/${subtitleId.encodePathSegment()}"))
+
+    /**
+     * 与网页相同：取已转好的 WebVTT，连同选择一起存进字幕记忆，下次播放（含网页端）默认使用。
+     */
+    suspend fun saveOnlineSubtitle(assetId: Long, subtitleId: String, file: PeachOnlineSubtitleFile) {
+        val text = peach.getText("/api/subtitles/subtitlecat/${subtitleId.encodePathSegment()}/${file.index}")
+        val key = "subtitlecat:$subtitleId:${file.index}"
+        peach.put(
+            "/api/subtitles/memory",
+            peachBody(
+                "selected" to key,
+                "track" to mapOf("key" to key, "name" to file.name, "text" to text)
+            ),
+            listOf("video" to PeachSubtitleMemory.videoKey(assetId))
+        )
+    }
+
+    private fun String.encodePathSegment(): String = java.net.URLEncoder.encode(this, "UTF-8").replace("+", "%20")
+
+    // endregion
 
     /** `GET /api/stream-plan`：410 表示会话已被取消，415 表示 ISO 原盘只能外部播放。 */
     suspend fun streamPlan(assetId: Long, session: String, mode: String? = null): PeachStreamPlan {

@@ -1,5 +1,7 @@
 package com.vela.app.ui.screens.peach
 
+import com.vela.data.peach.PeachOnlineSubtitleFile
+import com.vela.data.peach.PeachOnlineSubtitle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +58,7 @@ fun PeachItemPanel(itemId: String, modifier: Modifier = Modifier, onChanged: () 
     val repository = remember { PeachRepository.getInstance(context) }
     var asset by remember(assetId) { mutableStateOf<PeachAsset?>(null) }
     var showResources by remember { mutableStateOf(false) }
+    var showSubtitles by remember { mutableStateOf(false) }
     val actions = rememberPeachActions()
     LaunchedEffect(assetId) {
         asset = runCatching { repository.item(assetId) }.getOrNull()
@@ -135,7 +138,19 @@ fun PeachItemPanel(itemId: String, modifier: Modifier = Modifier, onChanged: () 
                     label = { Text(stringResource(R.string.peach_find_resources)) }
                 )
             }
+            FilterChip(
+                selected = false,
+                onClick = { showSubtitles = true },
+                label = { Text(stringResource(R.string.peach_online_subtitles)) }
+            )
         }
+    }
+    if (showSubtitles) {
+        PeachOnlineSubtitleDialog(
+            assetId = assetId,
+            initialQuery = current.code ?: current.displayTitle,
+            onDismiss = { showSubtitles = false }
+        )
     }
     if (showResources) {
         current.code?.let { code ->
@@ -246,5 +261,116 @@ fun PeachFollowPerformerButton(entityId: Long, modifier: Modifier = Modifier) {
         enabled = !actions.isBusy,
         onClick = { actions.run { following = followPerformer(entityId, !current) } },
         label = { Text(stringResource(if (current) R.string.peach_unfollow_performer else R.string.peach_follow_performer)) }
+    )
+}
+
+/**
+ * 在线字幕（SubtitleCat）：搜索 → 选字幕包里的文件 → 存进 Peach 字幕记忆。
+ * 与网页一致，保存后下次播放（应用内或网页）默认选中这条字幕。
+ */
+@Composable
+fun PeachOnlineSubtitleDialog(assetId: Long, initialQuery: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val repository = remember { PeachRepository.getInstance(context) }
+    val actions = rememberPeachActions()
+    var query by remember { mutableStateOf(initialQuery) }
+    var searchKey by remember { mutableStateOf(initialQuery to 0) }
+    var results by remember { mutableStateOf<PeachLoad<Pair<List<PeachOnlineSubtitle>, Boolean>>>(PeachLoad.Loading) }
+    var opened by remember { mutableStateOf<PeachOnlineSubtitle?>(null) }
+    var files by remember { mutableStateOf<PeachLoad<List<PeachOnlineSubtitleFile>>?>(null) }
+    val savedText = stringResource(R.string.peach_online_subtitle_saved)
+
+    LaunchedEffect(searchKey) {
+        results = PeachLoad.Loading
+        results = runCatching { repository.searchOnlineSubtitles(searchKey.first, searchKey.second) }
+            .fold({ PeachLoad.Ready(it) }, { PeachLoad.Failed(it) })
+    }
+    LaunchedEffect(opened) {
+        val subtitle = opened ?: return@LaunchedEffect
+        files = PeachLoad.Loading
+        files = runCatching { repository.onlineSubtitleFiles(subtitle.id) }
+            .fold({ PeachLoad.Ready(it) }, { PeachLoad.Failed(it) })
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.peach_online_subtitles)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val subtitle = opened
+                if (subtitle == null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(enabled = query.trim().length >= 3, onClick = { searchKey = query.trim() to 0 }) {
+                            Text(stringResource(R.string.peach_search))
+                        }
+                    }
+                }
+                Box(Modifier.heightIn(max = 380.dp)) {
+                    if (subtitle != null) {
+                        when (val value = files) {
+                            null, PeachLoad.Loading -> CircularProgressIndicator()
+                            is PeachLoad.Failed -> Text(value.error.message ?: value.error.toString())
+                            is PeachLoad.Ready -> LazyColumn {
+                                items(value.value) { file ->
+                                    TextButton(
+                                        enabled = !actions.isBusy,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        onClick = {
+                                            actions.run(successMessage = savedText, onDone = onDismiss) {
+                                                saveOnlineSubtitle(assetId, subtitle.id, file)
+                                            }
+                                        }
+                                    ) {
+                                        Text(listOfNotNull(file.name, file.language).joinToString(" · "), modifier = Modifier.fillMaxWidth())
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        when (val value = results) {
+                            PeachLoad.Loading -> CircularProgressIndicator()
+                            is PeachLoad.Failed -> Text(value.error.message ?: value.error.toString())
+                            is PeachLoad.Ready -> {
+                                val (items, more) = value.value
+                                if (items.isEmpty()) {
+                                    Text(stringResource(R.string.peach_online_subtitles_empty))
+                                } else {
+                                    LazyColumn {
+                                        items(items) { item ->
+                                            TextButton(onClick = { opened = item }, modifier = Modifier.fillMaxWidth()) {
+                                                Column(Modifier.fillMaxWidth()) {
+                                                    Text(item.title, maxLines = 2)
+                                                    Text(
+                                                        listOfNotNull(item.language, item.format).joinToString(" · "),
+                                                        style = MaterialTheme.typography.bodySmall
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        if (more && searchKey.second + 6 < 60) {
+                                            item {
+                                                TextButton(onClick = { searchKey = searchKey.first to searchKey.second + 6 }) {
+                                                    Text(stringResource(R.string.peach_next_page))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (opened != null) TextButton(onClick = { opened = null; files = null }) { Text(stringResource(R.string.peach_back)) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.peach_close)) } }
     )
 }

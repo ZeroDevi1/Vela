@@ -44,6 +44,7 @@ import com.vela.app.ui.screens.dashboard.settings.ConnectionsSettingsScreen
 import com.vela.app.ui.screens.home.AppHomeContainer
 import com.vela.app.ui.screens.admin.ServerInfoScreen
 import com.vela.app.ui.screens.peach.PeachManageScreen
+import com.vela.data.peach.PeachIds
 import com.vela.app.ui.screens.peach.PeachWebScreen
 import com.vela.app.ui.screens.dashboard.settings.AboutScreen
 import com.vela.app.ui.screens.dashboard.settings.PlayerSettingsScreen
@@ -208,8 +209,12 @@ private fun NavController.openMediaItem(item: BaseItemDto, mergeVersions: Boolea
         item.isAudioItem() || item.type in setOf("MusicAlbum", "MusicArtist") -> "MUSIC"
         else -> null
     }
-    if (kind != null) navigate("media_library/$kind?itemId=${android.net.Uri.encode(id)}")
-    else navigate("detail/$id${if (mergeVersions) "?mergeVersions=true" else ""}")
+    when {
+        kind != null -> navigate("media_library/$kind?itemId=${android.net.Uri.encode(id)}")
+        // Peach 的出镜者、厂牌、系列等实体用资料页展示其作品。
+        item.type == "Person" || PeachIds.entity(id) != null -> navigate("person/${android.net.Uri.encode(id)}")
+        else -> navigate("detail/$id${if (mergeVersions) "?mergeVersions=true" else ""}")
+    }
 }
 
 @UnstableApi

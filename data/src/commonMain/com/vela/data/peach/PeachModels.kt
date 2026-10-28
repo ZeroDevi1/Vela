@@ -211,6 +211,8 @@ data class PeachStreamPlan(
 
 data class PeachSubtitleTrack(
     val id: String,
+    /** 已登记字幕的 `sidecar:<行号>`；字幕记忆只接受这种形式，按文件发现的配对字幕没有。 */
+    val legacyId: String?,
     val index: Int,
     val name: String?,
     val label: String?,
@@ -225,6 +227,7 @@ data class PeachSubtitleTrack(
             json.objects("subtitles").mapIndexedNotNull { position, row ->
                 PeachSubtitleTrack(
                     id = row.string("id") ?: "sidecar:$position",
+                    legacyId = row.string("legacy_id"),
                     index = row.int("index") ?: position,
                     name = row.string("name"),
                     label = row.string("label"),
@@ -320,6 +323,59 @@ data class PeachEntity(
                 assetCount = json.int("asset_count"),
                 aliases = json.strings("display_aliases").ifEmpty { json.strings("aliases") },
                 following = json.obj("feed")?.bool("following") == true
+            )
+        }
+    }
+}
+
+/**
+ * 字幕与播放记忆（`/api/subtitles/memory`、`/api/player/memory`），与 Peach 网页共享。
+ * `selected` 是轨道键：`sidecar:<行号>`、`native:*` 或已保存轨道的键；null 表示关闭或未记过。
+ */
+data class PeachSubtitleMemory(
+    val selected: String?,
+    val tracks: List<SavedTrack>,
+    val rate: Double?
+) {
+    data class SavedTrack(val key: String, val name: String, val src: String)
+
+    companion object {
+        fun parse(json: JsonObject) = PeachSubtitleMemory(
+            selected = json.string("selected"),
+            tracks = json.objects("tracks").mapNotNull { row ->
+                val key = row.string("key") ?: return@mapNotNull null
+                val src = row.string("src") ?: return@mapNotNull null
+                SavedTrack(key = key, name = row.string("name") ?: key, src = src)
+            },
+            rate = json.double("rate")
+        )
+
+        fun videoKey(assetId: Long) = "item:$assetId"
+    }
+}
+
+/** SubtitleCat 在线字幕的一条搜索结果。 */
+data class PeachOnlineSubtitle(val id: String, val title: String, val language: String?, val format: String?) {
+    companion object {
+        fun parseList(json: JsonObject): List<PeachOnlineSubtitle> = json.objects("results").mapNotNull { row ->
+            PeachOnlineSubtitle(
+                id = row.string("id") ?: return@mapNotNull null,
+                title = row.string("title").orEmpty(),
+                language = row.string("language"),
+                format = row.string("format")
+            )
+        }
+    }
+}
+
+/** 在线字幕包里的一个文件。 */
+data class PeachOnlineSubtitleFile(val index: Int, val name: String, val language: String?) {
+    companion object {
+        fun parseList(json: JsonObject): List<PeachOnlineSubtitleFile> = json.objects("files").mapNotNull { row ->
+            PeachOnlineSubtitleFile(
+                index = row.int("index") ?: return@mapNotNull null,
+                name = row.string("name") ?: "#${row.int("index")}",
+                language = row.string("language")
             )
         }
     }

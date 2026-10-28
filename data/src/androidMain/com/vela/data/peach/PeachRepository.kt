@@ -44,6 +44,43 @@ class PeachRepository(private val context: Context) {
 
     // endregion
 
+    // region 搜索补全与历史（与 Peach 网页共享）
+
+    suspend fun suggestions(query: String, limit: Int = 6): List<PeachSuggestion> {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return emptyList()
+        return PeachSuggestion.parseList(client().get("/api/suggest", listOf("q" to trimmed.take(64), "limit" to limit)))
+    }
+
+    suspend fun searchHistory(limit: Int = 20): List<String> =
+        client().get("/api/search-history", listOf("limit" to limit.coerceIn(1, 50))).strings("items")
+
+    suspend fun rememberSearch(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return
+        client().post("/api/search-history", peachBody("operation" to "remember", "query" to trimmed.take(200)))
+    }
+
+    suspend fun forgetSearch(query: String) {
+        client().post("/api/search-history", peachBody("operation" to "remove", "query" to query.take(200)))
+    }
+
+    // endregion
+
+    // region 在线字幕
+
+    private suspend fun api(): PeachMediaServerApi =
+        mediaRepository.peachApi() ?: throw IllegalStateException("当前服务器不是 Peach")
+
+    suspend fun searchOnlineSubtitles(query: String, offset: Int = 0) = api().searchOnlineSubtitles(query, offset)
+
+    suspend fun onlineSubtitleFiles(subtitleId: String) = api().onlineSubtitleFiles(subtitleId)
+
+    suspend fun saveOnlineSubtitle(assetId: Long, subtitleId: String, file: PeachOnlineSubtitleFile) =
+        api().saveOnlineSubtitle(assetId, subtitleId, file)
+
+    // endregion
+
     // region 找资源与云下载
 
     suspend fun downloads(beforeId: Long? = null, limit: Int = 50): PeachDownloads =

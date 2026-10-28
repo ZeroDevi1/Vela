@@ -1,5 +1,6 @@
 package com.vela.app.ui.screens.player
 
+import com.vela.data.peach.PeachIds
 import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
@@ -855,6 +856,7 @@ class PlayerViewModel @Inject constructor(
                     mediaStreams = apiMediaStreams,
                     helper = spatializerHelper
                 )
+                restorePeachPlaybackRate(mediaId)
 
             } catch (e: Exception) {
                 Log.e(TAG, "Player initialization failed", e)
@@ -1255,8 +1257,12 @@ class PlayerViewModel @Inject constructor(
         seekTo(targetPosition, isPreciseSeekEnabled())
     }
 
-    fun setPlaybackSpeed(speed: Float, retunePerformance: Boolean = true) {
+    /**
+     * @param remember 用户主动选的倍速写回 Peach 播放记忆；长按与快捷切换的临时倍速不写。
+     */
+    fun setPlaybackSpeed(speed: Float, retunePerformance: Boolean = true, remember: Boolean = true) {
         playbackSpeed = speed.coerceIn(0.25f, 4f)
+        if (remember) rememberPeachPlaybackRate(playbackSpeed)
         exoPlayer?.setPlaybackSpeed(playbackSpeed)
         mpvPlayer?.setSpeed(playbackSpeed.toDouble(), retunePerformance = retunePerformance)
         _playerState.value = _playerState.value.copy(playbackSpeed = playbackSpeed)
@@ -1440,20 +1446,20 @@ class PlayerViewModel @Inject constructor(
 
     fun beginHoldSpeed(speed: Float) {
         speedBeforeHold = playbackSpeed
-        setPlaybackSpeed(speed, retunePerformance = false)
+        setPlaybackSpeed(speed, retunePerformance = false, remember = false)
     }
 
     fun endHoldSpeed() {
-        setPlaybackSpeed(speedBeforeHold, retunePerformance = false)
+        setPlaybackSpeed(speedBeforeHold, retunePerformance = false, remember = false)
     }
 
     /** 点击动作「倍速播放」：切到 [speed]，已是该速度时恢复之前的速度（之前也是它时回到 1x）。返回切换后的速度。 */
     fun toggleSpeedBoost(speed: Float): Float {
         if (playbackSpeed == speed) {
-            setPlaybackSpeed(if (speedBeforeHold == speed) 1f else speedBeforeHold)
+            setPlaybackSpeed(if (speedBeforeHold == speed) 1f else speedBeforeHold, remember = false)
         } else {
             speedBeforeHold = playbackSpeed
-            setPlaybackSpeed(speed)
+            setPlaybackSpeed(speed, remember = false)
         }
         return playbackSpeed
     }
@@ -2388,6 +2394,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun persistSubtitlePreference(streamIndex: Int?) {
+        rememberPeachSubtitle(streamIndex)
         val (preferences, mediaId) = currentMediaPreferences() ?: return
         if (rememberTrackSelection(audio = false)) {
             preferences.persistSubtitleSelection(
@@ -2399,6 +2406,50 @@ class PlayerViewModel @Inject constructor(
         }
         _preferredStreamIndexes.value = _preferredStreamIndexes.value.copy(subtitleStreamIndex = streamIndex)
     }
+
+    // region Peach 播放记忆：倍速与字幕选择与 Peach 网页共享
+
+    private var peachRateJob: Job? = null
+
+    private fun peachAssetId(): Long? = PeachIds.assetId(playbackSession.mediaId)
+
+    private fun restorePeachPlaybackRate(mediaId: String) {
+        val assetId = PeachIds.assetId(mediaId) ?: return
+        viewModelScope.launch {
+            val api = mediaRepository.peachApi() ?: return@launch
+            val rate = api.playerRate(assetId)?.toFloat() ?: return@launch
+            if (playbackSession.mediaId == mediaId && kotlin.math.abs(rate - playbackSpeed) > 0.01f) {
+                setPlaybackSpeed(rate, remember = false)
+            }
+        }
+    }
+
+    private fun rememberPeachPlaybackRate(rate: Float) {
+        val assetId = peachAssetId() ?: return
+        peachRateJob?.cancel()
+        peachRateJob = viewModelScope.launch {
+            delay(1_000)
+            val api = mediaRepository.peachApi() ?: return@launch
+            runCatching { api.savePlayerRate(assetId, rate.toDouble()) }
+        }
+    }
+
+    private fun rememberPeachSubtitle(streamIndex: Int?) {
+        val assetId = peachAssetId() ?: return
+        val key = if (streamIndex == null || streamIndex < 0) {
+            null
+        } else {
+            apiMediaStreams?.firstOrNull { it.type.equals("Subtitle", ignoreCase = true) && it.index == streamIndex }
+                ?.comment
+                ?: return
+        }
+        viewModelScope.launch {
+            val api = mediaRepository.peachApi() ?: return@launch
+            runCatching { api.saveSubtitleSelection(assetId, key) }
+        }
+    }
+
+    // endregion
 
     private fun seriesPreferenceId(): String? {
         return TrackDetails.seriesPreferenceId(

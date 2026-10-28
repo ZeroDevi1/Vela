@@ -146,3 +146,20 @@ class PeachClientTest {
 }
 
 
+
+class PeachClientDetailErrorTest {
+    @Test
+    fun configurationFieldErrorsAreReadable() = runTest {
+        val engine = MockEngine {
+            respond(
+                """{"detail":{"message":"有几项需要修改","errors":{"media_dirs":["目录不存在",""],"port":"端口无效"}}}""",
+                HttpStatusCode.BadRequest,
+                headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val error = assertFailsWith<PeachApiException> {
+            PeachClient(HttpClient(engine), "https://peach.local/").post("/api/configuration")
+        }
+        assertEquals("有几项需要修改\n目录不存在\n端口无效", error.message)
+    }
+}

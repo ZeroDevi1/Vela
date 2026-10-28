@@ -1227,4 +1227,9 @@
     <string name="peach_certificates_import">导入 CA 证书</string>
     <string name="peach_certificates_hint">把 &lt;Peach 数据目录>/secrets/tls/ 下的 peach-local-ca.crt 复制到本设备后在这里导入。只需要 CA 证书，任何私钥都不要复制。导入的 CA 只在 Vela 内受信任，不影响其他应用。</string>
     <string name="peach_certificates_imported">已导入 CA 证书</string>
+    <string name="peach_online_subtitles">在线字幕</string>
+    <string name="peach_online_subtitles_empty">没有找到字幕</string>
+    <string name="peach_online_subtitle_saved">已保存，下次播放时默认选中这条字幕</string>
+    <string name="peach_search">搜索</string>
+    <string name="peach_next_page">更多</string>
 </resources>

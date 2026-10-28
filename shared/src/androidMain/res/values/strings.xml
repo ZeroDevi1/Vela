@@ -1240,4 +1240,9 @@
     <string name="peach_certificates_import">Import CA certificate</string>
     <string name="peach_certificates_hint">Copy peach-local-ca.crt from &lt;Peach data folder>/secrets/tls/ to this device and import it here. Only the CA certificate is needed; never copy private keys. Imported CAs are trusted by Vela only, not by other apps.</string>
     <string name="peach_certificates_imported">CA certificate imported</string>
+    <string name="peach_online_subtitles">Online subtitles</string>
+    <string name="peach_online_subtitles_empty">No subtitles found</string>
+    <string name="peach_online_subtitle_saved">Saved. It will be selected next time you play this video.</string>
+    <string name="peach_search">Search</string>
+    <string name="peach_next_page">More</string>
 </resources>

@@ -33,7 +33,19 @@ class PeachApiException(
     companion object {
         /** 把 Peach 的几种错误体（`detail` / `error` / `message`）归成一条可读信息。 */
         fun from(status: Int, body: JsonObject?, rawText: String?): PeachApiException {
+            // 配置路由的字段错误是 `{detail: {message, errors: {字段: 原因}}}`。
+            val detailObject = body?.obj("detail")
+            val fieldErrors = detailObject?.obj("errors")?.let { errors ->
+                errors.keys.flatMap { key ->
+                    val value = errors[key]
+                    (value.asArray()?.mapNotNull { it.displayText() } ?: listOfNotNull(value.displayText()))
+                        .filter { it.isNotBlank() }
+                }
+            }.orEmpty()
             val detail = body?.string("detail")
+                ?: detailObject?.string("message")?.let { message ->
+                    (listOf(message) + fieldErrors).joinToString("\n")
+                }
             val error = body?.string("error")
             val readable = body?.string("message") ?: detail ?: error ?: rawText?.take(200)?.takeIf { it.isNotBlank() }
             val kind = when {

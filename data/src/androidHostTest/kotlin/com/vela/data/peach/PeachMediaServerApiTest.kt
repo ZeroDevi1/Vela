@@ -124,4 +124,37 @@ class PeachMediaServerApiTest {
         assertEquals("https://peach.local/api/assets/5/subtitles/0?track=a", subtitles.single().deliveryUrl)
         assertTrue(!info.playSessionId.isNullOrBlank())
     }
+
+    @Test
+    fun playbackInfoRestoresRememberedSubtitleAndSavedTracks() = runTest {
+        val calls = mutableListOf<Call>()
+        val api = api(calls) { call ->
+            when (call.path) {
+                "/api/item" -> """{"id": 5, "name": "x.mp4", "duration": 10}"""
+                "/api/subtitles/memory" -> """{"selected": "subtitlecat:9:0",
+                    "tracks": [{"key": "subtitlecat:9:0", "name": "zh.srt", "src": "/api/subtitles/memory/track/abc.vtt?video=item:5"}]}"""
+                else -> """{"id": 5, "subtitles": [
+                    {"id": "sidecar:k", "legacy_id": "sidecar:3", "index": 0, "label": "日本語", "playable": true, "src": "/api/assets/5/subtitles/0?track=k"}]}"""
+            }
+        }
+        val source = api.getPlaybackInfoPost("5", com.vela.data.model.PlaybackInfoRequest(userId = PeachIds.USER_ID))
+            .body()!!.mediaSources!!.single()
+        val subtitles = source.mediaStreams!!.filter { it.type == "Subtitle" }
+        assertEquals(listOf("sidecar:3", "subtitlecat:9:0"), subtitles.map { it.comment })
+        assertEquals(subtitles[1].index, source.defaultSubtitleStreamIndex)
+        assertEquals("item:5", calls.first { it.path == "/api/subtitles/memory" }.query["video"])
+    }
+
+    @Test
+    fun subtitleSelectionSkipsUnrememberableSidecarKeys() = runTest {
+        val calls = mutableListOf<Call>()
+        val api = api(calls) { "{}" }
+        api.saveSubtitleSelection(5, "sidecar:abcdef")
+        assertTrue(calls.isEmpty())
+        api.saveSubtitleSelection(5, null)
+        val body = VelaJson.parseToJsonElement(calls.single().body!!).jsonObject
+        assertEquals("null", body["selected"].toString())
+        assertEquals("PUT", calls.single().method)
+    }
 }
+

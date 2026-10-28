@@ -487,3 +487,39 @@ fun formatBytes(bytes: Long): String {
     val rounded = (value * 10).toLong() / 10.0
     return "$rounded ${units[index]}"
 }
+
+/** `/api/suggest` 的一条补全：实体（出镜者、厂牌…）、标签或具体作品。 */
+data class PeachSuggestion(
+    val kind: String,
+    val groupLabel: String?,
+    val value: String,
+    val entityId: Long?,
+    val assetId: Long?,
+    val count: Int?
+) {
+    /** 跳转用的 Vela 条目 ID：作品直接打开详情，可浏览的实体打开资料页；其余按文字搜索。 */
+    val itemId: String?
+        get() = when {
+            kind == "asset" && assetId != null -> assetId.toString()
+            entityId != null && kind in PeachIds.ENTITY_KINDS && kind != "tag" -> PeachIds.entity(kind, entityId)
+            else -> null
+        }
+
+    companion object {
+        fun parseList(json: JsonObject): List<PeachSuggestion> = json.objects("groups").flatMap { group ->
+            val kind = group.string("kind").orEmpty()
+            val label = group.string("label")
+            group.objects("items").mapNotNull { row ->
+                val value = row.string("value") ?: row.string("title") ?: row.string("code") ?: return@mapNotNull null
+                PeachSuggestion(
+                    kind = kind,
+                    groupLabel = label,
+                    value = value,
+                    entityId = row.long("entity_id"),
+                    assetId = if (kind == "asset") row.long("id") else null,
+                    count = row.int("n")?.takeIf { it > 0 }
+                )
+            }
+        }
+    }
+}
