@@ -43,6 +43,8 @@ import com.vela.app.ui.screens.dashboard.settings.CacheSettingsScreen
 import com.vela.app.ui.screens.dashboard.settings.ConnectionsSettingsScreen
 import com.vela.app.ui.screens.home.AppHomeContainer
 import com.vela.app.ui.screens.admin.ServerInfoScreen
+import com.vela.app.ui.screens.peach.PeachBrowsePages
+import com.vela.app.ui.screens.peach.PeachBrowseScreen
 import com.vela.app.ui.screens.peach.PeachManageScreen
 import com.vela.data.peach.PeachIds
 import com.vela.app.ui.screens.peach.PeachWebScreen
@@ -180,6 +182,11 @@ private fun NavController.openViewAll(
     tag: String? = null,
     initialSort: String? = null
 ) {
+    // Peach 的「浏览」入口是原生页面，不是海报墙。
+    PeachIds.hubPage(parentId)?.let { page ->
+        navigate("peach/$page")
+        return
+    }
     if (contentType in setOf("MUSIC", "BOOKS")) {
         navigate("media_library/$contentType?libraryId=${android.net.Uri.encode(parentId.orEmpty())}")
         return
@@ -200,6 +207,14 @@ private fun NavController.openViewAll(
         initialSort?.let { add("initialSort=$it") }
     }
     navigate("viewall/$contentType?${params.joinToString("&")}")
+}
+
+fun NavController.openPeachPage(page: String, arg: String? = null, title: String? = null) {
+    val params = listOfNotNull(
+        arg?.let { "arg=${android.net.Uri.encode(it)}" },
+        title?.let { "title=${android.net.Uri.encode(it)}" }
+    )
+    navigate("peach/$page" + if (params.isEmpty()) "" else "?" + params.joinToString("&"))
 }
 
 private fun NavController.openMediaItem(item: BaseItemDto, mergeVersions: Boolean = false) {
@@ -651,7 +666,8 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                         },
                         onPlayItem = { itemId ->
                             PlayerActivity.start(context, itemId)
-                        }
+                        },
+                        onOpenPeachPage = { page, arg, title -> navController.openPeachPage(page, arg, title) }
                     )
                 } else {
                     LaunchedEffect(Unit) {
@@ -903,7 +919,28 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                     onOpenSection = { section -> navController.navigate("peach_manage?section=${section.route}") },
                     onOpenWeb = { path ->
                         navController.navigate("peach_web?path=${java.net.URLEncoder.encode(path, "UTF-8")}")
-                    }
+                    },
+                    onOpenBrowse = { navController.openPeachPage(PeachBrowsePages.HUB) }
+                )
+            }
+
+            scene(
+                "peach/{page}?arg={arg}&title={title}",
+                arguments = listOf(
+                    navArgument("page") { type = NavType.StringType },
+                    navArgument("arg") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("title") { type = NavType.StringType; nullable = true; defaultValue = null }
+                ),
+                enterTransition = { NavTransitions.enter() },
+                exitTransition = { NavTransitions.exit() }
+            ) { backStackEntry ->
+                PeachBrowseScreen(
+                    page = backStackEntry.arguments?.getString("page") ?: PeachBrowsePages.HUB,
+                    arg = backStackEntry.arguments?.getString("arg"),
+                    title = backStackEntry.arguments?.getString("title"),
+                    onBack = { navController.popBackStack() },
+                    onOpenPage = { page, arg, title -> navController.openPeachPage(page, arg, title) },
+                    onOpenItem = { item -> navController.openMediaItem(item) }
                 )
             }
 

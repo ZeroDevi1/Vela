@@ -57,7 +57,9 @@ class PeachMediaServerApi(
     private val playbackSessions = ConcurrentHashMap<String, PlaybackTracker>()
 
     private data class PlaybackTracker(
+        /** 作品 ID；[isFollow] 时为关注帖子 ID。 */
         val assetId: Long,
+        val isFollow: Boolean = false,
         val durationSeconds: Double,
         var lastPositionSeconds: Double,
         var lastReportedAtMs: Long,
@@ -68,7 +70,8 @@ class PeachMediaServerApi(
 
     override suspend fun getUserViews(userId: String, includeHidden: Boolean?): ApiResponse<QueryResult<BaseItemDto>> =
         call {
-            val views = PeachLibrary.parseList(peach.get("/api/libraries")).map(PeachMapper::libraryToView)
+            val views = PeachLibrary.parseList(peach.get("/api/libraries")).map(PeachMapper::libraryToView) +
+                PeachMapper.virtualViews()
             QueryResult(items = views, totalRecordCount = views.size, startIndex = 0)
         }
 
@@ -393,6 +396,11 @@ class PeachMediaServerApi(
         setFeedback(itemId, "seen", false)
 
     private suspend fun setWatchLater(itemId: String, queued: Boolean): ApiResponse<Unit> = call {
+        PeachIds.followRef(itemId)?.let { (followId, _) ->
+            // 关注帖子的「收藏」是保存进馆藏；保存不可撤销，取消时不做操作。
+            if (queued) peach.post("/api/follow/save", peachBody("item" to followId))
+            return@call
+        }
         val assetId = requireAsset(itemId)
         val current = PeachAsset.parse(peach.get("/api/item", listOf("id" to assetId)))?.watchLater
         if (current != queued) {
@@ -401,6 +409,10 @@ class PeachMediaServerApi(
     }
 
     private suspend fun setFeedback(itemId: String, kind: String, enabled: Boolean): ApiResponse<Unit> = call {
+        PeachIds.followRef(itemId)?.let { (followId, _) ->
+            peach.post("/api/follow/status", peachBody("item" to followId, "to" to if (enabled) "seen" else "new"))
+            return@call
+        }
         val assetId = requireAsset(itemId)
         val current = PeachAsset.parse(peach.get("/api/item", listOf("id" to assetId)))?.feedback
         if ((current == kind) != enabled) {
@@ -431,6 +443,15 @@ class PeachMediaServerApi(
      * [streamPlan] 按会话取，会话 ID 就是这里的 `playSessionId`，停止时用它释放服务端转码。
      */
     private suspend fun playbackInfo(itemId: String): PlaybackInfoResponse {
+        PeachIds.followRef(itemId)?.let { (followId, media) -> return followPlaybackInfo(itemId, followId, media) }
+        PeachIds.javPreviewCode(itemId)?.let { code ->
+            return PlaybackInfoResponse(
+                mediaSources = listOf(
+                    MediaSource(id = itemId, name = code, isRemote = true, supportsDirectPlay = true, supportsDirectStream = true, mediaStreams = emptyList())
+                ),
+                playSessionId = UUID.randomUUID().toString()
+            )
+        }
         val assetId = requireAsset(itemId)
         val asset = PeachAsset.parse(peach.get("/api/item", listOf("id" to assetId)))
             ?: throw PeachApiException(404, PeachApiException.Kind.NOT_FOUND, "作品不存在")
@@ -511,6 +532,66 @@ class PeachMediaServerApi(
         deliveryMethod = "External",
         deliveryUrl = url
     )
+
+    private suspend fun followPlaybackInfo(itemId: String, followId: Long, media: Int?): PlaybackInfoResponse {
+        val item = followItem(followId)
+            ?: throw PeachApiException(404, PeachApiException.Kind.NOT_FOUND, "帖子不存在")
+        if (!item.playable && media == null) {
+            throw PeachApiException(
+                415,
+                PeachApiException.Kind.UNSUPPORTED,
+                item.mediaError ?: if (item.mediaNeedsCredential) "这个来源需要先在 Peach 里保存凭据" else "这条帖子没有可播放的视频"
+            )
+        }
+        val selected = media?.let { index -> item.media.firstOrNull { it.index == index } }
+        val memoryKey = "follow:$followId:${media ?: "main"}"
+        val memory = runCatching {
+            PeachSubtitleMemory.parse(peach.get("/api/subtitles/memory", listOf("video" to memoryKey)))
+        }.getOrNull()
+        val streams = buildList {
+            add(MediaStream(type = "Video", index = 0, width = selected?.width, height = selected?.height, isDefault = true))
+            memory?.tracks?.forEachIndexed { position, track ->
+                add(subtitleStream(SUBTITLE_INDEX_BASE + position, track.key, track.name, null, peach.absoluteUrl(track.src)))
+            }
+        }
+        return PlaybackInfoResponse(
+            mediaSources = listOf(
+                MediaSource(
+                    id = itemId,
+                    name = selected?.name ?: item.displayTitle,
+                    runTimeTicks = item.durationSeconds?.let { (it * PeachMapper.TICKS_PER_SECOND).toLong() },
+                    isRemote = true,
+                    supportsDirectPlay = true,
+                    supportsDirectStream = true,
+                    supportsTranscoding = false,
+                    mediaStreams = streams,
+                    defaultSubtitleStreamIndex = memory?.selected?.let { key -> streams.firstOrNull { it.comment == key }?.index }
+                )
+            ),
+            playSessionId = UUID.randomUUID().toString()
+        )
+    }
+
+    /**
+     * 非馆藏条目的播放地址：关注帖子走 `/follow-stream`（Range 代理），库外作品预告片走
+     * `/api/jav/detail` 给出的地址。馆藏作品返回 null，由调用方走 [streamPlan]。
+     */
+    suspend fun directStreamUrl(itemId: String): String? {
+        PeachIds.followRef(itemId)?.let { (followId, media) ->
+            return peach.absoluteUrl("/follow-stream?id=$followId" + (media?.let { "&media=$it" } ?: ""))
+        }
+        PeachIds.javPreviewCode(itemId)?.let { code ->
+            val detail = PeachJavDetail.parse(peach.get("/api/jav/detail", listOf("code" to code)))
+            val url = detail?.previewVideoUrl?.takeIf { it.isNotBlank() }
+                ?: throw PeachApiException(404, PeachApiException.Kind.NOT_FOUND, detail?.message ?: "这部作品没有预告片")
+            return peach.absoluteUrl(url)
+        }
+        return null
+    }
+
+    suspend fun followItem(followId: Long): PeachFollowItem? = runCatching {
+        PeachFollowPage.findItem(peach.get("/api/follow", listOf("item" to followId)), followId)
+    }.getOrNull()
 
     // region 字幕与播放记忆、在线字幕
 
@@ -598,6 +679,18 @@ class PeachMediaServerApi(
     ): String = peach.absoluteUrl("/stream?id=${PeachIds.assetId(itemId) ?: itemId}")
 
     override suspend fun reportPlaybackStart(request: PlaybackStartRequest): ApiResponse<Unit> = call {
+        PeachIds.followRef(request.itemId)?.let { (followId, _) ->
+            val item = followItem(followId)
+            peach.post("/api/follow/play", peachBody("item" to followId))
+            playbackSessions[sessionKey(request.playSessionId, request.itemId)] = PlaybackTracker(
+                assetId = followId,
+                isFollow = true,
+                durationSeconds = item?.durationSeconds ?: 0.0,
+                lastPositionSeconds = (request.positionTicks ?: 0L).toSeconds(),
+                lastReportedAtMs = System.currentTimeMillis()
+            )
+            return@call
+        }
         val assetId = PeachIds.assetId(request.itemId) ?: return@call
         val asset = PeachAsset.parse(peach.get("/api/item", listOf("id" to assetId)))
         peach.post("/api/play", peachBody("id" to assetId))
@@ -640,6 +733,22 @@ class PeachMediaServerApi(
             else -> max(0.0, min(moved, wallSeconds))
         }
         if (seeked) tracker.pendingSeeks += 1
+        if (tracker.isFollow) {
+            peach.post(
+                "/api/follow/activity",
+                peachBody(
+                    "item" to tracker.assetId,
+                    "position" to position,
+                    "duration" to tracker.durationSeconds,
+                    "delta" to delta,
+                    "ended" to ended
+                )
+            )
+            tracker.pendingSeeks = 0
+            tracker.lastPositionSeconds = position
+            tracker.lastReportedAtMs = now
+            return
+        }
         peach.post(
             "/api/activity",
             peachBody(
@@ -793,7 +902,9 @@ class PeachMediaServerApi(
         val filterSet = filters.orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
         val resumable = "IsResumable" in filterSet
         val query = mutableListOf<Pair<String, Any?>>()
+        if (PeachIds.hubPage(parentId) != null) return emptyQueryResult()
         PeachIds.libraryId(parentId)?.let { query += "library" to it }
+        PeachIds.viewKey(parentId)?.let { key -> PeachIds.VIEWS[key]?.let { query += it } }
         PeachIds.entity(parentId)?.let { (kind, id) -> addEntityFilter(query, kind, id) }
         personIds?.split(',')?.firstNotNullOfOrNull { PeachIds.entity(it.trim()) }?.let { (kind, id) ->
             addEntityFilter(query, kind, id)
@@ -843,6 +954,26 @@ class PeachMediaServerApi(
     }
 
     private suspend fun resolveItem(itemId: String): BaseItemDto {
+        PeachIds.viewKey(itemId)?.let { key ->
+            return PeachMapper.virtualViews().first { it.id == PeachIds.view(key) }
+        }
+        PeachIds.hubPage(itemId)?.let { return PeachMapper.virtualViews().first { it.id == itemId } }
+        PeachIds.followRef(itemId)?.let { (followId, media) ->
+            val item = followItem(followId) ?: throw PeachApiException(404, PeachApiException.Kind.NOT_FOUND, "帖子不存在")
+            return PeachMapper.followToBaseItem(item, media)
+        }
+        PeachIds.javPreviewCode(itemId)?.let { code ->
+            val detail = PeachJavDetail.parse(peach.get("/api/jav/detail", listOf("code" to code)))
+            return BaseItemDto(
+                id = itemId,
+                name = listOfNotNull(detail?.code ?: code, detail?.title).joinToString(" "),
+                overview = detail?.summary,
+                type = "Movie",
+                mediaType = "Video",
+                premiereDate = detail?.releaseDate,
+                productionYear = detail?.releaseDate?.take(4)?.toIntOrNull()
+            )
+        }
         PeachIds.assetId(itemId)?.let { assetId ->
             val asset = PeachAsset.parse(peach.get("/api/item", listOf("id" to assetId)))
                 ?: throw PeachApiException(404, PeachApiException.Kind.NOT_FOUND, "作品不存在")

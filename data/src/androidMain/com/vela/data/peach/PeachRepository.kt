@@ -4,6 +4,7 @@ import android.content.Context
 import com.vela.data.repository.AuthRepositoryProvider
 import com.vela.data.repository.MediaRepositoryProvider
 import com.vela.data.security.SecureSessionStore
+import com.vela.data.model.BaseItemDto
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -64,6 +65,157 @@ class PeachRepository(private val context: Context) {
     suspend fun forgetSearch(query: String) {
         client().post("/api/search-history", peachBody("operation" to "remove", "query" to query.take(200)))
     }
+
+    // endregion
+
+    /**
+     * 批量操作（每次 1–200 个作品）：like / seen / later / dispose / restore / delete /
+     * dismiss-junk / reconsider-junk / region。`delete` 只对回收站或已消失的作品生效，会删除文件。
+     */
+    suspend fun batch(assetIds: List<Long>, operation: String, disposalReason: String? = null, region: String? = null): JsonObject {
+        require(assetIds.size in 1..200) { "一次最多处理 200 个作品" }
+        return client().post(
+            "/api/batch",
+            peachBody("ids" to assetIds, "operation" to operation, "disposal_reason" to disposalReason, "region" to region)
+        )
+    }
+
+    // region 浏览
+
+    /** 海报墙：[query] 为 `/api/items` 的筛选参数（library、folder、tag、performer、state、year、sort…）。 */
+    suspend fun items(query: List<Pair<String, Any?>>, offset: Int, limit: Int = 60): Pair<List<BaseItemDto>, Boolean> {
+        val page = PeachItemPage.parse(client().get("/api/items", query + listOf("offset" to offset, "limit" to limit, "count" to 0)))
+        val items = page.items.onEach(PeachArtwork::remember).map(PeachMapper::toBaseItem)
+        return items to (page.hasMore == true)
+    }
+
+    suspend fun facets(query: List<Pair<String, Any?>>): PeachFacets = PeachFacets.parse(client().get("/api/facets", query))
+
+    /** 名册：`performers`、`creators`、`studios`、`agencies`、`series`、`tags`。 */
+    suspend fun roster(kind: String, query: String?, offset: Int, limit: Int = 120): Pair<List<PeachIndexEntry>, Boolean> {
+        val json = client().get("/api/index", listOf("kind" to kind, "q" to query?.takeIf { it.isNotBlank() }, "limit" to limit, "offset" to offset))
+        return PeachIndexEntry.parseList(json) to (json.bool("has_more") == true)
+    }
+
+    suspend fun tops(jav: Boolean = false, n: Int = 28): PeachTops =
+        PeachTops.parse(client().get("/api/tops", listOf("n" to n, "jav" to if (jav) 1 else null)))
+
+    suspend fun folders(folderId: String?, query: String? = null): PeachFolders =
+        PeachFolders.parse(client().get("/api/folders", listOf("folder" to folderId, "q" to query?.takeIf { it.isNotBlank() })))
+
+    suspend fun shortcuts(): PeachShortcuts = PeachShortcuts.parse(client().get("/api/library-shortcuts"))
+
+    suspend fun setFavoriteEntity(entityId: Long, favorite: Boolean): PeachShortcuts =
+        PeachShortcuts.parse(client().post("/api/library-shortcuts", peachBody("action" to "favorite", "entity_id" to entityId, "on" to favorite)))
+
+    suspend fun isFavoriteEntity(kind: String, entityId: Long): Boolean = runCatching {
+        client().get("/api/entity", listOf("kind" to kind, "id" to entityId)).bool("favorite") == true
+    }.getOrDefault(false)
+
+    // endregion
+
+    // region 播放列表
+
+    suspend fun playlists(): List<PeachPlaylistSummary> = PeachPlaylistSummary.parseList(client().get("/api/playlists"))
+
+    suspend fun playlistItems(playlistId: Long): List<BaseItemDto> =
+        client().get("/api/playlist", listOf("id" to playlistId)).objects("items")
+            .mapNotNull(PeachAsset::parse).map(PeachMapper::toBaseItem)
+
+    suspend fun createPlaylist(name: String, assetIds: List<Long> = emptyList()) {
+        client().post("/api/playlist", peachBody("action" to "create", "name" to name.take(80), "asset_ids" to assetIds))
+    }
+
+    suspend fun renamePlaylist(playlistId: Long, name: String) {
+        client().post("/api/playlist", peachBody("action" to "rename", "id" to playlistId, "name" to name.take(80)))
+    }
+
+    suspend fun deletePlaylist(playlistId: Long) {
+        client().post("/api/playlist", peachBody("action" to "delete", "id" to playlistId))
+    }
+
+    suspend fun removeFromPlaylist(playlistId: Long, assetId: Long) {
+        client().post("/api/playlist", peachBody("action" to "remove", "id" to playlistId, "asset_id" to assetId))
+    }
+
+    suspend fun addToPlaylist(playlistId: Long, assetIds: List<Long>) {
+        client().post("/api/playlist", peachBody("action" to "add", "id" to playlistId, "asset_ids" to assetIds))
+    }
+
+    // endregion
+
+    // region 关注时间线
+
+    suspend fun followTimeline(
+        status: String = "new,seen,saved",
+        sort: String = "new",
+        offset: Int = 0,
+        author: String? = null,
+        tag: String? = null,
+        source: Long? = null,
+        limit: Int = 40
+    ): PeachFollowPage = PeachFollowPage.parse(
+        client().get(
+            "/api/follow",
+            listOf(
+                "status" to status, "sort" to sort, "offset" to offset, "limit" to limit,
+                "author" to author, "tag" to tag, "source" to source
+            )
+        )
+    )
+
+    /** `to`：new / seen / ignored。保存进馆藏用 [saveFollowItem]。 */
+    suspend fun setFollowStatus(itemIds: List<Long>, to: String) {
+        if (itemIds.isEmpty()) return
+        client().post("/api/follow/status", peachBody("items" to itemIds, "to" to to))
+    }
+
+    suspend fun saveFollowItem(itemId: Long): Long? =
+        client().post("/api/follow/save", peachBody("item" to itemId)).long("asset_id")
+
+    suspend fun hideFollowMedia(itemId: Long, media: Int, hidden: Boolean = true) {
+        client().post("/api/follow/media/hide", peachBody("item" to itemId, "media" to media, "hidden" to hidden))
+    }
+
+    suspend fun followItem(itemId: Long): PeachFollowItem? = api().followItem(itemId)
+
+    // endregion
+
+    // region JAV 探索
+
+    /** [scope]：`external` 看库外新作，`library` 看馆藏里少看的作品。 */
+    suspend fun javDiscoveries(scope: String, sort: String = "taste", ascending: Boolean = false): List<PeachJavDiscovery> =
+        PeachJavDiscovery.parseList(
+            client().get(
+                "/api/jav/discoveries",
+                listOf("scope" to scope, "sort" to sort, "direction" to if (ascending) "asc" else "desc", "limit" to 100)
+            )
+        )
+
+    suspend fun javDetail(code: String, refresh: Boolean = false): PeachJavDetail =
+        PeachJavDetail.parse(client().get("/api/jav/detail", listOf("code" to code, "refresh" to if (refresh) 1 else null)))
+            ?: throw PeachApiException(404, PeachApiException.Kind.NOT_FOUND, "没有这部作品的资料")
+
+    suspend fun javReviews(code: String, page: Int = 1): Pair<List<PeachJavReview>, Boolean> {
+        val json = client().get("/api/jav/reviews", listOf("code" to code, "page" to page))
+        return PeachJavReview.parseList(json) to (json.bool("more") == true)
+    }
+
+    /** 馆藏里这个番号的作品（库外发现没有资产 ID，按番号查）。 */
+    suspend fun libraryItemsForCode(code: String): List<BaseItemDto> = items(listOf("q" to code), 0, 12).first
+        .filter { it.providerIds?.get(PeachMapper.PROVIDER_CODE).equals(code, ignoreCase = true) }
+
+    // endregion
+
+    // region 图集
+
+    suspend fun photos(kind: String, entityId: Long, offset: Int = 0): PeachPhotoPage =
+        PeachPhotoPage.parse(client().get("/api/photos", listOf("kind" to kind, "id" to entityId, "offset" to offset, "limit" to 120)))
+
+    suspend fun photoSet(anchorId: Long, offset: Int = 0): PeachPhotoPage =
+        PeachPhotoPage.parse(client().get("/api/photo-set", listOf("id" to anchorId, "offset" to offset, "limit" to 120)))
+
+    suspend fun baseUrl(): String = client().baseUrl.trimEnd('/')
 
     // endregion
 

@@ -105,6 +105,41 @@ object PeachMapper {
         )
     }
 
+    /** 关注时间线的帖子：可在 Vela 的详情页与播放器里打开，播放走 `/follow-stream`。 */
+    fun followToBaseItem(item: PeachFollowItem, media: Int? = null): BaseItemDto {
+        val selectedMedia = media?.let { index -> item.media.firstOrNull { it.index == index } }
+        val thumb = selectedMedia?.thumbUrl ?: item.thumbUrl
+        val tag = thumb?.let(PeachImageUrls::pathTag)
+        val durationTicks = item.durationSeconds?.let { (it * TICKS_PER_SECOND).roundToLong() }
+        return BaseItemDto(
+            name = selectedMedia?.name?.takeIf { media != null } ?: item.displayTitle,
+            id = PeachIds.follow(item.id, media),
+            overview = listOfNotNull(item.summary, item.url).joinToString("\n\n").takeIf { it.isNotBlank() },
+            premiereDate = item.publishedAt,
+            productionYear = item.publishedAt?.take(4)?.toIntOrNull(),
+            runTimeTicks = durationTicks,
+            genres = item.tags,
+            tags = item.tags,
+            type = "Movie",
+            mediaType = "Video",
+            isFolder = false,
+            people = listOfNotNull(item.author?.let { BaseItemPerson(name = it, type = "Actor") }),
+            studios = listOfNotNull((item.sourceLabel ?: item.providerLabel)?.let { NameGuidPair(name = it) }),
+            userData = UserItemDataDto(
+                played = item.status == "seen",
+                isFavorite = item.isSaved,
+                playbackPositionTicks = 0L,
+                key = PeachIds.follow(item.id, media)
+            ),
+            imageTags = tag?.let { mapOf("Primary" to it, "Thumb" to it) },
+            backdropImageTags = listOfNotNull(tag),
+            width = selectedMedia?.width,
+            height = selectedMedia?.height,
+            canDownload = false,
+            locationType = "Remote"
+        )
+    }
+
     fun libraryToView(library: PeachLibrary): BaseItemDto = BaseItemDto(
         name = library.name,
         id = PeachIds.library(library.id),
@@ -112,6 +147,18 @@ object PeachMapper {
         collectionType = "movies",
         isFolder = true,
         childCount = library.folders
+    )
+
+    /**
+     * Peach 网页侧栏的固定列表与「Peach 浏览」入口，作为虚拟媒体库附在真实媒体库之后。
+     * 名称沿用 Peach 自己的中文界面。
+     */
+    fun virtualViews(): List<BaseItemDto> = listOf(
+        BaseItemDto(name = "稍后看", id = PeachIds.view("later"), type = "CollectionFolder", collectionType = "movies", isFolder = true),
+        BaseItemDto(name = "没看过", id = PeachIds.view("unseen"), type = "CollectionFolder", collectionType = "movies", isFolder = true),
+        BaseItemDto(name = "已标记", id = PeachIds.view("flagged"), type = "CollectionFolder", collectionType = "movies", isFolder = true),
+        BaseItemDto(name = "JAV", id = PeachIds.view("jav"), type = "CollectionFolder", collectionType = "movies", isFolder = true),
+        BaseItemDto(name = "Peach 浏览", id = PeachIds.hub("browse"), type = "CollectionFolder", isFolder = true)
     )
 
     fun entityToPerson(kind: String, id: Long, name: String, hasImage: Boolean, overview: String? = null): BaseItemDto =
@@ -182,7 +229,11 @@ object PeachMapper {
  */
 object PeachImageUrls {
     private const val COVER_TAG_PREFIX = "c."
+    private const val PATH_TAG_PREFIX = "u."
     private const val POSTER_TAG = "p"
+
+    /** 关注帖子等由服务端给出相对图片地址的条目，把地址放进图片标签里随条目传递。 */
+    fun pathTag(path: String): String = "$PATH_TAG_PREFIX$path"
 
     fun primaryTag(asset: PeachAsset): String =
         asset.coverKey?.let { "$COVER_TAG_PREFIX$it" } ?: POSTER_TAG
@@ -202,6 +253,15 @@ object PeachImageUrls {
         large: Boolean = false
     ): String? {
         val base = baseUrl.trimEnd('/')
+        imageTag?.takeIf { it.startsWith(PATH_TAG_PREFIX) }?.removePrefix(PATH_TAG_PREFIX)?.let { path ->
+            return if (path.startsWith("http://") || path.startsWith("https://")) path else "$base/${path.trimStart('/')}"
+        }
+        PeachIds.followRef(itemId)?.let { (id, media) ->
+            return "$base/follow-cover?id=$id" + (media?.let { "&media=$it" } ?: "")
+        }
+        PeachIds.javPreviewCode(itemId)?.let { code ->
+            return "$base/cover-image?code=${encodeQueryValue(code)}"
+        }
         PeachIds.entity(itemId)?.let { (kind, id) ->
             return if (kind == "tag") null else "$base/entity-image?kind=$kind&id=$id&thumb=${if (large) 0 else 1}"
         }
@@ -214,7 +274,7 @@ object PeachImageUrls {
         }
     }
 
-    internal fun encodeQueryValue(value: String): String = buildString {
+    fun encodeQueryValue(value: String): String = buildString {
         value.encodeToByteArray().forEach { byte ->
             val c = byte.toInt().toChar()
             if (c.isLetterOrDigit() && byte >= 0 || c in "-_.~") {

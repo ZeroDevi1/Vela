@@ -2467,6 +2467,15 @@ class MediaRepository(private val context: Context) {
         playbackInfo: PlaybackInfoResponse?
     ): Result<PlaybackRequest> {
         val api = peachApi() ?: return Result.failure(Exception(string(R.string.data_error_session_not_available)))
+        val credentialHeaders = (PeachCredential.decode(getSessionConfig()?.accessToken) ?: PeachCredential.Open).headers()
+        // 关注帖子与库外预告片不经选流，直接播放代理地址。
+        try {
+            api.directStreamUrl(itemId)?.let { url ->
+                return Result.success(PlaybackRequest(url = url, requestHeaders = credentialHeaders))
+            }
+        } catch (error: PeachApiException) {
+            return Result.failure(Exception(error.message, error))
+        }
         val assetId = PeachIds.assetId(mediaSourceId) ?: PeachIds.assetId(itemId)
             ?: return Result.failure(Exception(string(R.string.data_error_no_media_source_available)))
         val session = playbackInfo?.playSessionId ?: UUID.randomUUID().toString()

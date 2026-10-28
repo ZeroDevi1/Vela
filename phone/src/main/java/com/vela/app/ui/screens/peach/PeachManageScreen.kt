@@ -65,10 +65,11 @@ fun PeachManageScreen(
     section: String?,
     onBack: () -> Unit,
     onOpenSection: (PeachSection) -> Unit,
-    onOpenWeb: (String) -> Unit
+    onOpenWeb: (String) -> Unit,
+    onOpenBrowse: () -> Unit = {}
 ) {
     when (PeachSection.fromRoute(section)) {
-        null -> PeachManageHome(onBack, onOpenSection, onOpenWeb)
+        null -> PeachManageHome(onBack, onOpenSection, onOpenWeb, onOpenBrowse)
         PeachSection.TASKS -> PeachTasksPage(onBack)
         PeachSection.DOWNLOADS -> PeachDownloadsPage(onBack)
         PeachSection.FEEDS -> PeachFeedsPage(onBack)
@@ -86,12 +87,18 @@ fun PeachManageScreen(
 private fun PeachManageHome(
     onBack: () -> Unit,
     onOpenSection: (PeachSection) -> Unit,
-    onOpenWeb: (String) -> Unit
+    onOpenWeb: (String) -> Unit,
+    onOpenBrowse: () -> Unit
 ) {
     val version = rememberPeachLoad { serverVersion() }
     val feeds = rememberPeachLoad { feeds() }
     val unread = (feeds.value as? PeachLoad.Ready)?.value?.unread ?: 0
     PeachPageScaffold(title = stringResource(R.string.peach_manage_title), onBack = onBack) {
+        item {
+            PeachSection {
+                PeachRow(stringResource(R.string.peach_browse_title), stringResource(R.string.peach_browse_subtitle), onClick = onOpenBrowse)
+            }
+        }
         item {
             PeachSection(stringResource(R.string.peach_section_activity)) {
                 PeachRow(stringResource(R.string.peach_tasks_title), stringResource(R.string.peach_tasks_subtitle), onClick = { onOpenSection(PeachSection.TASKS) })

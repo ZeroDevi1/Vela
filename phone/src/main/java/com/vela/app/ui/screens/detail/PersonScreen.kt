@@ -1,6 +1,6 @@
 package com.vela.app.ui.screens.detail
 
-import com.vela.app.ui.screens.peach.PeachFollowPerformerButton
+import com.vela.app.ui.screens.peach.PeachEntityActions
 import com.vela.data.peach.PeachIds
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -75,7 +75,8 @@ fun PersonScreenContainer(
     personId: String,
     onBackPressed: () -> Unit = {},
     onItemClick: (String) -> Unit = {},
-    onPlayItem: (String) -> Unit = {}
+    onPlayItem: (String) -> Unit = {},
+    onOpenPeachPage: (page: String, arg: String?, title: String?) -> Unit = { _, _, _ -> }
 ) {
     val context = LocalContext.current
     val mediaRepository = remember { MediaRepositoryProvider.getInstance(context) }
@@ -241,6 +242,7 @@ fun PersonScreenContainer(
             mediaRepository = mediaRepository,
             onBackPressed = onBackPressed,
             onItemClick = onItemClick,
+            onOpenPeachPage = onOpenPeachPage,
             onExpandWorks = { type ->
                 expandedWorksType = type.takeIf { it.isNotBlank() }
             }
@@ -258,6 +260,7 @@ private fun PersonScreen(
     mediaRepository: MediaRepository,
     onBackPressed: () -> Unit,
     onItemClick: (String) -> Unit,
+    onOpenPeachPage: (page: String, arg: String?, title: String?) -> Unit,
     onExpandWorks: (String) -> Unit
 ) {
     val movies = remember(relatedTitles) {
@@ -324,11 +327,14 @@ private fun PersonScreen(
             }
         }
 
-        // Peach 的出镜者可以订阅新作：服务端按实体自行拼来源地址。
-        PeachIds.entity(person?.id)?.takeIf { it.first == "performer" }?.let { (_, entityId) ->
+        // Peach 实体：订阅新作（出镜者）、收藏、图集与带筛选的全部作品。
+        PeachIds.entity(person?.id)?.let { (kind, entityId) ->
             item {
-                PeachFollowPerformerButton(
+                PeachEntityActions(
+                    kind = kind,
                     entityId = entityId,
+                    name = person?.name.orEmpty(),
+                    onOpenPage = onOpenPeachPage,
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
                 )
             }

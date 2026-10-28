@@ -1,5 +1,6 @@
 package com.vela.app.ui.screens.peach
 
+import androidx.compose.material3.AssistChip
 import com.vela.data.peach.PeachOnlineSubtitleFile
 import com.vela.data.peach.PeachOnlineSubtitle
 import androidx.compose.foundation.layout.Arrangement
@@ -244,6 +245,55 @@ fun PeachResourceDialog(code: String, title: String?, onDismiss: () -> Unit) {
     )
 }
 
+/**
+ * Peach 实体页的操作：出镜者可订阅新作；所有实体可收藏、看图集，并打开带 Peach 筛选的全部作品。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun PeachEntityActions(
+    kind: String,
+    entityId: Long,
+    name: String,
+    onOpenPage: (page: String, arg: String?, title: String?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val repository = remember { PeachRepository.getInstance(context) }
+    var favorite by remember(entityId) { mutableStateOf<Boolean?>(null) }
+    val actions = rememberPeachActions()
+    LaunchedEffect(entityId) {
+        favorite = runCatching { repository.isFavoriteEntity(kind, entityId) }.getOrNull()
+    }
+    FlowRow(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (kind == "performer") PeachFollowPerformerButton(entityId)
+        favorite?.let { current ->
+            FilterChip(
+                selected = current,
+                enabled = !actions.isBusy,
+                onClick = {
+                    actions.run {
+                        setFavoriteEntity(entityId, !current)
+                        favorite = !current
+                    }
+                },
+                label = { Text(stringResource(R.string.peach_entity_favorite)) }
+            )
+        }
+        FilterChip(
+            selected = false,
+            onClick = { onOpenPage(PeachBrowsePages.PHOTOS, "$kind:$entityId", name) },
+            label = { Text(stringResource(R.string.peach_entity_photos)) }
+        )
+        if (kind in setOf("performer", "creator", "studio", "series", "agency", "tag")) {
+            FilterChip(
+                selected = false,
+                onClick = { onOpenPage(PeachBrowsePages.ITEMS, PeachBrowsePages.itemsArg(kind to name), name) },
+                label = { Text(stringResource(R.string.peach_entity_all_works)) }
+            )
+        }
+    }
+}
+
 /** 人物页「订阅新作」开关；状态以服务端返回为准。 */
 @Composable
 fun PeachFollowPerformerButton(entityId: Long, modifier: Modifier = Modifier) {
@@ -373,4 +423,89 @@ fun PeachOnlineSubtitleDialog(assetId: Long, initialQuery: String, onDismiss: ()
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.peach_close)) } }
     )
+}
+
+/**
+ * 关注帖子在详情页上的操作：标记已看、忽略、保存进馆藏，打开来源页，以及帖子里的其他媒体。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun PeachFollowPanel(itemId: String, onOpenItem: (com.vela.data.model.BaseItemDto) -> Unit, modifier: Modifier = Modifier) {
+    val (followId, currentMedia) = PeachIds.followRef(itemId) ?: return
+    val context = LocalContext.current
+    val repository = remember { PeachRepository.getInstance(context) }
+    var post by remember(followId) { mutableStateOf<com.vela.data.peach.PeachFollowItem?>(null) }
+    val actions = rememberPeachActions()
+    LaunchedEffect(followId) { post = runCatching { repository.followItem(followId) }.getOrNull() }
+    val current = post ?: return
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = current.status == "seen",
+                enabled = !actions.isBusy,
+                onClick = {
+                    actions.run {
+                        setFollowStatus(listOf(followId), if (current.status == "seen") "new" else "seen")
+                        post = followItem(followId)
+                    }
+                },
+                label = { Text(stringResource(R.string.peach_action_seen)) }
+            )
+            FilterChip(
+                selected = current.isSaved,
+                enabled = !actions.isBusy && !current.isSaved,
+                onClick = {
+                    actions.run {
+                        saveFollowItem(followId)
+                        post = followItem(followId)
+                    }
+                },
+                label = { Text(stringResource(R.string.peach_follow_save)) }
+            )
+            FilterChip(
+                selected = current.status == "ignored",
+                enabled = !actions.isBusy,
+                onClick = {
+                    actions.run {
+                        setFollowStatus(listOf(followId), if (current.status == "ignored") "new" else "ignored")
+                        post = followItem(followId)
+                    }
+                },
+                label = { Text(stringResource(R.string.peach_ignore)) }
+            )
+            current.url?.let { url ->
+                FilterChip(
+                    selected = false,
+                    onClick = {
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }
+                    },
+                    label = { Text(stringResource(R.string.peach_open_source)) }
+                )
+            }
+        }
+        if (current.mediaNeedsCredential || current.mediaError != null) {
+            Text(
+                current.mediaError ?: stringResource(R.string.peach_follow_needs_credential),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        val others = current.media.filter { it.index != currentMedia }
+        if (current.media.size > 1 && others.isNotEmpty()) {
+            Text(stringResource(R.string.peach_follow_media_count, current.media.size), color = Color.White.copy(alpha = 0.7f))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                others.forEach { media ->
+                    AssistChip(
+                        onClick = { onOpenItem(com.vela.data.peach.PeachMapper.followToBaseItem(current, media.index)) },
+                        label = { Text(media.name ?: "#${media.index + 1}", maxLines = 1) }
+                    )
+                }
+            }
+        }
+    }
 }
