@@ -1,5 +1,8 @@
 package com.vela.app.ui.screens.auth
 
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import com.vela.data.network.ServerCertificateInfo
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -257,6 +260,7 @@ fun AuthScreen(
                         showQuickConnect = uiState.showQuickConnect,
                         isQuickConnectLoading = uiState.isQuickConnectLoading,
                         quickConnectCode = uiState.quickConnectCode,
+                        isPeach = uiState.isPeach,
                         onUsernameChange = authViewModel::updateUsername,
                         onPasswordChange = authViewModel::updatePassword,
                         onLogin = { authViewModel.login(selectedServerUrl, onAuthSuccess) },
@@ -267,6 +271,27 @@ fun AuthScreen(
                 }
             }
 
+
+            uiState.pendingCertificate?.let { certificate ->
+                ServerCertificateDialog(
+                    certificate = certificate,
+                    onTrust = {
+                        authViewModel.trustPendingCertificate { url, name ->
+                            selectedServerUrl = url
+                            selectedServerName = name
+                            currentStep = AuthStep.LOGIN
+                        }
+                    },
+                    onImportAuthority = {
+                        authViewModel.retryAfterAuthorityImport { url, name ->
+                            selectedServerUrl = url
+                            selectedServerName = name
+                            currentStep = AuthStep.LOGIN
+                        }
+                    },
+                    onDismiss = authViewModel::dismissPendingCertificate
+                )
+            }
 
             IconButton(
                 onClick = {
@@ -423,6 +448,7 @@ private fun LoginContent(
     showQuickConnect: Boolean,
     isQuickConnectLoading: Boolean,
     quickConnectCode: String?,
+    isPeach: Boolean = false,
     onUsernameChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onLogin: () -> Unit,
@@ -447,6 +473,7 @@ private fun LoginContent(
             showQuickConnect = showQuickConnect,
             isQuickConnectLoading = isQuickConnectLoading,
             quickConnectCode = quickConnectCode,
+            isPeach = isPeach,
             onUsernameChange = onUsernameChange,
             onPasswordChange = onPasswordChange,
             onLogin = onLogin,
@@ -562,11 +589,14 @@ private fun LoginForm(
     showQuickConnect: Boolean,
     isQuickConnectLoading: Boolean,
     quickConnectCode: String?,
+    isPeach: Boolean = false,
     onUsernameChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onLogin: () -> Unit,
     onQuickConnect: () -> Unit
 ) {
+    // Peach 单用户，没有用户名；口令或访问密码都填在同一个框里，开放访问时可留空。
+    val canSubmit = isPeach || username.isNotBlank()
     val usernameBringIntoView = remember { BringIntoViewRequester() }
     val passwordBringIntoView = remember { BringIntoViewRequester() }
     var isPasswordVisible by remember { mutableStateOf(false) }
@@ -583,7 +613,13 @@ private fun LoginForm(
             modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            OutlinedTextField(
+            if (isPeach) {
+                Text(
+                    text = stringResource(R.string.auth_peach_secret_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.7f)
+                )
+            } else OutlinedTextField(
                 value = username,
                 onValueChange = onUsernameChange,
                 label = { Text(stringResource(R.string.username)) },
@@ -611,7 +647,7 @@ private fun LoginForm(
             OutlinedTextField(
                 value = password,
                 onValueChange = onPasswordChange,
-                label = { Text(stringResource(R.string.password)) },
+                label = { Text(stringResource(if (isPeach) R.string.auth_peach_secret else R.string.password)) },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Rounded.Lock,
@@ -654,7 +690,7 @@ private fun LoginForm(
                     imeAction = ImeAction.Go
                 ),
                 keyboardActions = KeyboardActions(
-                    onGo = { if (!isBusy && username.isNotBlank()) onLogin() }
+                    onGo = { if (!isBusy && canSubmit) onLogin() }
                 ),
                 shape = RoundedCornerShape(14.dp),
                 colors = amoledAuthFieldColors(hasLeadingIcon = true)
@@ -674,7 +710,7 @@ private fun LoginForm(
 
             Button(
                 onClick = onLogin,
-                enabled = !isBusy && username.isNotBlank(),
+                enabled = !isBusy && canSubmit,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
@@ -778,5 +814,63 @@ private fun LoginContentPreview() {
         onPasswordChange = {},
         onLogin = {},
         onQuickConnect = {}
+    )
+}
+
+/** 首次连接自签证书的服务器时，展示公钥指纹让用户与服务器上的记录核对后再信任。 */
+@Composable
+private fun ServerCertificateDialog(
+    certificate: ServerCertificateInfo,
+    onTrust: () -> Unit,
+    onImportAuthority: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val importAuthority = rememberCertificateAuthorityImport(onImported = { onImportAuthority() })
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(
+                    if (certificate.replacesPinned) R.string.auth_certificate_changed_title
+                    else R.string.auth_certificate_untrusted_title
+                )
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.auth_certificate_message, certificate.hostPort))
+                Text(
+                    text = stringResource(R.string.auth_certificate_fingerprint),
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Text(
+                    text = certificate.fingerprint,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                )
+                Text(
+                    text = stringResource(R.string.auth_certificate_details, certificate.issuer, certificate.notAfter),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (certificate.sameIssuerAsPinned) {
+                    Text(
+                        text = stringResource(R.string.auth_certificate_same_issuer),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.auth_certificate_import_hint),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                TextButton(onClick = importAuthority) {
+                    Text(stringResource(R.string.auth_certificate_import_ca))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onTrust) { Text(stringResource(R.string.auth_certificate_trust)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) }
+        }
     )
 }

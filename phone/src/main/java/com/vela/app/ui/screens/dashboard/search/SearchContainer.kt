@@ -1,5 +1,13 @@
 package com.vela.app.ui.screens.dashboard.search
 
+import com.vela.data.peach.PeachSuggestion
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.InputChipDefaults
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.AssistChip
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -276,7 +284,40 @@ fun SearchContainer(
             )
         }
 
-        if (isSearchActive) {
+        if (isSearchActive && uiState.isPeach) {
+            // Peach 只有视频作品，类型筛选换成与网页共享的搜索补全。
+            PeachSuggestionChips(
+                suggestions = uiState.peachSuggestions,
+                onSuggestion = { suggestion ->
+                    val itemId = suggestion.itemId
+                    if (itemId != null) {
+                        onNavigateToDetail(
+                            BaseItemDto(
+                                id = itemId,
+                                name = suggestion.value,
+                                type = if (suggestion.kind == "asset") "Movie" else "Person"
+                            )
+                        )
+                    } else {
+                        viewModel.searchFor(suggestion.value)
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(top = 72.dp)
+            )
+        } else if (!isSearchActive && uiState.isPeach && uiState.peachHistory.isNotEmpty()) {
+            PeachHistoryChips(
+                history = uiState.peachHistory,
+                onSearch = viewModel::searchFor,
+                onRemove = viewModel::forgetPeachSearch,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(top = 72.dp)
+            )
+        } else if (isSearchActive) {
             SearchTypeChips(
                 selectedTypes = selectedSearchTypes,
                 onToggle = viewModel::toggleSearchType,
@@ -416,6 +457,62 @@ private fun SearchBar(
 
         TextButton(onClick = onCancel) {
             Text(text = stringResource(R.string.cancel))
+        }
+    }
+}
+
+@Composable
+private fun PeachSuggestionChips(
+    suggestions: List<PeachSuggestion>,
+    onSuggestion: (PeachSuggestion) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(suggestions, key = { "${it.kind}:${it.entityId ?: it.assetId ?: it.value}" }) { suggestion ->
+            AssistChip(
+                onClick = { onSuggestion(suggestion) },
+                label = {
+                    Text(
+                        listOfNotNull(suggestion.groupLabel, suggestion.value).joinToString(" · "),
+                        maxLines = 1
+                    )
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun PeachHistoryChips(
+    history: List<String>,
+    onSearch: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(history, key = { it }) { query ->
+            InputChip(
+                selected = false,
+                onClick = { onSearch(query) },
+                label = { Text(query, maxLines = 1) },
+                trailingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.peach_remove),
+                        modifier = Modifier
+                            .size(InputChipDefaults.IconSize)
+                            .clickable { onRemove(query) }
+                    )
+                }
+            )
         }
     }
 }

@@ -6,6 +6,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vela.shared.R
 import com.vela.app.ui.screens.dashboard.home.CachedData
+import com.vela.data.network.ServerCertificateInfo
+import com.vela.data.network.ServerTrust
+import com.vela.data.network.UntrustedServerCertificateException
+import com.vela.data.peach.PeachMediaServerApi
 import com.vela.data.repository.AuthRepositoryProvider
 import com.vela.data.repository.MediaRepositoryProvider
 import kotlinx.coroutines.Job
@@ -73,24 +77,47 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
                     _uiState.value = _uiState.value.copy(
                         isServerLoading = false,
                         serverInfo = serverInfo,
-                        isServerConnected = true
+                        isServerConnected = true,
+                        isPeach = serverInfo.productName == PeachMediaServerApi.PRODUCT_NAME
                     )
                     onSuccess(currentState.serverUrl, serverInfo.serverName)
                 },
                 onFailure = { error ->
                     _uiState.value = _uiState.value.copy(
                         isServerLoading = false,
-                        serverErrorMessage = mapServerError(error)
+                        serverErrorMessage = if (error is UntrustedServerCertificateException) null else mapServerError(error),
+                        pendingCertificate = (error as? UntrustedServerCertificateException)?.certificate
                     )
                 }
             )
         }
     }
+
+    /** 用户核对指纹后信任该证书，并重新连接。 */
+    fun trustPendingCertificate(onSuccess: (serverUrl: String, serverName: String?) -> Unit) {
+        val certificate = _uiState.value.pendingCertificate ?: return
+        ServerTrust.pin(certificate)
+        _uiState.value = _uiState.value.copy(pendingCertificate = null)
+        connectToServer(onSuccess)
+    }
+
+    /** 用户导入了签发该证书的 CA：不再固定这张叶子证书，直接重连。 */
+    fun retryAfterAuthorityImport(onSuccess: (serverUrl: String, serverName: String?) -> Unit) {
+        _uiState.value = _uiState.value.copy(pendingCertificate = null)
+        connectToServer(onSuccess)
+    }
+
+    fun dismissPendingCertificate() {
+        _uiState.value = _uiState.value.copy(
+            pendingCertificate = null,
+            serverErrorMessage = string(R.string.auth_certificate_not_trusted)
+        )
+    }
     
     fun login(serverUrl: String, onSuccess: () -> Unit) {
         val currentState = _uiState.value
         
-        if (currentState.username.isBlank()) {
+        if (currentState.username.isBlank() && !currentState.isPeach) {
             _uiState.value = currentState.copy(
                 loginErrorMessage = string(R.string.auth_error_enter_username)
             )
@@ -119,7 +146,12 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
                 onFailure = { error ->
                     _uiState.value = _uiState.value.copy(
                         isLoginLoading = false,
-                        loginErrorMessage = mapLoginError(error)
+                        // Peach 的失败原因由仓库层给出可读文案，直接显示。
+                        loginErrorMessage = if (_uiState.value.isPeach && !error.message.isNullOrBlank()) {
+                            error.message
+                        } else {
+                            mapLoginError(error)
+                        }
                     )
                 }
             )
@@ -135,7 +167,9 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
 
         viewModelScope.launch {
             val supported = authRepository.isQuickConnectSupported(normalizedUrl)
+            val isPeach = authRepository.isPeachServer(normalizedUrl)
             _uiState.value = _uiState.value.copy(
+                isPeach = isPeach,
                 showQuickConnect = supported,
                 quickConnectCode = if (supported) _uiState.value.quickConnectCode else null,
                 isQuickConnectLoading = if (supported) _uiState.value.isQuickConnectLoading else false
@@ -296,5 +330,7 @@ data class AuthScreenUiState(
     val loginErrorMessage: String? = null,
     val showQuickConnect: Boolean = true,
     val isQuickConnectLoading: Boolean = false,
-    val quickConnectCode: String? = null
+    val quickConnectCode: String? = null,
+    val isPeach: Boolean = false,
+    val pendingCertificate: ServerCertificateInfo? = null
 )

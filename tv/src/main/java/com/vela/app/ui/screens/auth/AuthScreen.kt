@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -239,6 +240,33 @@ fun AuthScreen(
                                     strokeWidth = 2.dp
                                 )
                             } else {
+                                uiState.pendingCertificate?.let { certificate ->
+                                    AlertDialog(
+                                        onDismissRequest = authViewModel::dismissPendingCertificate,
+                                        title = { Text(stringResource(R.string.auth_certificate_untrusted_title)) },
+                                        text = {
+                                            Text(
+                                                stringResource(R.string.auth_certificate_message, certificate.hostPort) +
+                                                    "\n\n" + stringResource(R.string.auth_certificate_fingerprint) +
+                                                    "\n" + certificate.fingerprint
+                                            )
+                                        },
+                                        confirmButton = {
+                                            Button(onClick = {
+                                                authViewModel.trustPendingCertificate { url, name ->
+                                                    selectedServerUrl = url
+                                                    selectedServerName = name
+                                                    currentStep = AuthStep.LOGIN
+                                                }
+                                            }) { Text(stringResource(R.string.auth_certificate_trust)) }
+                                        },
+                                        dismissButton = {
+                                            OutlinedButton(onClick = authViewModel::dismissPendingCertificate) {
+                                                Text(stringResource(android.R.string.cancel))
+                                            }
+                                        }
+                                    )
+                                }
                                 ConnectionForm(
                                     serverUrl = uiState.serverUrl,
                                     isLoading = uiState.isServerLoading,
@@ -264,6 +292,7 @@ fun AuthScreen(
                                 showQuickConnect = uiState.showQuickConnect,
                                 isQuickConnectLoading = uiState.isQuickConnectLoading,
                                 quickConnectCode = uiState.quickConnectCode,
+                                isPeach = uiState.isPeach,
                                 onUsernameChange = authViewModel::updateUsername,
                                 onPasswordChange = authViewModel::updatePassword,
                                 onLogin = { authViewModel.login(selectedServerUrl, onAuthSuccess) },
@@ -444,12 +473,15 @@ private fun LoginForm(
     showQuickConnect: Boolean,
     isQuickConnectLoading: Boolean,
     quickConnectCode: String?,
+    isPeach: Boolean = false,
     onUsernameChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onLogin: () -> Unit,
     onQuickConnect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Peach 没有用户名，用户名只作显示名；口令或密码可在开放访问时留空。
+    val canSubmit = isPeach || username.isNotBlank()
     var isPasswordVisible by remember { mutableStateOf(false) }
     val isBusy = isLoading || isQuickConnectLoading
     val motion = MaterialTheme.velaMotion
@@ -486,7 +518,7 @@ private fun LoginForm(
             OutlinedTextField(
                 value = password,
                 onValueChange = onPasswordChange,
-                label = { Text(stringResource(R.string.password)) },
+                label = { Text(stringResource(if (isPeach) R.string.auth_peach_secret else R.string.password)) },
                 leadingIcon = {
                     Icon(imageVector = Icons.Rounded.Lock, contentDescription = null)
                 },
@@ -513,7 +545,7 @@ private fun LoginForm(
                     keyboardType = KeyboardType.Password,
                     imeAction = ImeAction.Done
                 ),
-                keyboardActions = KeyboardActions(onDone = { if (username.isNotBlank()) onLogin() }),
+                keyboardActions = KeyboardActions(onDone = { if (canSubmit) onLogin() }),
                 shape = RoundedCornerShape(12.dp),
                 colors = tvTextFieldColors()
             )
@@ -533,7 +565,7 @@ private fun LoginForm(
 
         Button(
             onClick = onLogin,
-            enabled = !isBusy && username.isNotBlank(),
+            enabled = !isBusy && canSubmit,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp)

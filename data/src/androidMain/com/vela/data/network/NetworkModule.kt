@@ -11,6 +11,13 @@ import com.vela.data.DataModuleConfig
 import com.vela.data.api.MediaServerApi
 import com.vela.data.api.MediaServerApiClient
 import com.vela.data.model.AuthHeaderDto
+import com.vela.data.model.ServerInfo
+import com.vela.data.network.ServerTrust.applyServerTrust
+import com.vela.data.peach.PeachApiException
+import com.vela.data.peach.PeachClient
+import com.vela.data.peach.PeachCredential
+import com.vela.data.peach.PeachMediaServerApi
+import com.vela.data.peach.PeachServerVersion
 import com.vela.data.preferences.NetworkTimeoutConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
@@ -229,6 +236,14 @@ object NetworkModule {
         }
         apiCache[cacheKey]?.let { return it }
 
+        if (endpointType == ServerType.PEACH) {
+            return createPeachApi(
+                baseUrl = baseUrlStd,
+                credential = PeachCredential.decode(accessToken) ?: PeachCredential.Open,
+                timeoutConfig = resolvedTimeoutConfig
+            ).also { apiCache[cacheKey] = it }
+        }
+
         val okHttpClient = createOkHttpClient(
             accessToken = accessToken,
             serverType = endpointType,
@@ -284,9 +299,103 @@ object NetworkModule {
             }
         }
 
+        probePeach(serverUrl, timeoutConfig).onSuccess { return Result.success(it) }
+            .onFailure { error -> if (ServerTrust.isCertificateFailure(error)) lastError = error as? Exception ?: lastError }
+
+        val certificateError = lastError?.takeIf { ServerTrust.isCertificateFailure(it) }
+        if (certificateError != null) {
+            ServerTrust.inspect(trimTrailingSlash(serverUrl.trim()))?.let { certificate ->
+                return Result.failure(UntrustedServerCertificateException(certificate).apply { initCause(certificateError) })
+            }
+        }
+
         return Result.failure(
             lastError ?: Exception(context.getString(R.string.data_error_server_endpoint_unresolved))
         )
+    }
+
+    /**
+     * 识别 Peach：`/api/client-updates` 在开放访问时直接回版本；设了口令时回 401，
+     * 再看 `/login` 页是不是 Peach 的登录页。两步都不发送凭据。
+     */
+    suspend fun probePeach(
+        serverUrl: String,
+        timeoutConfig: NetworkTimeoutConfig? = null
+    ): Result<ServerEndpoint> {
+        val baseUrl = trimTrailingSlash(serverUrl.trim(), trailingSlash = true)
+        val probe = createPeachClient(baseUrl, PeachCredential.Open, timeoutConfig ?: defaultTimeoutConfig())
+        return try {
+            val version = PeachServerVersion.parse(probe.get("/api/client-updates"))
+            if (version.version == null) {
+                Result.failure(Exception("not peach"))
+            } else {
+                Result.success(peachEndpoint(baseUrl, version.version))
+            }
+        } catch (error: PeachApiException) {
+            if (error.kind != PeachApiException.Kind.UNAUTHORIZED) return Result.failure(error)
+            val loginPage = runCatching { probe.getText("/login") }.getOrNull().orEmpty()
+            if (loginPage.contains("Peach", ignoreCase = true)) {
+                Result.success(peachEndpoint(baseUrl, version = null))
+            } else {
+                Result.failure(error)
+            }
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
+    private fun peachEndpoint(baseUrl: String, version: String?) = ServerEndpoint(
+        baseUrl = baseUrl,
+        serverType = ServerType.PEACH,
+        serverInfo = ServerInfo(serverName = "Peach", productName = PeachMediaServerApi.PRODUCT_NAME, version = version)
+    )
+
+    /** Peach 的请求客户端：只带 Peach 自己的凭据头，不加 Jellyfin 的 Authorization。 */
+    fun createPeachClient(
+        baseUrl: String,
+        credential: PeachCredential,
+        timeoutConfig: NetworkTimeoutConfig? = null
+    ): PeachClient {
+        val resolvedTimeoutConfig = timeoutConfig ?: defaultTimeoutConfig()
+        val okHttpClient = createPeachOkHttpClient(credential, resolvedTimeoutConfig)
+        val baseUrlStd = trimTrailingSlash(baseUrl, trailingSlash = true)
+        return PeachClient(
+            client = createHttpClient(baseUrlStd, okHttpClient),
+            baseUrl = baseUrlStd,
+            loginClient = createHttpClient(
+                baseUrlStd,
+                okHttpClient.newBuilder().followRedirects(false).followSslRedirects(false).build()
+            )
+        )
+    }
+
+    fun createPeachApi(
+        baseUrl: String,
+        credential: PeachCredential,
+        timeoutConfig: NetworkTimeoutConfig? = null
+    ): PeachMediaServerApi = PeachMediaServerApi(createPeachClient(baseUrl, credential, timeoutConfig))
+
+    private fun createPeachOkHttpClient(
+        credential: PeachCredential,
+        timeoutConfig: NetworkTimeoutConfig
+    ): OkHttpClient {
+        val headers = credential.headers()
+        val authInterceptor = Interceptor { chain ->
+            val builder = chain.request().newBuilder()
+            headers.forEach { (name, value) -> builder.header(name, value) }
+            chain.proceed(builder.build())
+        }
+        return OkHttpClient.Builder()
+            .callTimeout(timeoutConfig.requestTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            .connectTimeout(timeoutConfig.connectionTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            .readTimeout(timeoutConfig.socketTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            .writeTimeout(timeoutConfig.socketTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            .connectionPool(ConnectionPool(16, 5, TimeUnit.MINUTES))
+            .retryOnConnectionFailure(true)
+            .applyServerTrust()
+            .addInterceptor(authInterceptor)
+            .addInterceptor(lineFailureInterceptor())
+            .build()
     }
 
     private fun createOkHttpClient(
@@ -308,6 +417,7 @@ object NetworkModule {
             .dispatcher(dispatcher)
             .connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
             .retryOnConnectionFailure(true)
+            .applyServerTrust()
 
         if (storageDir != null) {
             val networkStore = File(storageDir, "media_store/network_http_cache")

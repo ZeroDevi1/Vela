@@ -86,6 +86,7 @@ fun Settings(
     onNavigateToCacheSettings: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
     onNavigateToServerInfo: () -> Unit = {},
+    onNavigateToPeach: () -> Unit = {},
     onNavigateToRequestedItem: (BaseItemDto) -> Unit = {},
     onAddServer: () -> Unit = {},
     onAddUser: (serverUrl: String, serverName: String?) -> Unit = { _, _ -> },
@@ -188,6 +189,16 @@ fun Settings(
                                 showChevron = false,
                                 onClick = onNavigateToServers ?: serverSwitchDialogsState::openServers
                             )
+                        }
+                        val activeServer = uiState.savedServers.firstOrNull { it.id == uiState.activeServerId }
+                        if (activeServer?.serverTypeRaw.equals("PEACH", ignoreCase = true)) {
+                            add {
+                                SettingsRow(
+                                    title = stringResource(R.string.peach_manage_title),
+                                    icon = Icons.Rounded.AdminPanelSettings,
+                                    onClick = onNavigateToPeach
+                                )
+                            }
                         }
                         if (uiState.isAdministrator == true && onNavigateToServers == null) {
                             add {
@@ -631,6 +642,7 @@ private fun ServerRow(
     val kind = when {
         server.serverTypeRaw.equals("EMBY", ignoreCase = true) -> "Emby"
         server.serverTypeRaw.equals("JELLYFIN", ignoreCase = true) -> "Jellyfin"
+        server.serverTypeRaw.equals("PEACH", ignoreCase = true) -> "Peach"
         else -> server.serverTypeRaw
     }
     val host = server.activeLine()?.url?.let { runCatching { Uri.parse(it).host }.getOrNull() } ?: server.serverUrl

@@ -1,11 +1,11 @@
 # Vela
 
-Phone client for Emby and Jellyfin. One saved account is a user on a media server; that server can have multiple lines.
+Phone client for Emby, Jellyfin and Peach. One saved account is a user on a media server; that server can have multiple lines.
 
 ## Language
 
 **Saved Server**:
-A logged-in Emby or Jellyfin account persisted in DataStore. Identity is server id plus user, not URL.
+A logged-in Emby, Jellyfin or Peach account persisted in DataStore. Identity is server id plus user, not URL.
 _Avoid_: Room account, connection profile
 
 **Note**:
@@ -58,3 +58,20 @@ _Avoid_: package, binary, artifact
 **Download Mirror**:
 A URL prefix applied to GitHub API and asset URLs: origin GitHub, or a gh-proxy style CDN.
 _Avoid_: VPN, proxy server, cache
+
+**Peach Server**:
+A single-user [Peach](https://github.com/peach-mitao/peach) deployment. It has no accounts: the Saved Server user id is Peach's default profile id, and the credential is an access token (`X-Token`), a password-login session cookie, or open access.
+_Avoid_: Peach account, Peach user
+
+**Pinned Certificate**:
+A server public-key fingerprint the user confirmed on first connection to a self-signed HTTPS server. Accepted only for that host and port, and only when the system trust check fails.
+_Avoid_: trusted CA, ignore SSL, insecure mode
+
+**Peach Feed**:
+A Peach-side follow source that tracks new releases for a performer (JavDB identity). Distinct from a Vela Subscription.
+_Avoid_: subscription, calendar
+
+**Local-only Setting**:
+A Peach configuration route that only answers requests from the computer running Peach (or its private network for Docker). Vela shows it read-only and explains where to change it.
+_Avoid_: admin setting, permission error
+

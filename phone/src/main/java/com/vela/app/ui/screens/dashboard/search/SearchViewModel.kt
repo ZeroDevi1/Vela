@@ -9,6 +9,8 @@ import com.vela.data.model.SeerrItemIds
 import com.vela.data.model.SeerrRecommendationTitle
 import com.vela.data.model.SearchMediaType
 import com.vela.data.model.filterSeerTitles
+import com.vela.data.peach.PeachRepository
+import com.vela.data.peach.PeachSuggestion
 import com.vela.data.repository.AuthRepositoryProvider
 import com.vela.data.repository.MediaRepository
 import com.vela.data.repository.SeerrRepository
@@ -36,6 +38,8 @@ class SearchViewModel @Inject constructor(
 ) : ViewModel() {
     private val authRepository = AuthRepositoryProvider.getInstance(context)
     private val seerrRepository = SeerrRepository(context)
+    private val peachRepository = PeachRepository.getInstance(context)
+    private var peachSuggestJob: Job? = null
 
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
@@ -55,6 +59,44 @@ class SearchViewModel @Inject constructor(
     init {
         loadsuggestions()
         refreshSeerrConnectionState()
+        refreshPeachHistory()
+    }
+
+    /** Peach 服务器：读取与网页共享的搜索历史；其他服务器清空 Peach 状态。 */
+    fun refreshPeachHistory() {
+        viewModelScope.launch {
+            val isPeach = mediaRepository.peachApi() != null
+            val history = if (isPeach) runCatching { peachRepository.searchHistory() }.getOrDefault(emptyList()) else emptyList()
+            _uiState.value = _uiState.value.copy(
+                isPeach = isPeach,
+                peachHistory = history,
+                peachSuggestions = if (isPeach) _uiState.value.peachSuggestions else emptyList()
+            )
+        }
+    }
+
+    fun forgetPeachSearch(query: String) {
+        viewModelScope.launch {
+            runCatching { peachRepository.forgetSearch(query) }
+            _uiState.value = _uiState.value.copy(peachHistory = _uiState.value.peachHistory - query)
+        }
+    }
+
+    /** 选中历史或补全里的一个词：填入并立即搜索。 */
+    fun searchFor(query: String) {
+        updateSearchQuery(query)
+        executeSearch()
+    }
+
+    private fun rememberPeachSearch(query: String) {
+        if (!_uiState.value.isPeach || query.isBlank()) return
+        viewModelScope.launch {
+            runCatching { peachRepository.rememberSearch(query) }
+            val trimmed = query.trim()
+            _uiState.value = _uiState.value.copy(
+                peachHistory = (listOf(trimmed) + _uiState.value.peachHistory.filterNot { it == trimmed }).take(20)
+            )
+        }
     }
 
     fun selectDiscoveryTab(tab: SearchDiscoveryTab) {
@@ -72,6 +114,7 @@ class SearchViewModel @Inject constructor(
 
         searchJob?.cancel()
 
+        peachSuggestJob?.cancel()
         if (query.isNotEmpty()) {
             _uiState.value = _uiState.value.copy(
                 isSearching = true,
@@ -81,7 +124,15 @@ class SearchViewModel @Inject constructor(
                 delay(300)
                 searchAndCategorize(query)
             }
+            if (_uiState.value.isPeach) {
+                peachSuggestJob = viewModelScope.launch {
+                    delay(200)
+                    val suggestions = runCatching { peachRepository.suggestions(query) }.getOrDefault(emptyList())
+                    _uiState.value = _uiState.value.copy(peachSuggestions = suggestions)
+                }
+            }
         } else {
+            _uiState.value = _uiState.value.copy(peachSuggestions = emptyList())
             _uiState.value = _uiState.value.copy(
                 movieResults = emptyList(),
                 showResults = emptyList(),
@@ -112,6 +163,7 @@ class SearchViewModel @Inject constructor(
     fun executeSearch() {
         val query = _searchQuery.value
         if (query.isNotEmpty()) {
+            rememberPeachSearch(query)
             searchJob?.cancel()
             searchJob = viewModelScope.launch {
                 searchAndCategorize(query)
@@ -146,7 +198,8 @@ class SearchViewModel @Inject constructor(
             selectedTypes = selectedTypes,
             limit = 60
         ).getOrNull()?.let { items ->
-            filterSearchItems(items, query)
+            // Peach 的全文检索命中出镜者、标签与番号，标题里未必有搜索词，不能再按标题过滤。
+            if (_uiState.value.isPeach) items else filterSearchItems(items, query)
         }
         if (localItems == null) {
             if (seerrTitles.isNotEmpty()) {
@@ -478,5 +531,8 @@ data class SearchUiState(
     val isSearching: Boolean = false,
     val SuggestionsLoading: Boolean = false,
     val seerrDiscoveryLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val isPeach: Boolean = false,
+    val peachHistory: List<String> = emptyList(),
+    val peachSuggestions: List<PeachSuggestion> = emptyList()
 )

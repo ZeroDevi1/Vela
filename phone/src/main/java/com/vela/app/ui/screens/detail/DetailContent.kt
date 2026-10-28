@@ -1,5 +1,7 @@
 package com.vela.app.ui.screens.detail
 
+import com.vela.app.ui.screens.peach.PeachItemPanel
+import com.vela.app.ui.screens.peach.PeachFollowPanel
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -1164,6 +1166,12 @@ fun DetailContent(
                                 onTagClick = onTagClick,
                                 modifier = Modifier.padding(top = 10.dp)
                             )
+                        }
+
+                        // Peach 服务器的评分、已看、稍后看与找资源；其他服务器不渲染。
+                        item.id?.let { itemId ->
+                            PeachItemPanel(itemId = itemId, modifier = Modifier.padding(top = 12.dp), onOpenItem = onSimilarItemClick)
+                            PeachFollowPanel(itemId = itemId, onOpenItem = { target -> target.id?.let(onSimilarItemClick) }, modifier = Modifier.padding(top = 12.dp))
                         }
 
                         if (isWidescreenLayout && hasDescriptionContent) {

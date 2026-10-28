@@ -66,6 +66,7 @@ fun AppHomeContainer(
     onNavigateToCacheSettings: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
     onNavigateToServerInfo: () -> Unit = {},
+    onNavigateToPeach: () -> Unit = {},
     onAddUser: (serverUrl: String, serverName: String?) -> Unit = { _, _ -> }
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(AppHomeTab.SERVERS) }
@@ -137,6 +138,7 @@ fun AppHomeContainer(
                     onNavigateToCacheSettings = onNavigateToCacheSettings,
                     onNavigateToAbout = onNavigateToAbout,
                     onNavigateToServerInfo = onNavigateToServerInfo,
+                    onNavigateToPeach = onNavigateToPeach,
                     onNavigateToRequestedItem = onNavigateToDetail,
                     onAddServer = { selectedTab = AppHomeTab.SERVERS },
                     onAddUser = onAddUser,

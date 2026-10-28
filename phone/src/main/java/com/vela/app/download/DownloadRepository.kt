@@ -1,5 +1,6 @@
 package com.vela.app.download
 
+import com.vela.data.network.ServerTrust.applyServerTrust
 import android.content.Context
 import com.vela.shared.preferences.Preferences
 import com.vela.app.ui.components.common.isPausedDownloadState
@@ -56,6 +57,7 @@ class DownloadRepository(context: Context) {
         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(5, java.util.concurrent.TimeUnit.MINUTES)
         .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .applyServerTrust()
         .build()
 
     private val stateFlows = ConcurrentHashMap<String, MutableStateFlow<ItemDownloadState>>()

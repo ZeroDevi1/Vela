@@ -135,4 +135,8 @@
     <string name="seerr_credit_role_producer">Producer</string>
     <string name="seerr_credit_role_creator">Creator</string>
     <string name="seerr_credit_role_other">Other</string>
+    <string name="auth_error_peach_secret_required">This Peach server requires an access token or password</string>
+    <string name="auth_error_peach_secret_invalid">Access token or password is incorrect</string>
+    <string name="data_error_peach_disc_image">ISO disc images can\'t be played in the app. Open it with an external player from the details page.</string>
+    <string name="data_error_peach_stream_cancelled">This playback session was cancelled. Please start playback again.</string>
 </resources>
