@@ -1212,4 +1212,18 @@
     <string name="peach_follow_performer">订阅新作</string>
     <string name="peach_unfollow_performer">已订阅新作</string>
     <string name="settings_server_type_peach">Peach</string>
+    <string name="auth_ca_read_failed">无法读取证书文件</string>
+    <string name="auth_ca_confirm_title">信任这个证书颁发机构？</string>
+    <string name="auth_ca_confirm_message">由这个 CA 签发证书的服务器将只在 Vela 内受信任。请与运行 Peach 的电脑上的指纹核对（openssl x509 -noout -fingerprint -sha256 -in peach-local-ca.crt）。</string>
+    <string name="auth_ca_valid_until">有效期至 %1$s</string>
+    <string name="auth_certificate_same_issuer">与之前的证书由同一签发者签发。Peach 在电脑地址变化或证书快到期时会自动重签。</string>
+    <string name="auth_certificate_import_hint">推荐：导入运行 Peach 的电脑上的 peach-local-ca.crt（位于 &lt;Peach 数据目录>/secrets/tls/）。之后 Peach 重签证书也不必再次确认。</string>
+    <string name="auth_certificate_import_ca">导入 Peach CA 证书…</string>
+    <string name="peach_certificates_title">证书</string>
+    <string name="peach_certificates_subtitle">自签 HTTPS 的受信任 CA</string>
+    <string name="peach_certificates_authorities">已导入的 CA 证书</string>
+    <string name="peach_certificates_none">尚未导入</string>
+    <string name="peach_certificates_import">导入 CA 证书</string>
+    <string name="peach_certificates_hint">把 &lt;Peach 数据目录>/secrets/tls/ 下的 peach-local-ca.crt 复制到本设备后在这里导入。只需要 CA 证书，任何私钥都不要复制。导入的 CA 只在 Vela 内受信任，不影响其他应用。</string>
+    <string name="peach_certificates_imported">已导入 CA 证书</string>
 </resources>

@@ -101,6 +101,12 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
         connectToServer(onSuccess)
     }
 
+    /** 用户导入了签发该证书的 CA：不再固定这张叶子证书，直接重连。 */
+    fun retryAfterAuthorityImport(onSuccess: (serverUrl: String, serverName: String?) -> Unit) {
+        _uiState.value = _uiState.value.copy(pendingCertificate = null)
+        connectToServer(onSuccess)
+    }
+
     fun dismissPendingCertificate() {
         _uiState.value = _uiState.value.copy(
             pendingCertificate = null,

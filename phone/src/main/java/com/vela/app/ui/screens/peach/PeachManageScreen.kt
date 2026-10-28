@@ -27,6 +27,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.vela.app.ui.screens.auth.rememberCertificateAuthorityImport
+import com.vela.data.network.ServerTrust
 import com.vela.data.peach.PeachApiException
 import com.vela.data.peach.PeachCredentialStatus
 import com.vela.data.peach.PeachPreferences
@@ -46,7 +48,8 @@ enum class PeachSection(val route: String) {
     SOURCES("sources"),
     PREFERENCES("preferences"),
     CONFIGURATION("configuration"),
-    TRASH("trash");
+    TRASH("trash"),
+    CERTIFICATES("certificates");
 
     companion object {
         fun fromRoute(route: String?): PeachSection? = entries.firstOrNull { it.route == route }
@@ -75,6 +78,7 @@ fun PeachManageScreen(
         PeachSection.PREFERENCES -> PeachPreferencesPage(onBack)
         PeachSection.CONFIGURATION -> PeachConfigurationPage(onBack, onOpenWeb)
         PeachSection.TRASH -> PeachTrashPage(onBack)
+        PeachSection.CERTIFICATES -> PeachCertificatesPage(onBack)
     }
 }
 
@@ -118,6 +122,8 @@ private fun PeachManageHome(
                 PeachRow(stringResource(R.string.peach_configuration_title), stringResource(R.string.peach_configuration_subtitle), onClick = { onOpenSection(PeachSection.CONFIGURATION) })
                 PeachDivider()
                 PeachRow(stringResource(R.string.peach_trash_title), stringResource(R.string.peach_trash_subtitle), onClick = { onOpenSection(PeachSection.TRASH) })
+                PeachDivider()
+                PeachRow(stringResource(R.string.peach_certificates_title), stringResource(R.string.peach_certificates_subtitle), onClick = { onOpenSection(PeachSection.CERTIFICATES) })
             }
         }
         item {
@@ -874,6 +880,41 @@ private fun PeachTrashPage(onBack: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+// endregion
+
+// region 证书
+
+@Composable
+private fun PeachCertificatesPage(onBack: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var authorities by remember { mutableStateOf(ServerTrust.trustedAuthorities()) }
+    val importedText = stringResource(R.string.peach_certificates_imported)
+    val importAuthority = rememberCertificateAuthorityImport { _ ->
+        authorities = ServerTrust.trustedAuthorities()
+        android.widget.Toast.makeText(context, importedText, android.widget.Toast.LENGTH_SHORT).show()
+    }
+    PeachPageScaffold(stringResource(R.string.peach_certificates_title), onBack) {
+        item {
+            PeachSection(stringResource(R.string.peach_certificates_authorities)) {
+                PeachRows(authorities, stringResource(R.string.peach_certificates_none)) { authority ->
+                    PeachRow(
+                        title = authority.subject,
+                        subtitle = "SHA-256 ${authority.sha256}\n" + stringResource(R.string.auth_ca_valid_until, authority.notAfter),
+                        trailing = {
+                            TextButton(onClick = {
+                                ServerTrust.removeAuthority(authority.sha256)
+                                authorities = ServerTrust.trustedAuthorities()
+                            }) { Text(stringResource(R.string.peach_remove)) }
+                        }
+                    )
+                }
+            }
+        }
+        item { Button(onClick = importAuthority) { Text(stringResource(R.string.peach_certificates_import)) } }
+        item { PeachHint(stringResource(R.string.peach_certificates_hint)) }
     }
 }
 

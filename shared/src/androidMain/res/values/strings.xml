@@ -1226,4 +1226,18 @@
     <string name="peach_follow_performer">Follow new releases</string>
     <string name="peach_unfollow_performer">Following new releases</string>
     <string name="settings_server_type_peach">Peach</string>
+    <string name="auth_ca_read_failed">Couldn\'t read the certificate file</string>
+    <string name="auth_ca_confirm_title">Trust this certificate authority?</string>
+    <string name="auth_ca_confirm_message">Servers whose certificates are signed by this CA will be trusted inside Vela only. Compare the fingerprint with the one on the Peach computer (openssl x509 -noout -fingerprint -sha256 -in peach-local-ca.crt).</string>
+    <string name="auth_ca_valid_until">Valid until %1$s</string>
+    <string name="auth_certificate_same_issuer">Signed by the same issuer as before. Peach re-signs its certificate when the computer\'s address changes or the certificate is about to expire.</string>
+    <string name="auth_certificate_import_hint">Recommended: import peach-local-ca.crt from the Peach computer (&lt;data folder>/secrets/tls/). Re-signed certificates will then be trusted without asking again.</string>
+    <string name="auth_certificate_import_ca">Import Peach CA certificate…</string>
+    <string name="peach_certificates_title">Certificates</string>
+    <string name="peach_certificates_subtitle">Trusted CA certificates for self-signed HTTPS</string>
+    <string name="peach_certificates_authorities">Imported CA certificates</string>
+    <string name="peach_certificates_none">None imported</string>
+    <string name="peach_certificates_import">Import CA certificate</string>
+    <string name="peach_certificates_hint">Copy peach-local-ca.crt from &lt;Peach data folder>/secrets/tls/ to this device and import it here. Only the CA certificate is needed; never copy private keys. Imported CAs are trusted by Vela only, not by other apps.</string>
+    <string name="peach_certificates_imported">CA certificate imported</string>
 </resources>

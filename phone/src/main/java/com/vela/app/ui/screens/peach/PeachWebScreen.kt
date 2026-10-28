@@ -43,7 +43,7 @@ import com.vela.shared.R
 /**
  * 在应用内打开 Peach 网页，承接 Vela 没有原生化的功能（人工复核、重复文件、JAV 探索等）。
  * 口令登录用 `?t=` 建立会话，密码登录直接写入会话 Cookie；口令不会进入外部浏览器的历史。
- * 自签证书只接受用户在登录时核对并固定过的那一张。
+ * 自签证书只接受导入的 CA 签发的，或用户核对并固定过指纹的那一张。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
@@ -116,8 +116,7 @@ private class PinnedWebViewClient(private val onTitle: (String) -> Unit) : WebVi
         val uri = error?.url?.let(Uri::parse)
         val host = uri?.host
         val port = uri?.port?.takeIf { it > 0 } ?: 443
-        val pinned = host?.let { ServerTrust.pinnedFingerprint(it, port) }
-        if (certificate != null && pinned != null && pinned == ServerTrust.fingerprint(certificate)) {
+        if (certificate != null && host != null && ServerTrust.isTrustedForHost(certificate, host, port)) {
             handler?.proceed()
         } else {
             handler?.cancel()

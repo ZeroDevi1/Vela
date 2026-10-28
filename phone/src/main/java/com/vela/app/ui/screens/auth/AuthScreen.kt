@@ -282,6 +282,13 @@ fun AuthScreen(
                             currentStep = AuthStep.LOGIN
                         }
                     },
+                    onImportAuthority = {
+                        authViewModel.retryAfterAuthorityImport { url, name ->
+                            selectedServerUrl = url
+                            selectedServerName = name
+                            currentStep = AuthStep.LOGIN
+                        }
+                    },
                     onDismiss = authViewModel::dismissPendingCertificate
                 )
             }
@@ -815,8 +822,10 @@ private fun LoginContentPreview() {
 private fun ServerCertificateDialog(
     certificate: ServerCertificateInfo,
     onTrust: () -> Unit,
+    onImportAuthority: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val importAuthority = rememberCertificateAuthorityImport(onImported = { onImportAuthority() })
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -842,6 +851,19 @@ private fun ServerCertificateDialog(
                     text = stringResource(R.string.auth_certificate_details, certificate.issuer, certificate.notAfter),
                     style = MaterialTheme.typography.bodySmall
                 )
+                if (certificate.sameIssuerAsPinned) {
+                    Text(
+                        text = stringResource(R.string.auth_certificate_same_issuer),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.auth_certificate_import_hint),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                TextButton(onClick = importAuthority) {
+                    Text(stringResource(R.string.auth_certificate_import_ca))
+                }
             }
         },
         confirmButton = {
