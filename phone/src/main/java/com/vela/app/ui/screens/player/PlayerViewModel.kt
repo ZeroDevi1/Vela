@@ -1776,7 +1776,7 @@ class PlayerViewModel @Inject constructor(
             scrubGrabber?.reset()
             scrubPreviewSource = source
         }
-        if (source != null && supportsKeyframeScrub(source.uri)) {
+        if (source != null && supportsKeyframeScrub(source.uri) && allowsSpeculativeScrub()) {
             warmScrubFrames(source, warmPositionMs)
             if (!lowRam) sweepScrubFrames(source)
         }
@@ -1820,8 +1820,12 @@ class PlayerViewModel @Inject constructor(
      */
     private fun warmScrubFrames(source: ScrubPreviewSource, positionMs: Long) {
         scrubWarmJob = viewModelScope.launch(Dispatchers.IO) {
+            // 150ms 不是起播已稳定的保证：等待主播放和 VR 识别完成，再决定是否打开第二路解码。
+            while (!_playerState.value.hasStartedPlayback || _playerState.value.isLoading) {
+                delay(SCRUB_SWEEP_POLL_MS)
+            }
             delay(SCRUB_FRAME_WARM_DELAY_MS)
-            if (scrubPreviewSource !== source || scrubPreviewQueued) return@launch
+            if (scrubPreviewSource !== source || scrubPreviewQueued || !allowsSpeculativeScrub()) return@launch
             if (cachedScrubFrame(positionMs, exact = true) != null) return@launch
             val frame = loadKeyframeFrame(source, positionMs) ?: return@launch
             try {
@@ -1848,7 +1852,7 @@ class PlayerViewModel @Inject constructor(
      * 避免在流量网络上为预览额外下载关键帧。连续失败多次（片源不支持解复用或解码）即停止。
      *
      * 预生成要额外开一路硬解并下载关键帧，会和主播放抢解码器与带宽：
-     * 超高像素（5.7K / 8K）与 VR 片源完全不预生成，拖动时现场抽帧；4K 级片源拉长间隔。
+     * 4K 级及以上与 VR 片源不预热、不预生成，拖动时仍可现场抽帧。
      *
      * @param source 当前片源
      */
@@ -1863,8 +1867,7 @@ class PlayerViewModel @Inject constructor(
             val remote = source.uri.scheme?.lowercase(Locale.ROOT) in setOf("http", "https")
             val connectivity = source.context.getSystemService(ConnectivityManager::class.java)
             if (remote && connectivity?.isActiveNetworkMetered != false) return@launch
-            if (isHeavySource() || _playerState.value.vrDetected) return@launch
-            val sweepGapMs = if (isLargeSource()) SCRUB_SWEEP_GAP_LARGE_SOURCE_MS else SCRUB_SWEEP_GAP_MS
+            if (!allowsSpeculativeScrub()) return@launch
             var consecutiveFailures = 0
             for (positionMs in scrubSweepPositions(_playerState.value.duration)) {
                 while (
@@ -1889,7 +1892,7 @@ class PlayerViewModel @Inject constructor(
                 }
                 rememberScrubFrame(positionMs, frame, grid = true)
                 // 关键帧已缓存、没有解码时不占解码器和网络，不必等待。
-                if (frame.bitmap != null) delay(sweepGapMs)
+                if (frame.bitmap != null) delay(SCRUB_SWEEP_GAP_MS)
             }
         }
     }
@@ -2833,11 +2836,10 @@ class PlayerViewModel @Inject constructor(
     /** 超高像素片源（5.7K / 8K 等），与 mpv 轻量渲染使用同一阈值。 */
     fun isHeavySource(): Boolean = MpvRenderLoad.isHeavySource(apiMediaStreams)
 
-    /** 高于 1440p 的片源（4K 级）。 */
-    private fun isLargeSource(): Boolean {
+    /** 只让较轻的片源预热/预生成；用户主动拖动不受这个策略限制。 */
+    private fun allowsSpeculativeScrub(): Boolean {
         val video = apiMediaStreams.orEmpty().firstOrNull { it.type.equals("Video", ignoreCase = true) }
-            ?: return false
-        return (video.width ?: 0).toLong() * (video.height ?: 0).toLong() > LARGE_SOURCE_PIXELS
+        return shouldPrecomputeScrubFrames(video?.width, video?.height, _playerState.value.vrDetected)
     }
 
     fun getSourceVideoAspectRatio(): Float? {
@@ -2857,10 +2859,6 @@ private const val SCRUB_SWEEP_POLL_MS = 500L
 private const val SCRUB_SWEEP_START_DELAY_MS = 3_000L
 /** 预生成相邻两帧之间的让出间隔，单位毫秒。 */
 private const val SCRUB_SWEEP_GAP_MS = 40L
-/** 4K 级片源预生成相邻两帧的间隔，单位毫秒；拉长以免与主播放争抢硬解。 */
-private const val SCRUB_SWEEP_GAP_LARGE_SOURCE_MS = 400L
-/** 超过该像素量（2560x1440）视为 4K 级片源。 */
-private const val LARGE_SOURCE_PIXELS = 2560L * 1440L
 /** 连续失败这么多次就放弃预生成，避免对不支持的片源反复尝试。 */
 private const val SCRUB_SWEEP_MAX_FAILURES = 4
 

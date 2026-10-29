@@ -219,7 +219,8 @@ internal class ScrubFrameGrabber {
             // 每次重新取轨道格式：configure 失败后格式里可能被写入解码器私有键。
             val format = extractor.getTrackFormat(videoTrack).apply {
                 setString(MediaFormat.KEY_MIME, candidateMime)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) setInteger(MediaFormat.KEY_PRIORITY, 0)
+                // 预览是 best-effort，不要按原始 4K 帧率向系统申请实时解码资源。
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) setInteger(MediaFormat.KEY_PRIORITY, 1)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
             }
             for (info in decoderCandidates(candidateMime)) {

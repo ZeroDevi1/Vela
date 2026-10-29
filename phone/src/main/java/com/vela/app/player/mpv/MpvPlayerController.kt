@@ -39,6 +39,8 @@ class MpvPlayerController(
         private const val COLOR_LOG_TAG = "JellyCine-Color"
         private const val VR_LOG_TAG = "JellyCine-VR"
         private const val VR_LOOK_RELOAD_MS = 32L
+        private const val PERFORMANCE_LOG_TAG = "Vela-Playback"
+        private const val PERFORMANCE_LOG_INTERVAL_MS = 15_000L
 
         /**
          * mpv 是进程级单例（[MPVLib] 持有唯一句柄）。创建要初始化 GPU 上下文，销毁要等解码/网络线程退出，
@@ -63,6 +65,8 @@ class MpvPlayerController(
     @Volatile
     private var released = false
     private var ready = false
+    // 只在 mpv 事件线程读写；按单调时钟限流，seek 不会触发日志风暴。
+    private var lastPerformanceLogMs = 0L
     // 以下三项在 mpv 事件线程更新，主线程和预览预生成的 IO 协程都会读取。
     @Volatile
     private var durationMs: Long = 0L
@@ -672,7 +676,10 @@ class MpvPlayerController(
 
     override fun eventProperty(property: String, value: Double) {
         when (property) {
-            "time-pos" -> positionMs = (value * 1000.0).toLong().coerceAtLeast(0L)
+            "time-pos" -> {
+                positionMs = (value * 1000.0).toLong().coerceAtLeast(0L)
+                logPlaybackPerformance()
+            }
             "duration" -> durationMs = (value * 1000.0).toLong().coerceAtLeast(0L)
             "demuxer-cache-duration" -> cacheAheadMs = (value * 1000.0).toLong().coerceAtLeast(0L)
             "container-fps" -> if (value != videoFps) {
@@ -681,6 +688,26 @@ class MpvPlayerController(
                 applyRenderQuality()
             }
         }
+    }
+
+    /**
+     * 低频诊断：缓存耗尽与有缓存却掉帧是不同瓶颈。计数为累计值，应比较相邻采样的增量。
+     * 不记录播放地址、headers、文件名或账号；未知属性保留 null，不能当作没有掉帧。
+     */
+    private fun logPlaybackPerformance() {
+        if (released) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastPerformanceLogMs < PERFORMANCE_LOG_INTERVAL_MS) return
+        lastPerformanceLogMs = now
+        Log.i(
+            PERFORMANCE_LOG_TAG,
+            "hwdec=${MPVLib.getPropertyString("hwdec-current")} " +
+                "sourceFps=$videoFps speed=$currentSpeed bufferMs=$cacheAheadMs " +
+                "pausedForCache=${MPVLib.getPropertyString("paused-for-cache")} " +
+                "voDrops=${MPVLib.getPropertyString("frame-drop-count")} " +
+                "decoderDrops=${MPVLib.getPropertyString("decoder-frame-drop-count")} " +
+                "avsync=${MPVLib.getPropertyString("avsync")}"
+        )
     }
 
     /** mpv 估算的实际输出帧率（`estimated-vf-fps`）；未知时为 null。OSD「实时帧率」使用。 */
@@ -728,7 +755,10 @@ class MpvPlayerController(
 
     override fun eventProperty(property: String, value: Boolean) {
         when (property) {
-            "paused-for-cache" -> if (value) listener.onBuffering() else listener.onReady()
+            "paused-for-cache" -> {
+                Log.i(PERFORMANCE_LOG_TAG, "paused-for-cache=$value bufferMs=$cacheAheadMs")
+                if (value) listener.onBuffering() else listener.onReady()
+            }
             "eof-reached" -> if (value) listener.onEnded()
         }
     }

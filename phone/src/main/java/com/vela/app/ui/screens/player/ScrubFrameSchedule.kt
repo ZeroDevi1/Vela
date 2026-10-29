@@ -214,3 +214,13 @@ internal fun scrubPreviewSize(width: Int, height: Int, rotationDegrees: Int, max
     val scale = minOf(maxEdgePx.toFloat() / orientedW, maxEdgePx.toFloat() / orientedH)
     return (orientedW * scale).toInt().coerceAtLeast(1) to (orientedH * scale).toInt().coerceAtLeast(1)
 }
+
+/**
+ * 预热/全片网格会另开解码器并随机读取关键帧，缩成 320px 也仍须解码原始 4K 帧。
+ * 只对已知不超过 1440p 的普通片源投机抽帧；未知尺寸保守等待用户拖动。
+ * 不影响主动预览，也不降低主画面的分辨率、HDR 精度或帧率。
+ */
+internal fun shouldPrecomputeScrubFrames(width: Int?, height: Int?, vr: Boolean): Boolean {
+    if (vr || width == null || height == null || width <= 0 || height <= 0) return false
+    return width.toLong() * height.toLong() <= 2560L * 1440L
+}

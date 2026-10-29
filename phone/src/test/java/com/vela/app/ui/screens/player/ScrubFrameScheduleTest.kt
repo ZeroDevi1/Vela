@@ -9,6 +9,22 @@ import org.junit.Test
 class ScrubFrameScheduleTest {
 
     @Test
+    fun speculativeFramesOnlyForKnownLightSources() {
+        assertTrue(shouldPrecomputeScrubFrames(1920, 1080, false))
+        assertTrue(shouldPrecomputeScrubFrames(2560, 1440, false))
+        assertFalse(shouldPrecomputeScrubFrames(3840, 2160, false))
+        assertFalse(shouldPrecomputeScrubFrames(3840, 1600, false))
+        assertFalse(shouldPrecomputeScrubFrames(8192, 4096, false))
+        assertFalse(shouldPrecomputeScrubFrames(1920, 1080, true))
+        assertFalse(shouldPrecomputeScrubFrames(null, 2160, false))
+        assertFalse(shouldPrecomputeScrubFrames(3840, null, false))
+        assertFalse(shouldPrecomputeScrubFrames(0, 1080, false))
+        assertFalse(shouldPrecomputeScrubFrames(-1, 1080, false))
+        assertFalse(shouldPrecomputeScrubFrames(Int.MAX_VALUE, Int.MAX_VALUE, false))
+    }
+
+
+    @Test
     fun bucketsPositionsInsideTheSameSecond() {
         assertEquals(20L, scrubFrameBucket(20_000L))
         assertEquals(20L, scrubFrameBucket(20_900L))
