@@ -140,4 +140,5 @@
     <string name="auth_error_peach_secret_invalid">访问口令或密码不正确</string>
     <string name="data_error_peach_disc_image">ISO 原盘无法在应用内播放，请在详情页用外部播放器打开</string>
     <string name="data_error_peach_stream_cancelled">播放会话已取消，请重新开始播放</string>
+    <string name="data_error_server_type_mismatch">选择了 %1$s，但服务器报告为 %2$s。请检查服务器类型。</string>
 </resources>

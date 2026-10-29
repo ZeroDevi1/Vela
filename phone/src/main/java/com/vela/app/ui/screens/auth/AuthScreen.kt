@@ -1,5 +1,7 @@
 package com.vela.app.ui.screens.auth
 
+import com.vela.data.network.ServerType
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import com.vela.data.network.ServerCertificateInfo
@@ -10,6 +12,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,6 +45,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -102,6 +106,9 @@ fun AuthScreen(
     val authRepository = remember { AuthRepositoryProvider.getInstance(context) }
     val serverSwitchViewModel: ServerSwitchViewModel = viewModel {
         ServerSwitchViewModel(context.applicationContext as android.app.Application)
+    }
+    DisposableEffect(authViewModel) {
+        onDispose { authViewModel.cancelPendingConnection() }
     }
     val uiState by authViewModel.uiState.collectAsState()
     val serverSwitchUiState by serverSwitchViewModel.uiState.collectAsState()
@@ -237,6 +244,8 @@ fun AuthScreen(
                     currentStep == AuthStep.SERVER_CONNECTION -> ServerConnectionContent(
                         modifier = Modifier.fillMaxSize(),
                         serverUrl = uiState.serverUrl,
+                        serverType = uiState.serverType,
+                        onServerTypeChange = authViewModel::updateServerType,
                         isAwaitingSavedServers = false,
                         isLoading = uiState.isServerLoading,
                         errorMessage = uiState.serverErrorMessage,
@@ -387,6 +396,8 @@ private fun AnimatedBrandHero(
 private fun ServerConnectionContent(
     modifier: Modifier = Modifier,
     serverUrl: String,
+    serverType: ServerType,
+    onServerTypeChange: (ServerType) -> Unit,
     isAwaitingSavedServers: Boolean,
     isLoading: Boolean,
     errorMessage: String?,
@@ -426,6 +437,8 @@ private fun ServerConnectionContent(
         } else {
             ConnectionForm(
                 serverUrl = serverUrl,
+                serverType = serverType,
+                onServerTypeChange = onServerTypeChange,
                 isLoading = isLoading,
                 errorMessage = errorMessage,
                 onServerUrlChange = onServerUrlChange,
@@ -486,6 +499,8 @@ private fun LoginContent(
 private fun ConnectionForm(
     modifier: Modifier = Modifier,
     serverUrl: String,
+    serverType: ServerType,
+    onServerTypeChange: (ServerType) -> Unit,
     isLoading: Boolean,
     errorMessage: String?,
     onServerUrlChange: (String) -> Unit,
@@ -510,6 +525,23 @@ private fun ConnectionForm(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
+
+            Text(
+                text = stringResource(R.string.auth_server_type),
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(ServerType.EMBY to "Emby", ServerType.JELLYFIN to "Jellyfin", ServerType.PEACH to "Peach").forEach { (type, label) ->
+                    FilterChip(
+                        selected = serverType == type,
+                        onClick = { onServerTypeChange(type) },
+                        enabled = !isLoading,
+                        label = { Text(label) },
+                        modifier = Modifier
+                    )
+                }
+            }
 
             OutlinedTextField(
                 value = serverUrl,

@@ -24,6 +24,7 @@ import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.awaitClose
@@ -266,15 +267,18 @@ object NetworkModule {
         context: Context,
         serverUrl: String,
         storageDir: File? = null,
-        timeoutConfig: NetworkTimeoutConfig? = null
+        timeoutConfig: NetworkTimeoutConfig? = null,
+        serverType: ServerType? = null
     ): Result<ServerEndpoint> {
-        val candidates = buildBaseUrlCandidates(serverUrl)
+        val selectedType = serverType?.takeUnless { it == ServerType.UNKNOWN }
+        val plan = serverProbePlan(serverUrl, selectedType)
         var lastError: Exception? = null
 
-        for (candidate in candidates) {
+        for (candidate in plan.mediaUrls) {
             try {
                 val api = createMediaServerApi(
                     baseUrl = candidate,
+                    serverType = selectedType,
                     storageDir = storageDir,
                     timeoutConfig = timeoutConfig
                 )
@@ -282,10 +286,16 @@ object NetworkModule {
                 if (response.isSuccessful && response.body() != null) {
                     val serverInfo = response.body()!!
                     val detectedType = detectServerType(serverInfo, response.headers())
+                    if (selectedType != null && detectedType != ServerType.UNKNOWN && detectedType != selectedType) {
+                        lastError = Exception(context.getString(
+                            R.string.data_error_server_type_mismatch, selectedType.name, detectedType.name
+                        ))
+                        break
+                    }
                     return Result.success(
                         ServerEndpoint(
                             baseUrl = trimTrailingSlash(candidate, trailingSlash = true),
-                            serverType = detectedType,
+                            serverType = selectedType ?: detectedType,
                             serverInfo = serverInfo
                         )
                     )
@@ -294,13 +304,21 @@ object NetworkModule {
                 lastError = Exception(
                     context.getString(R.string.data_error_server_endpoint_http, response.code())
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 lastError = e
             }
         }
 
-        probePeach(serverUrl, timeoutConfig).onSuccess { return Result.success(it) }
-            .onFailure { error -> if (ServerTrust.isCertificateFailure(error)) lastError = error as? Exception ?: lastError }
+        if (plan.probePeach) {
+            probePeach(serverUrl, timeoutConfig).onSuccess { return Result.success(it) }
+                .onFailure { error ->
+                    if (selectedType == ServerType.PEACH || ServerTrust.isCertificateFailure(error)) {
+                        lastError = error as? Exception ?: lastError
+                    }
+                }
+        }
 
         val certificateError = lastError?.takeIf { ServerTrust.isCertificateFailure(it) }
         if (certificateError != null) {
@@ -339,6 +357,8 @@ object NetworkModule {
             } else {
                 Result.failure(error)
             }
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             Result.failure(error)
         }

@@ -1536,4 +1536,5 @@
     <string name="peach_entity_rename_hint">点按别名可设为规范名。</string>
     <string name="peach_pref_code_patterns">番号识别规则</string>
     <string name="peach_pref_code_patterns_hint">每行一条正则表达式，用于从文件名识别番号。</string>
+    <string name="auth_server_type">服务器类型</string>
 </resources>

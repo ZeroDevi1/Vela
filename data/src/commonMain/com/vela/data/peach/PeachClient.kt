@@ -12,6 +12,14 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.Parameters
 import io.ktor.http.contentType
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -80,11 +88,57 @@ class PeachClient(
 ) {
     private val root = baseUrl.trimEnd('/')
 
+    // Only coalesce read-only catalog requests while they are in flight. No response cache:
+    // a later refresh must see web-side changes, and every PeachClient belongs to one session.
+    private data class ReadKey(val path: String, val query: List<Pair<String, String>>)
+    private val readsMutex = Mutex()
+    private val pendingReads = mutableMapOf<ReadKey, CompletableDeferred<JsonObject>>()
+
     fun absoluteUrl(path: String): String =
         if (path.startsWith("http://") || path.startsWith("https://")) path else "$root/${path.trimStart('/')}"
 
-    suspend fun get(path: String, query: List<Pair<String, Any?>> = emptyList()): JsonObject =
-        execute(HttpMethod.Get, path, query, body = null)
+    suspend fun get(path: String, query: List<Pair<String, Any?>> = emptyList()): JsonObject {
+        // Some Peach GETs start jobs; never deduplicate arbitrary routes or random results.
+        if (path !in COALESCED_READS || query.any { it.first == "sort" && it.second == "rand" }) {
+            return execute(HttpMethod.Get, path, query, body = null)
+        }
+        val key = ReadKey(path, query.mapNotNull { (name, value) -> value?.let { name to it.toString() } })
+        while (true) {
+            var owner = false
+            val pending = readsMutex.withLock {
+                pendingReads[key] ?: CompletableDeferred<JsonObject>().also {
+                    pendingReads[key] = it
+                    owner = true
+                }
+            }
+            if (!owner) {
+                try {
+                    return pending.await()
+                } catch (cancelled: CancellationException) {
+                    // A cancelled screen must not cancel another screen's identical read.
+                    currentCoroutineContext().ensureActive()
+                    readsMutex.withLock {
+                        if (pendingReads[key] === pending) pendingReads.remove(key)
+                    }
+                    continue
+                }
+            }
+            try {
+                val result = execute(HttpMethod.Get, path, key.query, body = null)
+                pending.complete(result)
+                return result
+            } catch (error: Throwable) {
+                pending.completeExceptionally(error)
+                throw error
+            } finally {
+                withContext(NonCancellable) {
+                    readsMutex.withLock {
+                        if (pendingReads[key] === pending) pendingReads.remove(key)
+                    }
+                }
+            }
+        }
+    }
 
     suspend fun post(
         path: String,
@@ -165,7 +219,15 @@ class PeachClient(
         if (inlineError != null && parsed.size <= 2) {
             throw PeachApiException(404, PeachApiException.Kind.NOT_FOUND, inlineError, parsed)
         }
+        if (method != HttpMethod.Get) {
+            // A read started before a successful edit must not serve a later refresh.
+            readsMutex.withLock { pendingReads.clear() }
+        }
         return parsed ?: JsonObject(emptyMap())
+    }
+
+    private companion object {
+        val COALESCED_READS = setOf("/api/libraries", "/api/items", "/api/item", "/api/facets", "/api/entity")
     }
 
     private fun parseObject(text: String?): JsonObject? {

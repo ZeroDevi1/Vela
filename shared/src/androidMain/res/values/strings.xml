@@ -1550,4 +1550,5 @@
     <string name="peach_entity_rename_hint">Tap an alias to make it the main name.</string>
     <string name="peach_pref_code_patterns">Release code patterns</string>
     <string name="peach_pref_code_patterns_hint">One regular expression per line, used to recognize release codes in file names.</string>
+    <string name="auth_server_type">Server type</string>
 </resources>

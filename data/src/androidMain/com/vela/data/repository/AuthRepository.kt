@@ -43,6 +43,7 @@ import com.vela.data.preferences.NetworkTimeoutConfig
 import com.vela.data.security.AuthSessionIds
 import com.vela.data.security.LEGACY_ACCESS_TOKEN_KEY
 import com.vela.data.security.SecureSessionStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -88,6 +89,18 @@ class AuthRepository(private val context: Context) {
 
     @Volatile
     private var migrationExecuted = false
+
+    // Reuse the endpoint verified by the connection step; never cache credentials or failures.
+    @Volatile
+    private var testedEndpoint: VerifiedEndpoint? = null
+
+    private data class VerifiedEndpoint(val url: String, val endpoint: ServerEndpoint, val verifiedAt: Long = System.nanoTime())
+
+    private fun testedEndpointFor(serverUrl: String, serverType: ServerType? = null): ServerEndpoint? =
+        testedEndpoint?.takeIf { (url, endpoint, verifiedAt) ->
+            System.nanoTime() - verifiedAt < 60_000_000_000L &&
+            sameServerUrl(url, serverUrl) && (serverType == null || serverType == ServerType.UNKNOWN || endpoint.serverType == serverType)
+        }?.endpoint
 
     val lineSwitchEvents: SharedFlow<ServerLineSwitchEvent> = lineSwitchEventsFlow.asSharedFlow()
 
@@ -860,7 +873,8 @@ class AuthRepository(private val context: Context) {
         )
     }
 
-    suspend fun testServerConnection(serverUrl: String): Result<ServerInfo> {
+    suspend fun testServerConnection(serverUrl: String, serverType: ServerType? = null): Result<ServerInfo> {
+        testedEndpoint = null
         legacyStorageMigrated()
         return try {
             if (!serverUrl.startsWith("http://") && !serverUrl.startsWith("https://")) {
@@ -871,7 +885,8 @@ class AuthRepository(private val context: Context) {
                     context = context,
                     serverUrl = serverUrl,
                     storageDir = context.filesDir,
-                    timeoutConfig = networkPreferences.getTimeoutConfig()
+                    timeoutConfig = networkPreferences.getTimeoutConfig(),
+                    serverType = serverType
                 ).getOrElse { error ->
                 if (error is UntrustedServerCertificateException) return Result.failure(error)
                 return Result.failure(Exception(error.message ?: string(R.string.auth_error_unable_to_connect)))
@@ -884,6 +899,7 @@ class AuthRepository(private val context: Context) {
                 )
             )
 
+            testedEndpoint = VerifiedEndpoint(serverUrl, resolved)
             Result.success(normalizedServerInfo)
         } catch (e: java.net.UnknownHostException) {
             Result.failure(Exception(string(R.string.auth_error_cannot_reach_server)))
@@ -897,6 +913,8 @@ class AuthRepository(private val context: Context) {
             Result.failure(Exception(string(R.string.auth_error_certificate_failed)))
         } catch (e: java.io.IOException) {
             Result.failure(Exception(string(R.string.auth_error_network, e.message ?: string(R.string.auth_error_unable_to_connect))))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             val errorMessage = when {
                 e.message?.contains("Failed to connect", ignoreCase = true) == true ->
@@ -915,6 +933,7 @@ class AuthRepository(private val context: Context) {
         serverUrl: String,
         preferences: Preferences
     ): Result<ServerEndpoint> {
+        testedEndpointFor(serverUrl)?.let { return Result.success(it) }
         legacyStorageMigrated()
         val savedServerUrl = preferences[SERVER_URL_KEY]
         val savedServerType = preferences[SERVER_TYPE_KEY]?.let {
@@ -949,7 +968,8 @@ class AuthRepository(private val context: Context) {
         serverUrl: String,
         username: String,
         password: String,
-        note: String? = null
+        note: String? = null,
+        serverType: ServerType? = null
     ): Result<AuthenticationResult> {
         return try {
             legacyStorageMigrated()
@@ -959,7 +979,7 @@ class AuthRepository(private val context: Context) {
                 runCatching { ServerType.valueOf(it) }.getOrNull()
             }
 
-            val endpoint = if (isSameServer(serverUrl, savedServerUrl) && savedServerUrl != null && savedServerType != null) {
+            val endpoint = testedEndpointFor(serverUrl, serverType) ?: if (isSameServer(serverUrl, savedServerUrl) && savedServerUrl != null && savedServerType != null && (serverType == null || serverType == savedServerType)) {
                 ServerEndpoint(
                     baseUrl = savedServerUrl,
                     serverType = savedServerType,
@@ -978,7 +998,8 @@ class AuthRepository(private val context: Context) {
                     context = context,
                     serverUrl = serverUrl,
                     storageDir = context.filesDir,
-                    timeoutConfig = networkPreferences.getTimeoutConfig()
+                    timeoutConfig = networkPreferences.getTimeoutConfig(),
+                    serverType = serverType
                 ).getOrElse { error ->
                     if (error is UntrustedServerCertificateException) return Result.failure(error)
                     return Result.failure(Exception(error.message ?: string(R.string.data_error_server_endpoint_unresolved)))
@@ -1034,6 +1055,8 @@ class AuthRepository(private val context: Context) {
             } else {
                 Result.failure(Exception(string(R.string.auth_error_authentication_failed, response.code())))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

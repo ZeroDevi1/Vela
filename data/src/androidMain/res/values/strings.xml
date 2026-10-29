@@ -139,4 +139,5 @@
     <string name="auth_error_peach_secret_invalid">Access token or password is incorrect</string>
     <string name="data_error_peach_disc_image">ISO disc images can\'t be played in the app. Open it with an external player from the details page.</string>
     <string name="data_error_peach_stream_cancelled">This playback session was cancelled. Please start playback again.</string>
+    <string name="data_error_server_type_mismatch">Selected %1$s, but this server reports %2$s. Please check the server type.</string>
 </resources>

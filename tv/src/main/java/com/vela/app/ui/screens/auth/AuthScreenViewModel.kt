@@ -6,12 +6,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vela.shared.R
 import com.vela.app.ui.screens.dashboard.home.CachedData
+import com.vela.data.network.ServerType
 import com.vela.data.network.ServerCertificateInfo
 import com.vela.data.network.ServerTrust
 import com.vela.data.network.UntrustedServerCertificateException
-import com.vela.data.peach.PeachMediaServerApi
 import com.vela.data.repository.AuthRepositoryProvider
 import com.vela.data.repository.MediaRepositoryProvider
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -22,6 +24,30 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
     private val authRepository = AuthRepositoryProvider.getInstance(application)
     private val mediaRepository = MediaRepositoryProvider.getInstance(application)
     private var quickConnectPollingJob: Job? = null
+    private var connectionJob: Job? = null
+    private var capabilitiesJob: Job? = null
+    private var connectedServerUrl: String? = null
+
+    private fun invalidateConnection() {
+        connectionJob?.cancel()
+        capabilitiesJob?.cancel()
+        quickConnectPollingJob?.cancel()
+        connectedServerUrl = null
+        _uiState.value = _uiState.value.copy(
+            isServerLoading = false, isServerConnected = false, serverInfo = null,
+            pendingCertificate = null, isQuickConnectLoading = false, quickConnectCode = null,
+            showQuickConnect = false, loginErrorMessage = null
+        )
+    }
+
+    fun updateServerType(serverType: ServerType) {
+        if (serverType == ServerType.UNKNOWN || serverType == _uiState.value.serverType) return
+        invalidateConnection()
+        _uiState.value = _uiState.value.copy(
+            serverType = serverType, isPeach = serverType == ServerType.PEACH,
+            username = "", password = "", serverErrorMessage = null
+        )
+    }
     
     private val _uiState = MutableStateFlow(AuthScreenUiState())
     val uiState: StateFlow<AuthScreenUiState> = _uiState.asStateFlow()
@@ -30,6 +56,8 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
     val isAuthenticated: Flow<Boolean> = authRepository.isAuthenticated
     
     fun updateServerUrl(url: String) {
+        if (url == _uiState.value.serverUrl) return
+        invalidateConnection()
         _uiState.value = _uiState.value.copy(
             serverUrl = url,
             serverErrorMessage = null
@@ -56,6 +84,7 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
     
     fun connectToServer(onSuccess: (serverUrl: String, serverName: String?) -> Unit) {
         val currentState = _uiState.value
+        if (currentState.isServerLoading) return
         
         if (currentState.serverUrl.isBlank()) {
             _uiState.value = currentState.copy(
@@ -69,16 +98,20 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
             serverErrorMessage = null
         )
         
-        viewModelScope.launch {
-            val result = authRepository.testServerConnection(currentState.serverUrl)
+        connectionJob?.cancel()
+        connectionJob = viewModelScope.launch {
+            val result = authRepository.testServerConnection(currentState.serverUrl, currentState.serverType)
+            coroutineContext.ensureActive()
             
             result.fold(
                 onSuccess = { serverInfo ->
+                    connectedServerUrl = currentState.serverUrl.trim()
                     _uiState.value = _uiState.value.copy(
                         isServerLoading = false,
                         serverInfo = serverInfo,
                         isServerConnected = true,
-                        isPeach = serverInfo.productName == PeachMediaServerApi.PRODUCT_NAME
+                        isPeach = currentState.serverType == ServerType.PEACH,
+                        showQuickConnect = currentState.serverType == ServerType.JELLYFIN
                     )
                     onSuccess(currentState.serverUrl, serverInfo.serverName)
                 },
@@ -116,6 +149,7 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
     
     fun login(serverUrl: String, onSuccess: () -> Unit) {
         val currentState = _uiState.value
+        if (currentState.isLoginLoading || currentState.isQuickConnectLoading) return
         
         if (currentState.username.isBlank() && !currentState.isPeach) {
             _uiState.value = currentState.copy(
@@ -132,10 +166,12 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             val result = authRepository.authenticateUser(
                 serverUrl = serverUrl,
-                username = currentState.username,
-                password = currentState.password
+                username = if (currentState.isPeach) "" else currentState.username,
+                password = currentState.password,
+                serverType = currentState.serverType.takeIf { connectedServerUrl == serverUrl.trim() }
             )
             
+            coroutineContext.ensureActive()
             result.fold(
                 onSuccess = {
                     _uiState.value = _uiState.value.copy(
@@ -159,15 +195,24 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun refreshQuickConnectVisibility(serverUrl: String) {
+        capabilitiesJob?.cancel()
         val normalizedUrl = serverUrl.trim()
+        if (connectedServerUrl == normalizedUrl) {
+            _uiState.value = _uiState.value.copy(
+                isPeach = _uiState.value.serverType == ServerType.PEACH,
+                showQuickConnect = _uiState.value.serverType == ServerType.JELLYFIN
+            )
+            return
+        }
         if (normalizedUrl.isBlank()) {
             _uiState.value = _uiState.value.copy(showQuickConnect = false)
             return
         }
 
-        viewModelScope.launch {
+        capabilitiesJob = viewModelScope.launch {
             val supported = authRepository.isQuickConnectSupported(normalizedUrl)
             val isPeach = authRepository.isPeachServer(normalizedUrl)
+            coroutineContext.ensureActive()
             _uiState.value = _uiState.value.copy(
                 isPeach = isPeach,
                 showQuickConnect = supported,
@@ -178,7 +223,7 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun loginWithQuickConnect(serverUrl: String, onSuccess: () -> Unit) {
-        if (!_uiState.value.showQuickConnect) return
+        if (!_uiState.value.showQuickConnect || _uiState.value.isLoginLoading) return
         if (_uiState.value.isQuickConnectLoading) return
 
         val normalizedUrl = serverUrl.trim()
@@ -197,7 +242,9 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
                 quickConnectCode = null
             )
 
-            val initiated = authRepository.initiateQuickConnect(normalizedUrl).getOrElse { error ->
+            val initiation = authRepository.initiateQuickConnect(normalizedUrl)
+            coroutineContext.ensureActive()
+            val initiated = initiation.getOrElse { error ->
                 _uiState.value = _uiState.value.copy(
                     isQuickConnectLoading = false,
                     quickConnectCode = null,
@@ -226,6 +273,7 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
                     serverUrl = normalizedUrl,
                     secret = currentSecret
                 )
+                coroutineContext.ensureActive()
                 if (quickConnectLogin.isSuccess) {
                     _uiState.value = _uiState.value.copy(
                         isQuickConnectLoading = false,
@@ -250,10 +298,19 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
     
     fun clearLoginError() {
-        _uiState.value = _uiState.value.copy(loginErrorMessage = null)
+        capabilitiesJob?.cancel()
+        quickConnectPollingJob?.cancel()
+        _uiState.value = _uiState.value.copy(
+            loginErrorMessage = null, isQuickConnectLoading = false, quickConnectCode = null
+        )
+    }
+
+    fun cancelPendingConnection() {
+        invalidateConnection()
     }
 
     fun logout() {
+        invalidateConnection()
         viewModelScope.launch {
             quickConnectPollingJob?.cancel()
             authRepository.logout()
@@ -318,6 +375,7 @@ class AuthScreenViewModel(application: Application) : AndroidViewModel(applicati
 data class AuthScreenUiState(
     // Server connection state
     val serverUrl: String = "",
+    val serverType: ServerType = ServerType.EMBY,
     val isServerLoading: Boolean = false,
     val isServerConnected: Boolean = false,
     val serverInfo: com.vela.data.model.ServerInfo? = null,
@@ -328,7 +386,7 @@ data class AuthScreenUiState(
     val password: String = "",
     val isLoginLoading: Boolean = false,
     val loginErrorMessage: String? = null,
-    val showQuickConnect: Boolean = true,
+    val showQuickConnect: Boolean = false,
     val isQuickConnectLoading: Boolean = false,
     val quickConnectCode: String? = null,
     val isPeach: Boolean = false,

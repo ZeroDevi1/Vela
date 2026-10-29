@@ -28,6 +28,8 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
+import com.vela.data.network.ServerType
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -40,6 +42,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -93,6 +96,9 @@ fun AuthScreen(
     val authRepository = remember { AuthRepositoryProvider.getInstance(context) }
     val serverSwitchViewModel: ServerSwitchViewModel = viewModel {
         ServerSwitchViewModel(context.applicationContext as android.app.Application)
+    }
+    DisposableEffect(authViewModel) {
+        onDispose { authViewModel.cancelPendingConnection() }
     }
     val uiState by authViewModel.uiState.collectAsState()
     val serverSwitchUiState by serverSwitchViewModel.uiState.collectAsState()
@@ -269,6 +275,8 @@ fun AuthScreen(
                                 }
                                 ConnectionForm(
                                     serverUrl = uiState.serverUrl,
+                                    serverType = uiState.serverType,
+                                    onServerTypeChange = authViewModel::updateServerType,
                                     isLoading = uiState.isServerLoading,
                                     errorMessage = uiState.serverErrorMessage,
                                     onServerUrlChange = authViewModel::updateServerUrl,
@@ -375,6 +383,8 @@ private fun AnimatedBrandHero(
 @Composable
 private fun ConnectionForm(
     serverUrl: String,
+    serverType: ServerType,
+    onServerTypeChange: (ServerType) -> Unit,
     isLoading: Boolean,
     errorMessage: String?,
     onServerUrlChange: (String) -> Unit,
@@ -393,6 +403,23 @@ private fun ConnectionForm(
             fontSize = 18.sp,
             fontWeight = FontWeight.SemiBold
         )
+
+        Text(
+            text = stringResource(R.string.auth_server_type),
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(ServerType.EMBY to "Emby", ServerType.JELLYFIN to "Jellyfin", ServerType.PEACH to "Peach").forEach { (type, label) ->
+                FilterChip(
+                    selected = serverType == type,
+                    onClick = { onServerTypeChange(type) },
+                    enabled = !isLoading,
+                    label = { Text(label) },
+                    modifier = Modifier.tvFocusHighlight(RoundedCornerShape(8.dp))
+                )
+            }
+        }
 
         TvEditableField(
             modifier = Modifier.fillMaxWidth(),
@@ -480,7 +507,7 @@ private fun LoginForm(
     onQuickConnect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Peach 没有用户名，用户名只作显示名；口令或密码可在开放访问时留空。
+    // Peach 单用户，没有用户名；口令或访问密码都填在同一个框里，开放访问时可留空。
     val canSubmit = isPeach || username.isNotBlank()
     var isPasswordVisible by remember { mutableStateOf(false) }
     val isBusy = isLoading || isQuickConnectLoading
@@ -491,24 +518,32 @@ private fun LoginForm(
         modifier = modifier.tvInitialFocus(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        TvEditableField(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !isBusy
-        ) { fieldModifier ->
-            OutlinedTextField(
-                value = username,
-                onValueChange = onUsernameChange,
-                label = { Text(stringResource(R.string.username)) },
-                leadingIcon = {
-                    Icon(imageVector = Icons.Rounded.Person, contentDescription = null)
-                },
-                modifier = fieldModifier.fillMaxWidth(),
-                enabled = !isBusy,
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                shape = RoundedCornerShape(12.dp),
-                colors = tvTextFieldColors()
+        if (isPeach) {
+            Text(
+                text = stringResource(R.string.auth_peach_secret_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.7f)
             )
+        } else {
+            TvEditableField(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isBusy
+            ) { fieldModifier ->
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = onUsernameChange,
+                    label = { Text(stringResource(R.string.username)) },
+                    leadingIcon = {
+                        Icon(imageVector = Icons.Rounded.Person, contentDescription = null)
+                    },
+                    modifier = fieldModifier.fillMaxWidth(),
+                    enabled = !isBusy,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = tvTextFieldColors()
+                )
+            }
         }
 
         TvEditableField(
@@ -545,7 +580,7 @@ private fun LoginForm(
                     keyboardType = KeyboardType.Password,
                     imeAction = ImeAction.Done
                 ),
-                keyboardActions = KeyboardActions(onDone = { if (canSubmit) onLogin() }),
+                keyboardActions = KeyboardActions(onDone = { if (!isBusy && canSubmit) onLogin() }),
                 shape = RoundedCornerShape(12.dp),
                 colors = tvTextFieldColors()
             )

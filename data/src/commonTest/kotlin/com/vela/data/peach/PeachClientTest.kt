@@ -8,6 +8,14 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
@@ -16,6 +24,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class PeachClientTest {
 
     private fun client(status: HttpStatusCode, body: String, onRequest: (String, String?) -> Unit = { _, _ -> }): PeachClient {
@@ -24,6 +33,162 @@ class PeachClientTest {
             respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
         }
         return PeachClient(HttpClient(engine), "https://peach.local/")
+    }
+
+    @Test
+    fun concurrentCatalogReadsShareOneRequestButRefreshIsFresh() = runTest {
+        val release = CompletableDeferred<Unit>()
+        var requests = 0
+        val requestsMutex = Mutex()
+        val engine = MockEngine {
+            requestsMutex.withLock { requests++ }
+            release.await()
+            respond("{\"items\": []}", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val peach = PeachClient(HttpClient(engine), "https://peach.local")
+        val readers = List(4) { async { peach.get("/api/libraries") } }
+        runCurrent()
+        release.complete(Unit)
+        readers.awaitAll()
+        assertEquals(1, requests)
+        peach.get("/api/libraries")
+        assertEquals(2, requests)
+    }
+
+    @Test
+    fun differentPagesAndRandomListsDoNotShareRequests() = runTest {
+        var requests = 0
+        val requestsMutex = Mutex()
+        val engine = MockEngine {
+            requestsMutex.withLock { requests++ }
+            respond("{}", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val peach = PeachClient(HttpClient(engine), "https://peach.local")
+        listOf(
+            async { peach.get("/api/items", listOf("offset" to 0)) },
+            async { peach.get("/api/items", listOf("offset" to 60)) },
+            async { peach.get("/api/items", listOf("sort" to "rand")) },
+            async { peach.get("/api/items", listOf("sort" to "rand")) },
+            async { peach.get("/api/feeds/check") },
+            async { peach.get("/api/feeds/check") }
+        ).awaitAll()
+        assertEquals(6, requests)
+    }
+
+    @Test
+    fun cancelledOwnerDoesNotCancelOtherReaders() = runTest {
+        val release = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        var requests = 0
+        val requestsMutex = Mutex()
+        val engine = MockEngine {
+            requestsMutex.withLock { requests++ }
+            started.complete(Unit)
+            release.await()
+            respond("{}", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val peach = PeachClient(HttpClient(engine), "https://peach.local")
+        val owner = async { peach.get("/api/libraries") }
+        started.await()
+        val waiter = async { peach.get("/api/libraries") }
+        runCurrent()
+        owner.cancelAndJoin()
+        release.complete(Unit)
+        waiter.await()
+        assertEquals(2, requests)
+    }
+
+    @Test
+    fun successfulWritePreventsJoiningAnOlderRead() = runTest {
+        val release = CompletableDeferred<Unit>()
+        var reads = 0
+        val readsMutex = Mutex()
+        val started = CompletableDeferred<Unit>()
+        val engine = MockEngine { request ->
+            if (request.method.value == "GET") {
+                readsMutex.withLock { reads++ }
+                started.complete(Unit)
+                release.await()
+            }
+            respond("{}", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val peach = PeachClient(HttpClient(engine), "https://peach.local")
+        val oldRead = async { peach.get("/api/item", listOf("id" to 1)) }
+        started.await()
+        peach.post("/api/feedback", peachBody("id" to 1, "kind" to "seen"))
+        val freshRead = async { peach.get("/api/item", listOf("id" to 1)) }
+        runCurrent()
+        release.complete(Unit)
+        freshRead.await()
+        oldRead.await()
+        assertEquals(2, reads)
+    }
+
+    @Test
+    fun cancellingWaiterLeavesOwnerRunning() = runTest {
+        val release = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        var requests = 0
+        val engine = MockEngine {
+            requests++
+            started.complete(Unit)
+            release.await()
+            respond("{}", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val peach = PeachClient(HttpClient(engine), "https://peach.local")
+        val owner = async { peach.get("/api/libraries") }
+        started.await()
+        val waiter = async { peach.get("/api/libraries") }
+        runCurrent()
+        waiter.cancelAndJoin()
+        release.complete(Unit)
+        owner.await()
+        assertEquals(1, requests)
+    }
+
+    @Test
+    fun separateSessionsDoNotShareReads() = runTest {
+        val release = CompletableDeferred<Unit>()
+        fun session(value: Int): PeachClient {
+            val engine = MockEngine {
+                release.await()
+                respond("{\"session\": $value}", HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"))
+            }
+            return PeachClient(HttpClient(engine), "https://peach.local")
+        }
+        val first = session(1)
+        val second = session(2)
+        val readers = listOf(
+            async { first.get("/api/libraries").string("session") },
+            async { second.get("/api/libraries").string("session") }
+        )
+        runCurrent()
+        release.complete(Unit)
+        assertEquals(listOf("1", "2"), readers.awaitAll())
+    }
+
+    @Test
+    fun failedReadIsSharedButNotCached() = runTest {
+        val release = CompletableDeferred<Unit>()
+        var requests = 0
+        val requestsMutex = Mutex()
+        val engine = MockEngine {
+            val attempt = requestsMutex.withLock { ++requests }
+            release.await()
+            respond("{}", if (attempt == 1) HttpStatusCode.ServiceUnavailable else HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val peach = PeachClient(HttpClient(engine), "https://peach.local")
+        val readers = List(3) {
+            async { assertFailsWith<PeachApiException> { peach.get("/api/libraries") } }
+        }
+        runCurrent()
+        release.complete(Unit)
+        assertTrue(readers.awaitAll().all { it.status == 503 })
+        assertEquals(1, requests)
+        peach.get("/api/libraries")
+        assertEquals(2, requests)
     }
 
     @Test

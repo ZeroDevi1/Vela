@@ -1,6 +1,6 @@
 # Peach 接入
 
-Vela 安卓端把 [Peach](https://github.com/peach-mitao/peach) 作为第三种服务器类型（`ServerType.PEACH`），与 Jellyfin / Emby 并列。本文说明实现方式、证书处理、各功能对应的 Peach 接口，以及仍留在网页上的部分。接口路径与字段取自 Peach `main` 分支源码。
+Vela 安卓端把 [Peach](https://github.com/peach-mitao/peach) 作为第三种服务器类型（`ServerType.PEACH`），与 Jellyfin / Emby 并列。本文说明实现方式、证书处理、各功能对应的 Peach 接口，以及仍留在网页上的部分。接口路径与字段取自 Peach `master` 分支源码。
 
 ## 结构
 
@@ -20,10 +20,17 @@ Vela 安卓端把 [Peach](https://github.com/peach-mitao/peach) 作为第三种�
 
 ## 登录与鉴权
 
-- 添加服务器时先按 Jellyfin / Emby 探测；失败后请求 `GET /api/client-updates`：开放访问时直接返回版本，设了口令时返回 401，再确认 `/login` 是 Peach 登录页。
+- 手机与电视添加服务器时先选择 Emby、Jellyfin 或 Peach；选择 Peach 后直接请求 `GET /api/client-updates`，不再等待 Jellyfin / Emby 探测失败：开放访问时直接返回版本，设了口令时返回 401，再确认 `/login` 是 Peach 登录页。已有服务器与未指定类型的调用保留自动识别。
+- 新增连接成功后，短时间内复用已验证的服务器类型与地址，避免进入登录页和提交登录时重复探测；选择的类型不会改变已有服务器的存储格式。
 - Peach 没有用户名。登录框先把输入当访问口令验证（`X-Token`），不通过再当访问密码走 `POST /login`（表单，`days=30`），从 303 响应的 `Set-Cookie` 取会话；留空表示开放访问。
 - 凭据按 Saved Server 存在 `SecureSessionStore`，只放请求头（`X-Token` 或 `Cookie: peach_session=…`），不拼进 URL。图片加载器只把它发给 Peach 自己的主机。
 - `userId` 固定为 Peach 的默认档案 `local-default`；`serverInstanceId` 在首次添加时生成。新增线路时校验新地址也是 Peach。
+
+## 请求与加载
+
+- 同一 Peach 客户端中同时发生、路径与参数相同的馆藏只读请求合并为一次请求；不同分页、随机排序与启动任务的 GET 不合并。
+- 不保留响应缓存：下一次刷新仍请求服务器，成功写操作后不再复用先前尚未完成的请求。页面取消不会让其他等待者永久挂起。
+- 普通媒体库与搜索仍保留服务器返回的精确总数，未使用推测总数替换界面统计。网络与服务端延迟仍需在实际设备上测量。
 
 ## 证书
 

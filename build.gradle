@@ -11,7 +11,7 @@ plugins {
 
 ext {
     // 手机与电视共用的 Android 升级序号，每次发布递增。
-    appVersionCode = 26
+    appVersionCode = 27
     // 用户可见版本号，与发布 tag 及更新说明章节保持一致。
-    appVersionName = "1.3.16"
+    appVersionName = "1.3.17"
 }
