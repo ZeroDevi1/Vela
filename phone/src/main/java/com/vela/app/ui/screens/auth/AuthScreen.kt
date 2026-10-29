@@ -820,6 +820,8 @@ private fun ServerConnectionContentPreview() {
     ServerConnectionContent(
         modifier = Modifier,
         serverUrl = "http://192.168.1.100:8096",
+        serverType = ServerType.JELLYFIN,
+        onServerTypeChange = {},
         isAwaitingSavedServers = false,
         isLoading = false,
         errorMessage = null,
