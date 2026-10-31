@@ -164,6 +164,14 @@ keyPassword=...
 
 预编译包见 [GitHub Releases](https://github.com/ZeroDevi1/Vela/releases)。
 
+### 持续构建
+
+每次向任意分支推送提交，`Build APK` workflow 会分别构建手机和电视的 Debug APK，仅上传 Artifact，不创建 GitHub Release；也可在 Actions 页面手动运行。
+
+下载方式：进入仓库 **Actions → Build APK → 对应运行记录 → Artifacts**，选择 `vela-phone-debug-<commit SHA>` 或 `vela-tv-debug-<commit SHA>`，下载并解压后安装 APK。产物保留 14 天，无需配置签名 Secrets。
+
+Debug APK 使用 CI 自动生成的调试签名，不能覆盖安装正式签名的 Release 版本，不同 CI 运行的签名也可能不同；更换签名时需要先卸载旧版，卸载会清除本地应用数据。
+
 ### 发布
 
 推送与根目录 `build.gradle` 里 `appVersionName` 一致的 `v*` tag（例如当前为 `1.3.16` 则打 `v1.3.16`），或在 Actions 里手动跑 `Release` workflow。CI 会构建已签名 phone / tv APK 并创建 GitHub Release。tag 与 `appVersionName` 不一致会直接失败，缺少签名 secret 也不会产出 unsigned 正式包。
