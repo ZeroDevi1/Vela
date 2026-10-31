@@ -64,7 +64,11 @@ class MpvPlayerController(
     private val appContext = context.applicationContext
     @Volatile
     private var released = false
+    @Volatile
     private var ready = false
+    @Volatile
+    private var pausedForCache = false
+    private var restartStartedAtMs = 0L
     // 只在 mpv 事件线程读写；按单调时钟限流，seek 不会触发日志风暴。
     private var lastPerformanceLogMs = 0L
     // 以下三项在 mpv 事件线程更新，主线程和预览预生成的 IO 协程都会读取。
@@ -74,12 +78,13 @@ class MpvPlayerController(
     private var positionMs: Long = 0L
     @Volatile
     private var cacheAheadMs: Long = 0L
+    @Volatile
+    private var sourceBitrate: Int? = null
     private var playWhenReady = true
     private var pendingSubtitleUrls: List<String> = emptyList()
     private var pendingSelectedSubtitleUrl: String? = null
     private var pendingSubtitleTrackId: String? = null
     private var preferFastSeek = false
-    private var pendingStartPositionMs: Long? = null
     private var pendingRemoteHttpPlayback = false
     private var surfaceWidth = 0
     private var surfaceHeight = 0
@@ -145,7 +150,7 @@ class MpvPlayerController(
     private var listener: Listener = listener
 
     val isPlaying: Boolean
-        get() = ready && playWhenReady
+        get() = ready && playWhenReady && !pausedForCache
 
     val currentPosition: Long
         get() = positionMs
@@ -180,14 +185,21 @@ class MpvPlayerController(
         startPositionMs: Long?,
         startPlayback: Boolean,
         opticalDiscPlayback: Boolean,
-        remoteHttpPlayback: Boolean = false
+        remoteHttpPlayback: Boolean = false,
+        bitrate: Int? = null
     ) {
         if (released) return
+        sourceBitrate = bitrate
         ready = false
+        pausedForCache = false
+        positionMs = startPositionMs?.coerceAtLeast(0L) ?: 0L
+        cacheAheadMs = 0L
+        restartStartedAtMs = SystemClock.elapsedRealtime()
         playWhenReady = startPlayback
         preferFastSeek = opticalDiscPlayback
-        pendingStartPositionMs = startPositionMs?.takeIf { it > 0L }
         pendingRemoteHttpPlayback = remoteHttpPlayback
+        // 起播和 seek 使用同一个预缓冲门槛；必须在 loadfile 前生效。
+        applyCachePolicy(asOptions = false)
         pendingSubtitleUrls = subtitleUrls
         pendingSelectedSubtitleUrl = selectedSubtitleUrl
         pendingSubtitleTrackId = subtitleTrackId?.takeUnless { it == "no" }
@@ -204,9 +216,11 @@ class MpvPlayerController(
             selectedSubtitleUrl == null && pendingSubtitleTrackId != null
         if (needsEmbeddedSubtitleProbe && !remoteHttpPlayback) {
             // 该选项是每个媒体文件的运行时属性；只写初始化 option 不会影响本次 loadfile。
-            setMpv("demuxer-lavf-probe-info", "on")
+            setMpv("demuxer-lavf-probe-info", "yes")
         }
         val loadOptions = buildList {
+            // 直接从续播点加载，避免先缓冲片头，再在 FILE_LOADED 后重新 seek 和回溯字幕。
+            add("start=${positionMs / 1000.0}")
             audioTrackId?.let { add("aid=$it") }
             if (selectedSubtitleUrl == null) {
                 subtitleTrackId?.let { add("sid=$it") }
@@ -216,11 +230,7 @@ class MpvPlayerController(
                 add("stream-buffer-size=1MiB")
             }
         }
-        val loadCommand = if (loadOptions.isEmpty()) {
-            arrayOf("loadfile", url, "replace")
-        } else {
-            arrayOf("loadfile", url, "replace", "-1", loadOptions.joinToString(","))
-        }
+        val loadCommand = arrayOf("loadfile", url, "replace", "-1", loadOptions.joinToString(","))
         MPVLib.command(loadCommand)
         applyCachePolicy(asOptions = false)
         Log.i(
@@ -367,7 +377,12 @@ class MpvPlayerController(
     fun seekTo(positionMs: Long, exact: Boolean = true) {
         if (released) return
         this.positionMs = positionMs.coerceAtLeast(0L)
-        val flags = if (exact && !preferFastSeek) "absolute+exact" else "absolute"
+        ready = false
+        cacheAheadMs = 0L
+        restartStartedAtMs = SystemClock.elapsedRealtime()
+        listener.onBuffering()
+        val flags = MpvPlaybackTuning.seekFlags(exact, preferFastSeek)
+        Log.i(PERFORMANCE_LOG_TAG, "seek targetMs=${this.positionMs} flags=$flags")
         MPVLib.command(
             arrayOf("seek", (this.positionMs / 1000.0).toString(), flags)
         )
@@ -677,7 +692,8 @@ class MpvPlayerController(
     override fun eventProperty(property: String, value: Double) {
         when (property) {
             "time-pos" -> {
-                positionMs = (value * 1000.0).toLong().coerceAtLeast(0L)
+                // 回溯期间会读到目标之前的 PTS，不能把它作为续播进度写回服务器。
+                if (ready) positionMs = (value * 1000.0).toLong().coerceAtLeast(0L)
                 logPlaybackPerformance()
             }
             "duration" -> durationMs = (value * 1000.0).toLong().coerceAtLeast(0L)
@@ -704,6 +720,10 @@ class MpvPlayerController(
             "hwdec=${MPVLib.getPropertyString("hwdec-current")} " +
                 "sourceFps=$videoFps speed=$currentSpeed bufferMs=$cacheAheadMs " +
                 "pausedForCache=${MPVLib.getPropertyString("paused-for-cache")} " +
+                "inputBps=${MPVLib.getPropertyString("cache-speed")} " +
+                "resumeSeconds=${MPVLib.getPropertyString("cache-pause-wait")} " +
+                "prebuffer=${MPVLib.getPropertyString("cache-pause-initial")} " +
+                "readerIdle=${MPVLib.getPropertyString("demuxer-cache-idle")} " +
                 "voDrops=${MPVLib.getPropertyString("frame-drop-count")} " +
                 "decoderDrops=${MPVLib.getPropertyString("decoder-frame-drop-count")} " +
                 "avsync=${MPVLib.getPropertyString("avsync")}"
@@ -756,8 +776,13 @@ class MpvPlayerController(
     override fun eventProperty(property: String, value: Boolean) {
         when (property) {
             "paused-for-cache" -> {
+                pausedForCache = value
                 Log.i(PERFORMANCE_LOG_TAG, "paused-for-cache=$value bufferMs=$cacheAheadMs")
-                if (value) listener.onBuffering() else listener.onReady()
+                if (value) {
+                    listener.onBuffering()
+                } else if (ready && MPVLib.getPropertyBoolean("seeking") != true) {
+                    listener.onReady()
+                }
             }
             "eof-reached" -> if (value) listener.onEnded()
         }
@@ -791,20 +816,31 @@ class MpvPlayerController(
                 applyDolbyRuntimeOptions()
                 logHwdecColor("FILE_LOADED")
                 logSubtitleTracks("FILE_LOADED")
-                val resumePositionMs = pendingStartPositionMs
-                pendingStartPositionMs = null
-                if (resumePositionMs != null) {
-                    seekTo(resumePositionMs, exact = false)
-                }
+            }
+            MpvEvent.MPV_EVENT_SEEK -> {
+                if (ready) restartStartedAtMs = SystemClock.elapsedRealtime()
+                ready = false
+                cacheAheadMs = 0L
+                listener.onBuffering()
             }
             MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
+                // 旧的 restart 事件可能在下一次 seek 已开始后才送达。
+                if (MPVLib.getPropertyBoolean("seeking") == true) return
                 val firstReady = !ready
+                MPVLib.getPropertyDouble("time-pos")?.let {
+                    positionMs = (it * 1000.0).toLong().coerceAtLeast(0L)
+                }
                 ready = true
+                pausedForCache = MPVLib.getPropertyBoolean("paused-for-cache") == true
                 if (playWhenReady) {
                     MPVLib.setPropertyBoolean("pause", false)
                 }
-                listener.onReady()
+                if (pausedForCache) listener.onBuffering() else listener.onReady()
                 if (firstReady) {
+                    Log.i(
+                        PERFORMANCE_LOG_TAG,
+                        "ready positionMs=$positionMs waitMs=${SystemClock.elapsedRealtime() - restartStartedAtMs}"
+                    )
                     logSubtitleTracks("READY")
                 }
             }
@@ -870,11 +906,10 @@ class MpvPlayerController(
         // 不强制 lavf：MPV 原生 MKV demuxer 才能稳定保留内嵌 ASS、附件字体与容器 PTS。
         MPVLib.setOptionString("demuxer-mkv-probe-start-time", "no")
         MPVLib.setOptionString("demuxer-mkv-probe-video-duration", "no")
-        MPVLib.setOptionString("demuxer-mkv-subtitle-preroll", "yes")
-        MPVLib.setOptionString("demuxer-mkv-subtitle-preroll-secs", "60")
-        MPVLib.setOptionString("demuxer-mkv-subtitle-preroll-secs-index", "60")
+        // 沿用 mpv 的索引回溯策略与窗口；强制回读 60 秒会让网盘上的高码率 MKV 跳转等待上百秒。
+        MPVLib.setOptionString("demuxer-mkv-subtitle-preroll", "index")
         // 音轨/字幕轨选择依赖完整流信息，不能用 nostreams 牺牲正确性换取少量探测速度。
-        MPVLib.setOptionString("demuxer-lavf-probe-info", "on")
+        MPVLib.setOptionString("demuxer-lavf-probe-info", "yes")
         MPVLib.setOptionString("demuxer-lavf-probesize", "5MiB")
         MPVLib.setOptionString("demuxer-lavf-analyzeduration", "10")
         MPVLib.setOptionString("sub-ass", if (playerPreferences.isSubtitleAssCompatible()) "yes" else "no")
@@ -905,7 +940,7 @@ class MpvPlayerController(
         if (remoteHttpPlayback) {
             setMpv("demuxer-lavf-probesize", "5MiB")
             setMpv("demuxer-lavf-analyzeduration", "10")
-            setMpv("demuxer-lavf-probe-info", "on")
+            setMpv("demuxer-lavf-probe-info", "yes")
             MPVLib.setPropertyString("cache", "yes")
             MPVLib.setPropertyString("force-seekable", "yes")
             applyCachePolicy(asOptions = false)
@@ -913,7 +948,7 @@ class MpvPlayerController(
             // 服务端静态流同样是 HTTP，MKV 的字幕轨/字体附件可能超过 64KiB 探测窗口。
             setMpv("demuxer-lavf-probesize", "5MiB")
             setMpv("demuxer-lavf-analyzeduration", "10")
-            setMpv("demuxer-lavf-probe-info", "on")
+            setMpv("demuxer-lavf-probe-info", "yes")
         }
     }
 
@@ -983,6 +1018,8 @@ class MpvPlayerController(
     private fun applyCachePolicy(asOptions: Boolean) {
         val budget = PlayerUtils.playbackCacheBudget(appContext, playerPreferences)
         val cacheTimeSeconds = budget.cacheTimeSeconds.toString()
+        val pauseWait = MpvPlaybackTuning.cachePauseWaitSeconds(sourceBitrate, budget.cacheTimeSeconds).toString()
+        val pauseInitial = if (pauseWait.toInt() > 1) "yes" else "no"
         val cacheSize = "${budget.cacheSizeMb}MiB"
         val backCacheSize = "${(budget.cacheSizeMb / 2).coerceAtLeast(32)}MiB"
         if (asOptions) {
@@ -990,12 +1027,17 @@ class MpvPlayerController(
             MPVLib.setOptionString("demuxer-readahead-secs", cacheTimeSeconds)
             MPVLib.setOptionString("demuxer-max-bytes", cacheSize)
             MPVLib.setOptionString("demuxer-max-back-bytes", backCacheSize)
+            MPVLib.setOptionString("cache-pause-wait", pauseWait)
+            MPVLib.setOptionString("cache-pause-initial", pauseInitial)
         } else {
             MPVLib.setPropertyString("cache-secs", cacheTimeSeconds)
             MPVLib.setPropertyString("demuxer-readahead-secs", cacheTimeSeconds)
             MPVLib.setPropertyString("demuxer-max-bytes", cacheSize)
             MPVLib.setPropertyString("demuxer-max-back-bytes", backCacheSize)
+            MPVLib.setPropertyString("cache-pause-wait", pauseWait)
+            MPVLib.setPropertyString("cache-pause-initial", pauseInitial)
         }
+        Log.i(PERFORMANCE_LOG_TAG, "cachePolicy maxMiB=${budget.cacheSizeMb} resumeSeconds=$pauseWait prebuffer=$pauseInitial bitrate=$sourceBitrate")
     }
 
     private fun addSubtitleTrack(url: String, flags: String) {

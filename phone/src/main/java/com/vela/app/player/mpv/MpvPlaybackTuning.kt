@@ -6,6 +6,17 @@ internal object MpvPlaybackTuning {
     private const val SKIP_LOOP_FILTER_SPEED = 2.0
     private const val MAX_SURFACE_FRAME_RATE = 240.0
 
+    /** 高码率文件耗尽缓存后攒够一段再恢复，避免默认 1 秒缓存导致几秒一次碎片卡顿。 */
+    fun cachePauseWaitSeconds(bitrate: Int?, cacheTimeSeconds: Int): Int {
+        val requested = if ((bitrate ?: 0) >= 40_000_000) 8 else 1
+        return requested.coerceAtMost(cacheTimeSeconds.coerceAtLeast(1))
+    }
+
+    fun seekFlags(exact: Boolean, preferFastSeek: Boolean): String {
+        // absolute 默认也是精确跳转；快速路径必须显式指定 keyframes。
+        return if (exact && !preferFastSeek) "absolute+exact" else "absolute+keyframes"
+    }
+
     fun isHighSpeed(speed: Double): Boolean {
         return speed > NORMAL_SPEED + HIGH_SPEED_EPSILON
     }

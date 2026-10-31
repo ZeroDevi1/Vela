@@ -9,6 +9,21 @@ import org.junit.Test
 class MpvPlaybackTuningTest {
 
     @Test
+    fun highBitrateRebufferingIsBoundedByTheCacheBudget() {
+        assertEquals(8, MpvPlaybackTuning.cachePauseWaitSeconds(80_000_000, 3600))
+        assertEquals(3, MpvPlaybackTuning.cachePauseWaitSeconds(80_000_000, 3))
+        assertEquals(1, MpvPlaybackTuning.cachePauseWaitSeconds(8_000_000, 3600))
+        assertEquals(1, MpvPlaybackTuning.cachePauseWaitSeconds(null, 0))
+    }
+
+    @Test
+    fun fastSeeksOverrideMpvsAbsoluteSeekDefault() {
+        assertEquals("absolute+keyframes", MpvPlaybackTuning.seekFlags(exact = false, preferFastSeek = false))
+        assertEquals("absolute+keyframes", MpvPlaybackTuning.seekFlags(exact = true, preferFastSeek = true))
+        assertEquals("absolute+exact", MpvPlaybackTuning.seekFlags(exact = true, preferFastSeek = false))
+    }
+
+    @Test
     fun normalSpeedKeepsSmoothMotionPath() {
         assertFalse(MpvPlaybackTuning.isHighSpeed(1.0))
         assertEquals("yes", MpvPlaybackTuning.interpolation(smoothMotion = true, speed = 1.0))

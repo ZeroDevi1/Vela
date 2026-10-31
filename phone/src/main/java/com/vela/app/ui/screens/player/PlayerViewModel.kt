@@ -728,7 +728,8 @@ class PlayerViewModel @Inject constructor(
                                 mediaUri = mediaItem.localConfiguration?.uri
                             ),
                             startPlayback = startPlayback,
-                            remoteHttpPlayback = MPVPlayer.isRemoteHttpPlayback(primaryMediaSource)
+                            remoteHttpPlayback = MPVPlayer.isRemoteHttpPlayback(primaryMediaSource),
+                            bitrate = primaryMediaSource?.bitrate
                         )
                     }
                     observePlaybackCachePolicy(context)
