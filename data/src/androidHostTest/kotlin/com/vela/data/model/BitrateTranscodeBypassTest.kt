@@ -41,4 +41,16 @@ class BitrateTranscodeBypassTest {
         assertFalse(PlaybackDeviceProfileFactory.supportsVideoDirectPlay("flv", "h264", "aac"))
         assertFalse(PlaybackDeviceProfileFactory.supportsVideoDirectPlay("mp4", "vc1", "aac"))
     }
+
+    @Test
+    fun pcmS16leAllowsOriginalMkvToKeepEmbeddedPgsSubtitles() {
+        // Emby 的 PCM 音轨使用具体编码名；漏报会阻止原画回退直放，HLS 中也没有内嵌 PGS。
+        assertTrue(PlaybackDeviceProfileFactory.supportsVideoDirectPlay("mkv", "hevc", "pcm_s16le"))
+        val profile = PlaybackDeviceProfileFactory.create()
+        assertTrue(
+            profile.directPlayProfiles.orEmpty().any {
+                it.type == "Video" && "pcm_s16le" in it.audioCodec.orEmpty().split(',')
+            }
+        )
+    }
 }

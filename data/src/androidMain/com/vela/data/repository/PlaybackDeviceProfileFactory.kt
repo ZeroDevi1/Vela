@@ -11,7 +11,7 @@ import com.vela.data.model.TranscodingProfile
 internal object PlaybackDeviceProfileFactory {
     private const val DIRECT_PLAY_VIDEO_CONTAINERS = "mp4,mkv,webm,ts,m2ts,mov,avi"
     private const val DIRECT_PLAY_VIDEO_CODECS = "h264,hevc,vp9,av1,mpeg4,mpeg2video,vp8"
-    private const val DIRECT_PLAY_AUDIO_CODECS = "aac,mp3,ac3,eac3,dts,flac,opus,vorbis,truehd,pcm"
+    private const val DIRECT_PLAY_AUDIO_CODECS = "aac,mp3,ac3,eac3,dts,flac,opus,vorbis,truehd,pcm,pcm_s16le"
 
     /**
      * 按本 profile 的 DirectPlayProfile 判断源文件能否直放（与服务端直放判定同口径：容器 + 音视频编码）。
