@@ -166,11 +166,13 @@ keyPassword=...
 
 ### 持续构建
 
-每次向任意分支推送提交，`Build APK` workflow 会分别构建手机和电视的 Debug APK，仅上传 Artifact，不创建 GitHub Release；也可在 Actions 页面手动运行。
+每次向任意分支推送提交，`Build APK` workflow 都会构建手机和电视的 **Debug 与 Release** APK（共四个任务），仅上传 Artifact，不创建 GitHub Release；也可在 Actions 页面手动运行。Release 使用现有的 R8 代码压缩与资源裁剪配置，CI 会检查它不含 debuggable 标志。
 
-下载方式：进入仓库 **Actions → Build APK → 对应运行记录 → Artifacts**，选择 `vela-phone-debug-<commit SHA>` 或 `vela-tv-debug-<commit SHA>`，下载并解压后安装 APK。产物保留 14 天，无需配置签名 Secrets。
+下载方式：进入仓库 **Actions → Build APK → 对应运行记录 → Artifacts**。正式签名成功时，选择 `vela-phone-release-<commit SHA>` 或 `vela-tv-release-<commit SHA>`；调试包名称包含 `debug`。产物保留 14 天。
 
-Debug APK 使用 CI 自动生成的调试签名，不能覆盖安装正式签名的 Release 版本，不同 CI 运行的签名也可能不同；更换签名时需要先卸载旧版，卸载会清除本地应用数据。
+默认分支（当前为 `main`）的 Release 构建复用下文的三个 `VELA_*` 签名 Secrets，生成可安装、签名经校验的 APK。其他分支或未配置 Secrets 时仍编译 Release，但 Artifact 和 APK 名称都会包含 `unsigned`；**未签名 APK 不能直接安装，需要用自己的正式密钥签名**。只配置部分 Secrets 或签名验证失败时，任务会明确失败，不会静默改用调试签名。
+
+Debug APK 使用 CI 自动生成的调试签名，不能覆盖安装正式签名的 Release 版本，不同 CI 运行的签名也可能不同；请勿为了升级而直接卸载旧版，卸载会清除本地应用数据。应使用与已安装版本相同的正式签名，且版本序号不能回退。
 
 ### 发布
 

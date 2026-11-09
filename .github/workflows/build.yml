@@ -11,13 +11,18 @@ permissions:
 
 jobs:
   android:
-    name: Build ${{ matrix.module }} APK
+    name: Build ${{ matrix.module }} ${{ matrix.variant.name }} APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         module: [phone, tv]
+        variant:
+          - name: debug
+            task: assembleDebug
+          - name: release
+            task: assembleRelease
     steps:
       - uses: actions/checkout@v4
 
@@ -34,14 +39,74 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Assemble debug APK
-        run: ./gradlew :${{ matrix.module }}:assembleDebug --max-workers=2 --stacktrace
+      # Use the existing release key only on the default branch. Other branches
+      # still exercise R8/resource shrinking, but produce explicitly unsigned APKs.
+      - name: Prepare release signing
+        if: matrix.variant.name == 'release'
+        id: signing
+        env:
+          VELA_STORE_FILE_BASE64: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && secrets.VELA_STORE_FILE_BASE64 || '' }}
+          VELA_STORE_PASSWORD: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && secrets.VELA_STORE_PASSWORD || '' }}
+          VELA_KEY_PASSWORD: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && secrets.VELA_KEY_PASSWORD || '' }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$VELA_STORE_FILE_BASE64" && -z "$VELA_STORE_PASSWORD" && -z "$VELA_KEY_PASSWORD" ]]; then
+            echo "state=unsigned" >> "$GITHUB_OUTPUT"
+            echo "::warning::No release signing credentials for this ref. Release APKs will be unsigned and cannot be installed until signed."
+          elif [[ -z "$VELA_STORE_FILE_BASE64" || -z "$VELA_STORE_PASSWORD" || -z "$VELA_KEY_PASSWORD" ]]; then
+            echo "::error::Release signing is only partially configured. Set all three VELA signing secrets."
+            exit 1
+          else
+            umask 077
+            printf '%s' "$VELA_STORE_FILE_BASE64" | base64 --decode > "$RUNNER_TEMP/vela-release.keystore"
+            echo "state=signed" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Assemble APK
+        env:
+          VELA_STORE_FILE: ${{ runner.temp }}/vela-release.keystore
+          VELA_STORE_PASSWORD: ${{ matrix.variant.name == 'release' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && secrets.VELA_STORE_PASSWORD || '' }}
+          VELA_KEY_ALIAS: vela
+          VELA_KEY_PASSWORD: ${{ matrix.variant.name == 'release' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && secrets.VELA_KEY_PASSWORD || '' }}
+        run: ./gradlew :${{ matrix.module }}:${{ matrix.variant.task }} --max-workers=2 --stacktrace
+
+      - name: Verify release APKs
+        if: matrix.variant.name == 'release'
+        env:
+          MODULE: ${{ matrix.module }}
+          SIGNING_STATE: ${{ steps.signing.outputs.state }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=("$MODULE"/build/outputs/apk/release/*.apk)
+          [[ ${#apks[@]} -gt 0 ]] || { echo "::error::No release APKs found"; exit 1; }
+          build_tools=$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          for apk in "${apks[@]}"; do
+            "${build_tools}/aapt2" dump badging "$apk" > "$RUNNER_TEMP/apk-badging.txt"
+            if grep -q '^application-debuggable' "$RUNNER_TEMP/apk-badging.txt"; then
+              echo "::error::Release APK is debuggable: $apk"
+              exit 1
+            fi
+            if [[ "$SIGNING_STATE" == signed ]]; then
+              "${build_tools}/apksigner" verify "$apk"
+            else
+              mv "$apk" "${apk%.apk}-unsigned.apk"
+            fi
+          done
+          echo "### $MODULE Release APKs: $SIGNING_STATE" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$SIGNING_STATE" == unsigned ]]; then
+            echo "These optimized APKs require signing before installation. Configure the existing VELA release secrets and build the default branch for installable APKs." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: vela-${{ matrix.module }}-debug-${{ github.sha }}
-          path: ${{ matrix.module }}/build/outputs/apk/debug/*.apk
+          name: vela-${{ matrix.module }}-${{ matrix.variant.name }}${{ steps.signing.outputs.state == 'unsigned' && '-unsigned' || '' }}-${{ github.sha }}
+          path: ${{ matrix.module }}/build/outputs/apk/${{ matrix.variant.name }}/*.apk
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+      - name: Remove temporary signing keystore
+        if: always() && matrix.variant.name == 'release'
+        run: rm -f "$RUNNER_TEMP/vela-release.keystore"
