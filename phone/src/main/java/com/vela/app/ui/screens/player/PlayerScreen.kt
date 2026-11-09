@@ -623,6 +623,7 @@ fun PlayerScreen(
             getPlaybackPosition = { viewModel.getCurrentPosition() },
             getPlaybackDuration = { viewModel.getDuration() },
             onSeekPreview = { previewMs ->
+                if (previewMs != null) viewModel.cancelPendingSeek()
                 uiState = uiState.copy(swipeSeekPositionMs = previewMs)
             },
             onHoldSpeed = { holding ->

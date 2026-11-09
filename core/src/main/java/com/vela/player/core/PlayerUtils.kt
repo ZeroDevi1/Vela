@@ -17,6 +17,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.preload.DefaultPreloadManager
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import com.vela.player.video.HardwareAcceleration
@@ -68,13 +69,12 @@ object PlayerUtils {
     @UnstableApi
     fun createPlayer(
         context: Context,
-        bufferOverride: PlaybackBufferOverride? = null
+        bufferOverride: PlaybackBufferOverride? = null,
+        preloadBuilder: DefaultPreloadManager.Builder? = null
     ): ExoPlayer {
         val playerPreferences = PlayerPreferences(context)
 
         try {
-            val trackSelector = DefaultTrackSelector(context)
-
             // Configure AudioAttributes to let system spatializer decide when active
             val audioAttributesBuilder = AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
@@ -86,18 +86,16 @@ object PlayerUtils {
 
             // Create hardware acceleration
             val renderersFactory = HardwareAcceleration(context)
+            val loadControl = createLoadControl(
+                context = context,
+                playerPreferences = playerPreferences,
+                bufferOverride = bufferOverride,
+                unconstrainedCache = isUnmeteredNetwork(context)
+            )
             
             val playerBuilder = ExoPlayer.Builder(context)
                 .setRenderersFactory(renderersFactory) // Use custom factory with fallback support
-                .setTrackSelector(trackSelector)
-                .setLoadControl(
-                    createLoadControl(
-                        context = context,
-                        playerPreferences = playerPreferences,
-                        bufferOverride = bufferOverride,
-                        unconstrainedCache = isUnmeteredNetwork(context)
-                    )
-                )
+                .setLoadControl(loadControl)
                 .setAudioAttributes(audioAttributes, true)
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_LOCAL)
@@ -109,7 +107,11 @@ object PlayerUtils {
                 Log.d("PlayerUtils", "Applying battery optimization settings")
                 applyBatteryOptimization(playerBuilder)
             }
-            return playerBuilder.build()
+            return preloadBuilder
+                ?.setRenderersFactory(renderersFactory)
+                ?.setLoadControl(loadControl)
+                ?.buildExoPlayer(playerBuilder)
+                ?: playerBuilder.setTrackSelector(DefaultTrackSelector(context)).build()
         } catch (e: Exception) {
             Log.e("PlayerUtils", "Player creation failed", e)
             throw e // Re-throw to let caller handle it
