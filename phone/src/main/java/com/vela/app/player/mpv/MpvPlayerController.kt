@@ -120,6 +120,8 @@ class MpvPlayerController(
     private var videoFps = 0.0
     /** 识别容器 pts 损坏的片源；访问须持有自身锁（load 在调用线程，日志在 mpv 事件线程）。 */
     private val brokenPtsDetector = MpvBrokenPtsDetector()
+    private var canRepairBrokenPts = false
+    private var softwarePtsRepair = false
     private val ptsLogObserver = object : MPVLib.LogObserver {
         override fun logMessage(prefix: String, level: Int, text: String) {
             onMpvLog(prefix, text)
@@ -393,7 +395,10 @@ class MpvPlayerController(
 
     fun setHardwareDecoding(mode: String) {
         if (released) return
-        requestedHwdec = mode
+        synchronized(brokenPtsDetector) {
+            requestedHwdec = mode
+            softwarePtsRepair = false
+        }
         applyColorHwdec()
     }
 
@@ -441,8 +446,11 @@ class MpvPlayerController(
     }
 
     private fun applyColorHwdec() {
-        val resolved = HevcHwdecColor.hardwareDecoding(requestedHwdec, colorPolicyStreams)
-        setMpv("hwdec", resolved)
+        val resolved = synchronized(brokenPtsDetector) {
+            val mode = if (softwarePtsRepair) "no" else HevcHwdecColor.hardwareDecoding(requestedHwdec, colorPolicyStreams)
+            setMpv("hwdec", mode)
+            mode
+        }
         Log.i(
             COLOR_LOG_TAG,
             "hwdec=$resolved requested=$requestedHwdec streams=${colorPolicyStreams?.size ?: 0} " +
@@ -653,32 +661,39 @@ class MpvPlayerController(
         }
     }
 
-    /** 换片时恢复 mpv 默认的 pts 处理；上一片源可能因 pts 损坏关闭过 `correct-pts`。 */
+    /** 换片时恢复默认时间戳策略，等新片源加载完成再处理日志。 */
     private fun resetBrokenPtsRepair() {
-        synchronized(brokenPtsDetector) { brokenPtsDetector.reset() }
-        setMpv("correct-pts", "yes")
+        synchronized(brokenPtsDetector) {
+            canRepairBrokenPts = false
+            softwarePtsRepair = false
+            brokenPtsDetector.reset()
+            setMpv("correct-pts", "yes")
+        }
     }
 
     /**
-     * 硬解遇到容器 pts 损坏（见 [MpvBrokenPtsDetector]）时关闭 `correct-pts`，保留硬解。
-     *
-     * mpv 每轮解码都会刷新该选项，运行时修改立即生效：之后按 `container-fps` 从上一帧依次排时间戳，
-     * seek 后从第一个包的时间重新起算。代价是可变帧率片源的帧时长会被拉平，因此只在已出现损坏时启用。
-     * 软解不处理：mpv 会自动改用重排后的 dts。
+     * 硬解持续收到坏时间戳时，有可用的标称帧率才按固定帧间隔补时间戳。
+     * 未知帧率时保留时间戳校正，交给软解重排，避免 mpv 按默认 25 fps 生成时间戳。
      */
     private fun onMpvLog(prefix: String, text: String) {
         if (released) return
-        val detected = synchronized(brokenPtsDetector) {
-            brokenPtsDetector.onLog(prefix, text, SystemClock.elapsedRealtime())
+        if (!MpvBrokenPtsDetector.matches(prefix, text)) return
+        synchronized(brokenPtsDetector) {
+            if (!canRepairBrokenPts || brokenPtsDetector.triggered) return
+            val hwdecCurrent = MPVLib.getPropertyString("hwdec-current")
+            if (hwdecCurrent.isNullOrEmpty() || hwdecCurrent == "no") return
+            if (!brokenPtsDetector.onLog(prefix, text, SystemClock.elapsedRealtime())) return
+
+            val fps = MPVLib.getPropertyDouble("container-fps")
+            if (fps != null && fps in 1.0..240.0) {
+                setMpv("correct-pts", "no")
+                Log.w(COLOR_LOG_TAG, "broken video pts on hwdec=$hwdecCurrent fps=$fps; correct-pts=no")
+            } else {
+                softwarePtsRepair = true
+                setMpv("hwdec", "no")
+                Log.w(COLOR_LOG_TAG, "broken video pts on hwdec=$hwdecCurrent fps=$fps; use software decoding")
+            }
         }
-        if (!detected) return
-        val hwdecCurrent = MPVLib.getPropertyString("hwdec-current")
-        if (hwdecCurrent.isNullOrEmpty() || hwdecCurrent == "no") {
-            Log.i(COLOR_LOG_TAG, "broken video pts on software decode; keep correct-pts")
-            return
-        }
-        setMpv("correct-pts", "no")
-        Log.w(COLOR_LOG_TAG, "broken video pts on hwdec=$hwdecCurrent fps=$videoFps; correct-pts=no")
     }
 
     override fun eventProperty(property: String) = Unit
@@ -790,7 +805,9 @@ class MpvPlayerController(
 
     override fun event(eventId: Int) {
         when (eventId) {
+            MpvEvent.MPV_EVENT_END_FILE -> synchronized(brokenPtsDetector) { canRepairBrokenPts = false }
             MpvEvent.MPV_EVENT_FILE_LOADED -> {
+                synchronized(brokenPtsDetector) { canRepairBrokenPts = true }
                 durationMs = (MPVLib.getPropertyDouble("duration")?.times(1000.0))
                     ?.toLong()
                     ?.coerceAtLeast(0L)

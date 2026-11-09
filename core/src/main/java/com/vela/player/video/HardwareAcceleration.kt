@@ -2,6 +2,9 @@ package com.vela.player.video
 
 import android.content.Context
 import android.util.Log
+import androidx.media3.common.ColorInfo
+import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
@@ -19,6 +22,9 @@ class HardwareAcceleration(
 ) : DefaultRenderersFactory(context) {
     
     private val playerPreferences = PlayerPreferences(context)
+    private val appContext = context.applicationContext
+    @Volatile
+    private var softwareVideoMimeType: String? = null
     
     companion object {
         private const val TAG = "HardwareAcceleration"
@@ -52,7 +58,14 @@ class HardwareAcceleration(
             decoderPriority != DECODER_PRIORITY_SOFTWARE
 
         if (shouldUsePlatformSelector) {
-            setMediaCodecSelector(MediaCodecSelector.DEFAULT)
+            setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+                val codecs = MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
+                if (mimeType == softwareVideoMimeType && !requiresSecureDecoder && !requiresTunnelingDecoder) {
+                    codecs.sortedByDescending { it.softwareOnly }
+                } else {
+                    codecs
+                }
+            }
             Log.d(
                 TAG,
                 "Using platform MediaCodec selector (HW=$hardwareAccelerationEnabled, Priority=$decoderPriority)"
@@ -66,6 +79,28 @@ class HardwareAcceleration(
                 "Using custom MediaCodec selector (HW=$hardwareAccelerationEnabled, Priority=$decoderPriority)"
             )
         }
+    }
+
+    /** 只在当前播放器遇到解码错误且系统提供可用软解时调整视频解码器顺序。 */
+    fun preferSoftwareVideoAfterFailure(format: Format): Boolean {
+        val mimeType = format.sampleMimeType ?: return false
+        if (softwareVideoMimeType != null || !playerPreferences.isHardwareAccelerationEnabled() ||
+            playerPreferences.getDecoderPriority() == DECODER_PRIORITY_SOFTWARE ||
+            !MimeTypes.isVideo(mimeType) || mimeType == MimeTypes.VIDEO_DOLBY_VISION ||
+            ColorInfo.isTransferHdr(format.colorInfo) || format.drmInitData != null ||
+            format.width !in 1..1920 || format.height !in 1..1080) return false
+
+        val supported = try {
+            MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, false, false).any {
+                it.softwareOnly && it.isFormatSupported(appContext, format)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to query software video decoder for $mimeType", e)
+            false
+        }
+        if (!supported) return false
+        softwareVideoMimeType = mimeType
+        return true
     }
     
     private fun selectOptimalCodec(

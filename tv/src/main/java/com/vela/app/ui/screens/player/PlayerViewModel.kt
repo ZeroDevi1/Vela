@@ -10,9 +10,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import com.vela.data.model.AudioTranscodeMode
 import com.vela.data.model.BaseItemDto
@@ -28,6 +30,7 @@ import com.vela.player.core.PlayerTrack
 import com.vela.player.core.PlayerUtils
 import com.vela.player.core.TrackDetails
 import com.vela.player.preferences.PlayerPreferences
+import com.vela.player.video.HardwareAcceleration
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -82,6 +85,7 @@ class PlayerViewModel @Inject constructor(
     private var nextEpisodePrefetchJob: Job? = null
     private var nextEpisodePrefetchSignature: String? = null
     private var hasRenderedFirstFrame = false
+    private var renderersFactory: HardwareAcceleration? = null
 
     fun initializePlayer(
         context: Context,
@@ -332,9 +336,9 @@ class PlayerViewModel @Inject constructor(
                     streamingMediaItem
                 }
 
-                exoPlayer = PlayerUtils.createPlayer(
-                    context = context
-                )
+                val factory = HardwareAcceleration(context)
+                exoPlayer = PlayerUtils.createPlayer(context = context, renderersFactory = factory)
+                renderersFactory = factory
                 playbackSession = PlaybackSessionContext(
                     mediaId = mediaId,
                     playSessionId = sessionPlaySessionId,
@@ -724,6 +728,7 @@ class PlayerViewModel @Inject constructor(
             release()
         }
         exoPlayer = null
+        renderersFactory = null
         spatializerHelper?.cleanup()
         spatializerHelper = null
         playbackSession = PlaybackSessionContext()
@@ -1130,8 +1135,21 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
-        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+        override fun onPlayerError(error: PlaybackException) {
             hasRenderedFirstFrame = false
+            val player = exoPlayer
+            val format = (error as? ExoPlaybackException)?.rendererFormat
+            if (player != null && format != null &&
+                (error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) &&
+                renderersFactory?.preferSoftwareVideoAfterFailure(format) == true
+            ) {
+                // 同一个播放器重新准备，沿用当前片源、进度、轨道参数和服务端会话。
+                Log.w("PlayerViewModel", "Retrying video playback with a software decoder: ${format.sampleMimeType}")
+                _playerState.value = _playerState.value.copy(isLoading = true, error = null)
+                player.prepare()
+                return
+            }
             _playerState.value = _playerState.value.copy(
                 error = error.message ?: "Playback error occurred",
                 isLoading = false,

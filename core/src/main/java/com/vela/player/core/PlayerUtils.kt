@@ -70,7 +70,8 @@ object PlayerUtils {
     fun createPlayer(
         context: Context,
         bufferOverride: PlaybackBufferOverride? = null,
-        preloadBuilder: DefaultPreloadManager.Builder? = null
+        preloadBuilder: DefaultPreloadManager.Builder? = null,
+        renderersFactory: HardwareAcceleration? = null
     ): ExoPlayer {
         val playerPreferences = PlayerPreferences(context)
 
@@ -84,8 +85,7 @@ object PlayerUtils {
             }
             val audioAttributes = audioAttributesBuilder.build()
 
-            // Create hardware acceleration
-            val renderersFactory = HardwareAcceleration(context)
+            val factory = renderersFactory ?: HardwareAcceleration(context)
             val loadControl = createLoadControl(
                 context = context,
                 playerPreferences = playerPreferences,
@@ -94,7 +94,7 @@ object PlayerUtils {
             )
             
             val playerBuilder = ExoPlayer.Builder(context)
-                .setRenderersFactory(renderersFactory) // Use custom factory with fallback support
+                .setRenderersFactory(factory) // Use custom factory with fallback support
                 .setLoadControl(loadControl)
                 .setAudioAttributes(audioAttributes, true)
                 .setHandleAudioBecomingNoisy(true)
@@ -108,7 +108,7 @@ object PlayerUtils {
                 applyBatteryOptimization(playerBuilder)
             }
             return preloadBuilder
-                ?.setRenderersFactory(renderersFactory)
+                ?.setRenderersFactory(factory)
                 ?.setLoadControl(loadControl)
                 ?.buildExoPlayer(playerBuilder)
                 ?: playerBuilder.setTrackSelector(DefaultTrackSelector(context)).build()

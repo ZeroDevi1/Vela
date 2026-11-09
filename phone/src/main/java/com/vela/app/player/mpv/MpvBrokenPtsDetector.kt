@@ -5,9 +5,9 @@ package com.vela.app.player.mpv
  *
  * 硬件解码器按显示顺序出帧、只回传送入时的 pts，于是每个 B 帧组都会出现一次时间戳倒退，
  * mpv 报 `Invalid video timestamp` 并丢帧；软解有重排后的 dts 可用，mpv 会自动改用 dts，不受影响。
- * 达到阈值后调用方应关闭 `correct-pts`，让 mpv 按帧率给输出帧依次排时间戳，从而继续硬解。
+ * 达到阈值后，由调用方根据帧率选择修复方式。
  *
- * 非线程安全；只在 mpv 事件线程上调用。每次换片调用 [reset]。
+ * 非线程安全；事件线程和加载线程通过同一把锁访问。每次换片调用 [reset]。
  */
 internal class MpvBrokenPtsDetector(
     /** 窗口内需要累计的警告次数。正常片源只在不连续点偶发一次；坏片源约每 4 帧一次（30fps 下约 7 次/秒）。 */
@@ -33,7 +33,7 @@ internal class MpvBrokenPtsDetector(
      * @return 本次刚达到阈值时为 true（每个片源最多一次）。
      */
     fun onLog(prefix: String, text: String, nowMs: Long): Boolean {
-        if (triggered || prefix != PREFIX || !text.startsWith(MESSAGE)) return false
+        if (triggered || !matches(prefix, text)) return false
         hits.addLast(nowMs)
         while (hits.isNotEmpty() && nowMs - hits.first() > windowMs) hits.removeFirst()
         if (hits.size < threshold) return false
@@ -42,8 +42,8 @@ internal class MpvBrokenPtsDetector(
         return true
     }
 
-    private companion object {
-        const val PREFIX = "cplayer"
-        const val MESSAGE = "Invalid video timestamp"
+    companion object {
+        fun matches(prefix: String, text: String): Boolean =
+            prefix == "cplayer" && text.startsWith("Invalid video timestamp")
     }
 }

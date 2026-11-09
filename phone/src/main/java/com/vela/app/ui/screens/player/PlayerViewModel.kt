@@ -21,6 +21,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.MediaSource as ExoMediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -767,6 +768,7 @@ class PlayerViewModel @Inject constructor(
                     ActivePlayback.setActive(true)
                     exoPlayer?.apply {
                         addListener(playerListener)
+                        addAnalyticsListener(videoDropListener)
                         if (streamingMediaSource != null) {
                             setMediaSource(streamingMediaSource!!)
                         } else {
@@ -2171,6 +2173,7 @@ class PlayerViewModel @Inject constructor(
         cancelMpvWatchdog()
         exoPlayer?.apply {
             removeListener(playerListener)
+            removeAnalyticsListener(videoDropListener)
             release()
         }
         exoPlayer = null
@@ -2767,6 +2770,25 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+
+    private val videoDropListener = object : AnalyticsListener {
+        override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) {
+            val player = exoPlayer ?: return
+            // 转码、拖动预热和网络供流不足有各自的恢复路径。这里仅处理原流已有数据却持续掉帧。
+            if (!canSwitchPlayerEngine() || !hasRenderedFirstFrame || !player.isPlaying || pendingSeek != null ||
+                playbackSession.playMethod == PlayMethod.TRANSCODE || elapsedMs < 1_000 ||
+                eventTime.timeline != player.currentTimeline || eventTime.mediaPeriodId != eventTime.currentMediaPeriodId ||
+                player.totalBufferedDuration < 2_000) return
+            // 倍速超出解码预算也会掉帧，避免因此重建播放器并丢掉用户设置的倍速。
+            if (player.playbackParameters.speed != 1f) return
+            val fps = player.videoFormat?.frameRate?.takeIf { it in 1f..240f } ?: return
+            val expectedFrames = fps * (elapsedMs / 1_000.0)
+            if (droppedFrames >= 30 && droppedFrames >= expectedFrames * 0.25) {
+                Log.w(TAG, "ExoPlayer dropped $droppedFrames video frames in ${elapsedMs}ms with data buffered; switching to mpv")
+                triggerMpvFallback()
+            }
+        }
+    }
 
     private val playerListener = object : Player.Listener {
         override fun onTracksChanged(tracks: Tracks) {
