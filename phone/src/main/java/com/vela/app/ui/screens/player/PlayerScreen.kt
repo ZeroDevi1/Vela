@@ -239,16 +239,10 @@ fun PlayerScreen(
     val inPip by (hostActivity?.pictureInPictureMode ?: remember { MutableStateFlow(false) })
         .collectAsState()
 
-    // Track initialized media so this screen can switch to a new episode in-place.
+    // 只记录已初始化的条目；当前条目由 PlayerRoute 管理，换片时和片源参数一起更新。
     var initializedMediaId by remember { mutableStateOf<String?>(null) }
-    var currentPlaybackId by remember { mutableStateOf(mediaId) }
     val mediaRepository = remember { MediaRepositoryProvider.getInstance(context) }
 
-    LaunchedEffect(mediaId) {
-        if (mediaId != currentPlaybackId) {
-            currentPlaybackId = mediaId
-        }
-    }
     LaunchedEffect(playlist) {
         viewModel.setVrPartsPlaylist(playlist)
     }
@@ -259,8 +253,7 @@ fun PlayerScreen(
     }
 
     val playEpisodeInPlace: (String) -> Unit = { episodeId ->
-        if (episodeId.isNotBlank() && episodeId != currentPlaybackId) {
-            currentPlaybackId = episodeId
+        if (episodeId.isNotBlank() && episodeId != mediaId) {
             onWatchNextEpisode?.invoke(episodeId)
         }
     }
@@ -269,7 +262,7 @@ fun PlayerScreen(
         context = context,
         currentView = currentView,
         lifecycleOwner = lifecycleOwner,
-        mediaId = currentPlaybackId,
+        mediaId = mediaId,
         initialItemDetails = initialItemDetails,
         remoteMediaUrl = remoteMediaUrl,
         remoteMediaTitle = remoteMediaTitle,
@@ -344,7 +337,7 @@ fun PlayerScreen(
 
     // 「自动跳过片头」（与 iOS 一致）：每段片头只自动跳过一次；开启「即将跳过」提示时先提示 3 秒，
     // 期间用户拖走（片段不再处于激活状态）即取消。
-    val autoSkippedIntros = remember(currentPlaybackId) { mutableSetOf<Long>() }
+    val autoSkippedIntros = remember(mediaId) { mutableSetOf<Long>() }
     LaunchedEffect(activeSkippableSegment) {
         val segment = activeSkippableSegment ?: return@LaunchedEffect
         if (segment.type != SkippableSegmentType.INTRO) return@LaunchedEffect
@@ -358,7 +351,7 @@ fun PlayerScreen(
     }
 
     SystemMediaSessionEffect(
-        mediaId = currentPlaybackId,
+        mediaId = mediaId,
         title = playerState.mediaTitle,
         subtitle = playerState.seasonEpisodeLabel?.takeIf { it.isNotBlank() }
             ?: initialItemDetails?.seriesName
@@ -468,7 +461,7 @@ fun PlayerScreen(
         initializedMediaId = null
         viewModel.initializePlayer(
             context = context,
-            mediaId = currentPlaybackId,
+            mediaId = mediaId,
             initialItemDetails = initialItemDetails,
             preferredAudioStreamIndex = preferredAudio,
             preferredSubtitleStreamIndex = preferredSubtitle,
@@ -877,7 +870,7 @@ fun PlayerScreen(
                 item = viewModel.playbackItem ?: initialItemDetails,
                 title = playerState.mediaTitle,
                 isPortrait = isPortraitPlayback,
-                currentItemId = currentPlaybackId,
+                currentItemId = mediaId,
                 mediaRepository = mediaRepository,
                 onDismiss = { showPlaybackInfoSheet = false },
                 onEpisodeSelected = playEpisodeInPlace
@@ -887,12 +880,12 @@ fun PlayerScreen(
         if (showPlaylistSheet) {
             PlayerPlaylistSheet(
                 items = playlist,
-                currentItemId = currentPlaybackId,
+                currentItemId = mediaId,
                 mediaRepository = mediaRepository,
                 onDismiss = { showPlaylistSheet = false },
                 onItemSelected = { id ->
                     showPlaylistSheet = false
-                    if (id != currentPlaybackId) onPlaylistItemSelected(id)
+                    if (id != mediaId) onPlaylistItemSelected(id)
                 }
             )
         }

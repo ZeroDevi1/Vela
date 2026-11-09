@@ -72,7 +72,7 @@
             android:name=".ui.activity.PlayerActivity"
             android:exported="false"
             android:theme="@style/Theme.Vela"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|colorMode"

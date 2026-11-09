@@ -141,6 +141,7 @@ object MpvWarmPool {
             }
         }
 
+        var pendingController: MpvPlayerController? = null
         try {
             val created = withContext(MpvPlayerController.LifecycleDispatcher) {
                 MpvPlayerController(
@@ -149,7 +150,7 @@ object MpvWarmPool {
                     videoOutput = config.videoOutput,
                     audioOutput = config.audioOutput,
                     listener = listener
-                )
+                ).also { pendingController = it }
             }
             synchronized(lock) {
                 creating = false
@@ -157,6 +158,8 @@ object MpvWarmPool {
             }
             return created
         } catch (error: CancellationException) {
+            // 切片可能发生在 native 句柄已创建、但协程还没切回主线程时。
+            pendingController?.release()
             synchronized(lock) { creating = false }
             throw error
         } catch (error: Throwable) {

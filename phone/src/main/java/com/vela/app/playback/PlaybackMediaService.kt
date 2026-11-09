@@ -136,7 +136,6 @@ class PlaybackMediaService : Service() {
             } else {
                 Intent(context, PlayerActivity::class.java).apply {
                     putExtra(PlayerActivity.EXTRA_MEDIA_ID, mediaId)
-                    addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 }
             }
             launch.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)

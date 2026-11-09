@@ -86,8 +86,9 @@ class PlayerActivity : ComponentActivity(), PictureInPictureHost {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        val args = PlaybackArgs.from(intent) ?: return
         setIntent(intent)
-        playbackArgs.value = PlaybackArgs.from(intent)
+        playbackArgs.value = args
     }
 
     override fun onUserLeaveHint() {
@@ -170,7 +171,6 @@ class PlayerActivity : ComponentActivity(), PictureInPictureHost {
                 remoteTitle?.takeIf { it.isNotBlank() }?.let { putExtra(EXTRA_REMOTE_TITLE, it) }
                 partsOwnerId?.takeIf { it.isNotBlank() }?.let { putExtra(EXTRA_PARTS_OWNER_ID, it) }
                 partsSourceId?.takeIf { it.isNotBlank() }?.let { putExtra(EXTRA_PARTS_SOURCE_ID, it) }
-                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 if (activity == null) {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
@@ -243,9 +243,9 @@ private data class PlaybackArgs(
 private fun PlayerRoute(args: PlaybackArgs) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val mediaRepository = remember { MediaRepositoryProvider.getInstance(context) }
-    var mediaId by remember(args.mediaId, args.remoteUrl) { mutableStateOf(args.mediaId) }
-    var episodePreviousId by remember { mutableStateOf<String?>(null) }
-    var episodeNextId by remember { mutableStateOf<String?>(null) }
+    var mediaId by remember(args) { mutableStateOf(args.mediaId) }
+    var episodePreviousId by remember(mediaId, args.remoteUrl) { mutableStateOf<String?>(null) }
+    var episodeNextId by remember(mediaId, args.remoteUrl) { mutableStateOf<String?>(null) }
     // 多 CD / 多分段影片的各部分，按启动的条目取一次；部分之间原地切换时不重新获取。
     var parts by remember(args.mediaId, args.remoteUrl, args.partsOwnerId, args.partsSourceId) {
         mutableStateOf<List<BaseItemDto>>(emptyList())
@@ -257,16 +257,8 @@ private fun PlayerRoute(args: PlaybackArgs) {
     val nextEpisodeId = episodeNextId
         ?: parts.getOrNull(partIndex + 1)?.id?.takeIf { partIndex >= 0 }
 
-    LaunchedEffect(args) {
-        mediaId = args.mediaId
-    }
-
     LaunchedEffect(mediaId, args.remoteUrl) {
-        if (!args.remoteUrl.isNullOrBlank()) {
-            episodePreviousId = null
-            episodeNextId = null
-            return@LaunchedEffect
-        }
+        if (!args.remoteUrl.isNullOrBlank()) return@LaunchedEffect
         val navigation = mediaRepository.getEpisodeNavigationIds(mediaId)
         episodePreviousId = navigation.previousEpisodeId
         episodeNextId = navigation.nextEpisodeId
@@ -310,7 +302,10 @@ private fun PlayerRoute(args: PlaybackArgs) {
         onPlaybackCompleted = { completedId ->
             val nextId = nextEpisodeId
             // 「自动播放下一集」关闭时停在结尾，由用户手动选择（与 iOS 设置一致）。
-            if (!nextId.isNullOrBlank() && nextId != completedId && PlayerBehaviorPreferences(context).autoPlayNext) {
+            if (
+                completedId == mediaId && !nextId.isNullOrBlank() &&
+                nextId != completedId && behaviorPreferences.autoPlayNext
+            ) {
                 mediaId = nextId
             }
         },

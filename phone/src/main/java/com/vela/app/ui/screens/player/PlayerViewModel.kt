@@ -120,6 +120,7 @@ class PlayerViewModel @Inject constructor(
     var scrubPreviewFrame: Bitmap? by mutableStateOf(null)
         private set
     private var activePlayerEngine: String = PlayerPreferences.DEFAULT_PLAYER_ENGINE
+    private var initializationJob: Job? = null
 
     private val trackSelectionCoordinator = PlayerTrackSelection()
     private var playbackSession = PlaybackSessionContext()
@@ -314,7 +315,8 @@ class PlayerViewModel @Inject constructor(
         forcedPlayerEngine: String? = null,
         mediaSourceId: String? = null
     ) {
-        viewModelScope.launch {
+        initializationJob?.cancel()
+        initializationJob = viewModelScope.launch {
             try {
                 ActivePlayback.setActive(true)
                 _playerState.value = _playerState.value.copy(
@@ -348,6 +350,7 @@ class PlayerViewModel @Inject constructor(
                 var activePreferredSubtitleStreamIndex = preferredSubtitleStreamIndex
                 val isVideoTranscodingAllowed = isVideoTranscodingAllowedForUser()
                 val isAudioTranscodingAllowed = isAudioTranscodingAllowedForUser()
+                ensureActive()
                 val audioTranscodeMode = if (isAudioTranscodingAllowed) {
                     playerPreferences.getAudioTranscodeMode()
                 } else {
@@ -400,6 +403,7 @@ class PlayerViewModel @Inject constructor(
                 } else {
                     mediaRepository.getItemById(mediaId).getOrNull()
                 }
+                ensureActive()
                 currentItemDetails = itemDetails
                 val seriesPreferenceId = TrackDetails.seriesPreferenceId(
                     itemType = itemDetails?.type,
@@ -530,6 +534,7 @@ class PlayerViewModel @Inject constructor(
                         mediaSourceId = requestedMediaSourceId,
                         maxVideoWidth = SERVER_DOWNSCALE_WIDTH.takeIf { serverDownscaleMediaId == mediaId }
                     )
+                    ensureActive()
                     if (playbackInfoResult.isFailure) {
                         val error = playbackInfoResult.exceptionOrNull()?.message ?: "Failed to get playback info"
                         _playerState.value = _playerState.value.copy(isLoading = false, error = error)
@@ -578,6 +583,7 @@ class PlayerViewModel @Inject constructor(
                         includeAccessToken = isMpvPlayback(),
                         mediaSourceId = requestedMediaSourceId
                     )
+                    ensureActive()
                     if (playbackRequestResult.isFailure) {
                         val error = playbackRequestResult.exceptionOrNull()?.message ?: "Failed to get playback request"
                         _playerState.value = _playerState.value.copy(isLoading = false, error = error)
@@ -859,6 +865,8 @@ class PlayerViewModel @Inject constructor(
                 )
                 restorePeachPlaybackRate(mediaId)
 
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Log.e(TAG, "Player initialization failed", e)
                 if (exoPlayer == null && mpvPlayer == null) {
@@ -879,10 +887,10 @@ class PlayerViewModel @Inject constructor(
         title: String? = null,
         startPlayback: Boolean = true
     ) {
-        viewModelScope.launch {
+        releasePlayer()
+        initializationJob = viewModelScope.launch {
             try {
                 val mediaTitle = title?.takeIf { it.isNotBlank() } ?: "Trailer"
-                releasePlayer()
                 ActivePlayback.setActive(true)
                 remotePlaybackRequestKey = mediaId
                 _playerState.value = PlayerState(
@@ -904,6 +912,7 @@ class PlayerViewModel @Inject constructor(
                 playbackReporter.updateSession(playbackSession)
 
                 val playbackStream = RemoteTrailerUrl.resolve(remoteUrl)
+                ensureActive()
                 if (remotePlaybackRequestKey != mediaId) return@launch
                 configureScrubPreviewSource(
                     context = context,
@@ -957,6 +966,8 @@ class PlayerViewModel @Inject constructor(
                 }
 
                 applyStartMaximizedSetting(context)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Log.e(TAG, "Remote trailer initialization failed", e)
                 if (exoPlayer == null && mpvPlayer == null) {
@@ -2054,6 +2065,7 @@ class PlayerViewModel @Inject constructor(
      * 它在播放页销毁时执行，此时返回转场已经结束，不会卡住下层页面的首帧。
      */
     fun prepareExit() {
+        initializationJob?.cancel()
         exoPlayer?.pause()
         mpvPlayer?.pause()
         persistPosition()
@@ -2061,6 +2073,8 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun releasePlayer() {
+        initializationJob?.cancel()
+        initializationJob = null
         ActivePlayback.setActive(false)
         releaseScrubPreview()
         persistPosition()
