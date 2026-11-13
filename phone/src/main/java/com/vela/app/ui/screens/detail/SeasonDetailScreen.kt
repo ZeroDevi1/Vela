@@ -33,10 +33,12 @@ import com.vela.app.ui.components.common.DownloadActionMenu
 import com.vela.app.ui.components.common.DownloadContent
 import com.vela.app.ui.components.common.CompactTopLogo
 import com.vela.app.ui.components.common.DetailBackdropHero
+import com.vela.app.ui.components.common.ImageViewer
 import com.vela.app.ui.components.common.canResumeDownloads
 import com.vela.app.ui.components.common.compactHeaderLogo
 import com.vela.app.ui.components.common.containerHeightDp
 import com.vela.app.ui.components.common.containerWidthDp
+import com.vela.app.ui.components.common.detailHeroPreviewUrl
 import com.vela.app.ui.components.common.hasActiveDownloads
 import com.vela.app.ui.components.common.isTabletDetailLayout
 import com.vela.app.ui.components.common.pausableItemIds
@@ -226,6 +228,8 @@ fun SeasonDetailScreen(
 
     val currentHeroImageUrl = heroImageCandidates.getOrNull(heroImageIndex)
         ?: initialHeroImageCandidates.firstOrNull()
+    var heroPreviewUrl by remember(seasonId) { mutableStateOf<String?>(null) }
+    heroPreviewUrl?.let { url -> ImageViewer(url, seasonName) { heroPreviewUrl = null } }
     val currentLogoImageUrl = logoImageCandidates.getOrNull(logoImageIndex)
         ?: initialLogoImageCandidates.firstOrNull()
     val showLogoImage = currentLogoImageUrl != null && !logoLoadError
@@ -314,6 +318,9 @@ fun SeasonDetailScreen(
                             contentDescription = seasonName,
                             heroHeight = heroHeight,
                             bottomFadeHeight = 120.dp,
+                            onImageClick = currentHeroImageUrl?.let { url ->
+                                { heroPreviewUrl = detailHeroPreviewUrl(url) }
+                            },
                             onErrorStateChange = { hasError ->
                                 if (hasError && heroImageIndex < heroImageCandidates.lastIndex) {
                                     heroImageIndex += 1

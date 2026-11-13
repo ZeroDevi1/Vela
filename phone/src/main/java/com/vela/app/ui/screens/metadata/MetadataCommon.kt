@@ -1,5 +1,6 @@
 package com.vela.app.ui.screens.metadata
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetProperties
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -27,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,16 +86,28 @@ internal fun MetadataSheetScaffold(
     title: String,
     onDismiss: () -> Unit,
     onBack: (() -> Unit)? = null,
+    onSystemBack: (() -> Unit)? = null,
+    canDismiss: Boolean = true,
     actions: @Composable () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val dismissAllowed by rememberUpdatedState(canDismiss)
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { it != SheetValue.Hidden || dismissAllowed }
+    )
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        sheetGesturesEnabled = canDismiss,
+        properties = ModalBottomSheetProperties(
+            shouldDismissOnBackPress = onSystemBack == null,
+            shouldDismissOnClickOutside = canDismiss
+        ),
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         dragHandle = null
     ) {
+        if (onSystemBack != null) BackHandler(onBack = onSystemBack)
         Column(
             modifier = Modifier
                 .fillMaxWidth()

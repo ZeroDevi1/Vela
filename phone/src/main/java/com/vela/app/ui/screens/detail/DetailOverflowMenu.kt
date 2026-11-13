@@ -41,6 +41,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -58,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vela.data.model.BaseItemDto
 import com.vela.data.repository.MediaRepository
+import com.vela.app.ui.components.common.ImageViewer
 import com.vela.app.ui.screens.metadata.MetadataEditor
 import com.vela.app.ui.screens.metadata.MetadataEditorSheet
 import com.vela.app.ui.screens.metadata.supportsSubtitleSearch
@@ -105,6 +107,7 @@ internal fun DetailOverflowSheet(
         mediaRepository = mediaRepository
     )
     var posterAspect by remember(posterUrl) { mutableStateOf(2f / 3f) }
+    var showPoster by rememberSaveable(item.id) { mutableStateOf(false) }
     val title = if (item.type.equals("Episode", true)) {
         item.seriesName?.takeIf { it.isNotBlank() } ?: item.name.orEmpty()
     } else {
@@ -147,7 +150,12 @@ internal fun DetailOverflowSheet(
                             }
                         )
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF2A2A2A)),
+                        .background(Color(0xFF2A2A2A))
+                        .clickable(
+                            enabled = posterUrl != null,
+                            onClickLabel = stringResource(R.string.image_viewer_open),
+                            onClick = { showPoster = true }
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     JellyfinPosterImage(
@@ -284,6 +292,19 @@ internal fun DetailOverflowSheet(
                     onClick = { confirmDelete = true }
                 )
             }
+        }
+    }
+
+    if (showPoster) {
+        ImageViewer(pageCount = 1, description = title, onDismiss = { showPoster = false }) {
+            rememberImageUrl(
+                itemId = item.id,
+                imageType = "Primary",
+                width = 2560,
+                quality = 95,
+                imageTag = item.imageTagFor("Primary"),
+                mediaRepository = mediaRepository
+            )
         }
     }
 

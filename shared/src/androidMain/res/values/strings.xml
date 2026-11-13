@@ -483,6 +483,13 @@
     <string name="metadata_path">Path</string>
     <string name="metadata_external_id_label">%1$s Id</string>
     <string name="metadata_images_search_title">Search images</string>
+    <string name="image_viewer_open">View image</string>
+    <string name="image_viewer_position">%1$d / %2$d</string>
+    <string name="image_viewer_load_failed">Could not load image</string>
+    <string name="image_action_retry">Retry</string>
+    <string name="metadata_images_move_earlier">Move earlier</string>
+    <string name="metadata_images_move_later">Move later</string>
+    <string name="metadata_images_load_more">Load more images</string>
     <string name="metadata_images_updated">Images updated</string>
     <string name="metadata_images_too_large">Image could not be read or is larger than 20 MB</string>
     <string name="metadata_images_delete_title">Delete image</string>
@@ -1016,6 +1023,9 @@
     <string name="server_private_unlock">Unlock</string>
     <string name="server_private_use_public">Use %1$s</string>
     <string name="player_error_title">Playback error</string>
+    <string name="player_seek_preloading">Buffering %1$s</string>
+    <string name="player_seek_now">Jump now</string>
+    <string name="player_seek_preload_failed">Could not buffer %1$s</string>
     <string name="player_error_retry">Retry</string>
     <string name="player_error_close">Close</string>
     <string name="player_server_downscale_4k">Server transcode to 4K</string>

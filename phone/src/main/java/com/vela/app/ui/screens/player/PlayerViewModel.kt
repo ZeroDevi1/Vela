@@ -63,6 +63,8 @@ import com.vela.player.preferences.PlayerPreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -95,8 +97,8 @@ class PlayerViewModel @Inject constructor(
     companion object {
         private const val TAG = "PlayerViewModel"
         private const val MPV_FALLBACK_FIRST_FRAME_TIMEOUT_MS = 2_500L
-        private const val SEEK_PRELOAD_TIMEOUT_MS = 4_000L
-        private const val SEEK_PRELOAD_BUFFER_MS = 1_500L
+        private const val SEEK_PRELOAD_TIMEOUT_MS = 30_000L
+        private const val SEEK_PRELOAD_BUFFER_MS = 15_000L
         private const val SEEK_PLAYBACK_RESERVE_MS = 2_000L
         private const val SEEK_PRELOAD_POLL_MS = 100L
         /** 「服务器转码为 4K」的宽度上限。VR 片源多为 2:1，3840 宽即 3840×1920。 */
@@ -124,9 +126,17 @@ class PlayerViewModel @Inject constructor(
     var exoPlayer: ExoPlayer? by mutableStateOf(null)
         private set
     private var seekPreloader: ExoSeekPreloader? = null
+    private var mpvSeekCache: MpvSeekCache? = null
     @Volatile
     private var pendingSeek: PendingSeek? = null
     private var seekPreloadJob: Job? = null
+    var pendingSeekPositionMs: Long? by mutableStateOf(null)
+        private set
+    private var failedSeek by mutableStateOf<PendingSeek?>(null)
+    @Volatile
+    private var awaitingSeekDecision = false
+    val seekPreloadErrorPositionMs: Long?
+        get() = failedSeek?.positionMs
     var mpvPlayer: MpvPlayerController? by mutableStateOf(null)
         private set
     var subtitleAppearanceEpoch by mutableIntStateOf(0)
@@ -687,6 +697,21 @@ class PlayerViewModel @Inject constructor(
                 }
 
                 if (isMpvPlayback()) {
+                    val opticalDisc = isOpticalDiscPlayback(
+                        itemDetails, primaryMediaSource, mediaItem.localConfiguration?.uri
+                    )
+                    val source = scrubPreviewSource?.takeIf {
+                        !opticalDisc && sessionPlayMethod == PlayMethod.DIRECT_PLAY &&
+                            it.dataSourceFactory != null && supportsKeyframeScrub(it.uri)
+                    }
+                    val sourceSize = if (source == null) null else try {
+                        MpvSeekCache.probeSize(source)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        Log.w(TAG, "MPV seek cache probe failed: ${error.javaClass.simpleName}")
+                        null
+                    }
                     val selectedAudioStreamIndex = _preferredStreamIndexes.value.audioStreamIndex
                         ?: defaultAudioStreamIndex
                     val selectedSubtitleStreamIndex = MPVPlayer.resolvedSubtitleStreamIndex(
@@ -726,6 +751,14 @@ class PlayerViewModel @Inject constructor(
                                 "${primaryMediaSource?.supportsDirectStream} " +
                                 "requestPath=${mediaItem.localConfiguration?.uri?.path}"
                         )
+                        if (source != null && sourceSize != null) {
+                            mpvSeekCache = try {
+                                MpvSeekCache.open(source, sourceSize)
+                            } catch (error: Exception) {
+                                Log.w(TAG, "MPV seek cache unavailable: ${error.javaClass.simpleName}")
+                                null
+                            }
+                        }
                         player.load(
                             url = mediaItem.localConfiguration?.uri?.toString().orEmpty(),
                             requestHeaders = playbackRequest?.requestHeaders.orEmpty(),
@@ -742,21 +775,19 @@ class PlayerViewModel @Inject constructor(
                                 mpvExternalSubtitleUrls::get
                             ),
                             startPositionMs = playerStartPositionMs,
-                            opticalDiscPlayback = isOpticalDiscPlayback(
-                                itemDetails = itemDetails,
-                                mediaSource = primaryMediaSource,
-                                mediaUri = mediaItem.localConfiguration?.uri
-                            ),
+                            opticalDiscPlayback = opticalDisc,
                             startPlayback = startPlayback,
                             remoteHttpPlayback = MPVPlayer.isRemoteHttpPlayback(primaryMediaSource),
-                            bitrate = primaryMediaSource?.bitrate
+                            bitrate = primaryMediaSource?.bitrate,
+                            descriptor = mpvSeekCache?.descriptor
                         )
                     }
                     observePlaybackCachePolicy(context)
                 } else {
                     val scheme = mediaItem.localConfiguration?.uri?.scheme
                     if (streamingMediaSource != null && sessionPlayMethod == PlayMethod.DIRECT_PLAY &&
-                        (scheme == "http" || scheme == "https")
+                        (scheme == "http" || scheme == "https") &&
+                        mediaItem.localConfiguration?.uri?.let(::supportsKeyframeScrub) == true
                     ) {
                         // 转码和转封装共用服务端播放会话，不能并行读取两个进度。
                         val headers = playbackRequest?.requestHeaders.orEmpty()
@@ -1233,31 +1264,22 @@ class PlayerViewModel @Inject constructor(
     fun seekTo(position: Long, exact: Boolean = true) {
         cancelPendingSeek()
         val target = position.coerceAtLeast(0L)
+        val request = PendingSeek(target, exact)
         exoPlayer?.let { player ->
             val preloader = seekPreloader
-            val request = PendingSeek(target, exact)
-            // 接管预取从指定时间起播，关闭精准定位时继续使用播放器的关键帧跳转。
-            if (exact && preloader != null && player.isPlaying && player.isCurrentMediaItemSeekable &&
+            if (preloader != null && player.isCurrentMediaItemSeekable &&
                 !player.isCurrentMediaItemLive && player.duration > target && !isExoPositionBuffered(player, target)
             ) {
-                pendingSeek = request
-                seekPreloadJob = viewModelScope.launch {
-                    val ready = try {
-                        awaitSeekPreload(player, preloader, target)
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (error: Exception) {
-                        Log.w(TAG, "Seek preload unavailable: ${error.javaClass.simpleName}")
-                        false
-                    }
-                    if (pendingSeek !== request || exoPlayer !== player) return@launch
-                    pendingSeek = null
-                    seekPreloadJob = null
-                    if (ready && preloader.handOff(target)) {
+                preloadSeek(request, prepare = { awaitSeekPreload(player, preloader, target) }) { ready ->
+                    if (ready && exact && preloader.handOff(target)) {
                         playbackReporter.onPlaybackPositionDiscontinuity()
                     } else {
                         preloader.cancelPending()
-                        seekExoImmediately(player, request)
+                        if (ready || isExoPositionBuffered(player, target)) {
+                            seekExoImmediately(player, request)
+                        } else {
+                            markSeekFailed(request)
+                        }
                     }
                 }
             } else {
@@ -1265,42 +1287,149 @@ class PlayerViewModel @Inject constructor(
             }
             return
         }
-        mpvPlayer?.seekTo(target, exact)
-        _playerState.value = _playerState.value.copy(currentPosition = target)
-        if (_playerState.value.playWhenReady) {
-            mpvPlayer?.play()
+        val player = mpvPlayer ?: return
+        val cache = mpvSeekCache
+        if (cache != null && player.usesSeekCache && target < player.duration && !player.isPositionBuffered(target)) {
+            preloadSeek(request, prepare = { awaitMpvSeekPreload(player, cache, target) }) { ready ->
+                if (ready || player.isPositionBuffered(target)) {
+                    seekMpvImmediately(player, request)
+                } else {
+                    markSeekFailed(request)
+                }
+            }
+        } else {
+            seekMpvImmediately(player, request)
         }
+    }
+
+    private fun preloadSeek(
+        request: PendingSeek,
+        prepare: suspend () -> Boolean,
+        commit: (Boolean) -> Unit
+    ) {
+        pendingSeek = request
+        pendingSeekPositionMs = request.positionMs
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            val ready = try {
+                withTimeoutOrNull(SEEK_PRELOAD_TIMEOUT_MS) { prepare() }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(TAG, "Seek preload unavailable: ${error.javaClass.simpleName}")
+                false
+            }
+            if (pendingSeek !== request) return@launch
+            pendingSeekPositionMs = null
+            seekPreloadJob = null
+            try {
+                if (ready == null) {
+                    seekPreloader?.cancelPending()
+                    markSeekFailed(request)
+                } else {
+                    commit(ready)
+                }
+            } finally {
+                if (pendingSeek === request) pendingSeek = null
+            }
+        }
+        seekPreloadJob = job
+        job.start()
+    }
+
+    private fun markSeekFailed(request: PendingSeek) {
+        awaitingSeekDecision = true
+        failedSeek = request
     }
 
     private suspend fun awaitSeekPreload(
         player: ExoPlayer,
         preloader: ExoSeekPreloader,
         positionMs: Long
-    ): Boolean = withTimeoutOrNull(SEEK_PRELOAD_TIMEOUT_MS) {
+    ): Boolean {
         var ready: Deferred<Boolean>? = null
         var preloadedTracks = player.trackSelectionParameters
+        var preloadedDuration = 0L
         while (!isExoPositionBuffered(player, positionMs)) {
             val speed = player.playbackParameters.speed.coerceAtLeast(1f)
+            val duration = seekPreloadDuration(player.duration, positionMs, speed)
+            if (duration <= 0L) return false
             val tracks = player.trackSelectionParameters
-            val hasPlaybackReserve = !player.playWhenReady ||
-                (player.playbackState == Player.STATE_READY &&
-                    player.totalBufferedDuration >= (SEEK_PLAYBACK_RESERVE_MS * speed).toLong())
+            val reserve = minOf(
+                (SEEK_PLAYBACK_RESERVE_MS * speed).toLong(),
+                (player.duration - player.currentPosition).coerceAtLeast(0L)
+            )
+            val hasPlaybackReserve = !player.playWhenReady || player.playbackState == Player.STATE_ENDED ||
+                (player.playbackState == Player.STATE_READY && player.totalBufferedDuration >= reserve)
 
             // 主播放优先。缓冲见底或用户切换音轨时释放旧预取，有余量后再准备最新目标。
-            if (ready != null && (!hasPlaybackReserve || preloadedTracks != tracks)) {
+            if (ready != null && (preloadedTracks != tracks || preloadedDuration != duration ||
+                    (!hasPlaybackReserve && !ready.isCompleted))
+            ) {
                 preloader.cancelPending()
                 ready = null
             }
-            if (hasPlaybackReserve) {
-                val attempt = ready ?: preloader.start(positionMs, (SEEK_PRELOAD_BUFFER_MS * speed).toLong())
-                ready = attempt
+            if (ready == null && hasPlaybackReserve) {
+                ready = preloader.start(positionMs, duration)
                 preloadedTracks = tracks
-                if (attempt.isCompleted) return@withTimeoutOrNull attempt.await()
+                preloadedDuration = duration
             }
+            if (ready?.isCompleted == true) return ready.await()
             delay(SEEK_PRELOAD_POLL_MS)
         }
-        false
-    } == true
+        return false
+    }
+
+    private suspend fun awaitMpvSeekPreload(
+        player: MpvPlayerController,
+        cache: MpvSeekCache,
+        positionMs: Long
+    ): Boolean {
+        val speed = playbackSpeed.coerceAtLeast(1f)
+        val endMs = positionMs + seekPreloadDuration(player.duration, positionMs, speed)
+        val audioIndex = _preferredStreamIndexes.value.audioStreamIndex ?: defaultAudioStreamIndex
+        val audioOrdinal = when {
+            audioIndex == -1 -> null
+            audioIndex == null -> 0
+            else -> apiMediaStreams.orEmpty().filter { it.type.equals("Audio", true) }
+                .indexOfFirst { it.index == audioIndex }.coerceAtLeast(0)
+        }
+        val preload = viewModelScope.async {
+            try {
+                cache.preload(positionMs, endMs, audioOrdinal) {
+                    val current = player.currentPosition
+                    val reserve = minOf(
+                        (SEEK_PLAYBACK_RESERVE_MS * speed).toLong(),
+                        (player.duration - current).coerceAtLeast(0L)
+                    )
+                    !player.wantsPlayback || player.hasReachedEnd || player.bufferedPosition - current >= reserve
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(TAG, "MPV seek preload failed: ${error.javaClass.simpleName}")
+                false
+            }
+        }
+        try {
+            while (!preload.isCompleted) {
+                if (player.isPositionBuffered(positionMs)) return false
+                delay(SEEK_PRELOAD_POLL_MS)
+            }
+            return preload.await()
+        } finally {
+            preload.cancel()
+        }
+    }
+
+    private fun seekPreloadDuration(durationMs: Long, positionMs: Long, speed: Float): Long {
+        val desired = (SEEK_PRELOAD_BUFFER_MS * speed).toLong()
+        val cacheMiB = playerContext?.let { PlayerPreferences(it).getPlayerCacheSizeMb() } ?: 0
+        val bitrate = playbackSession.mediaSourceBitrateKbps ?: 0
+        // 高码率直链为主播放和 GOP 回溯保留约一半磁盘缓存。
+        val affordable = if (bitrate > 0 && cacheMiB > 0) (cacheMiB * 1024L * 1024L * 4 / bitrate)
+            .coerceAtLeast(2_000L) else desired
+        return minOf(desired, affordable, durationMs - positionMs)
+    }
 
     // bufferedPosition 只给出前向缓冲的末端，不能拿它判断任意已播放位置还在内存里。
     private fun isExoPositionBuffered(player: ExoPlayer, positionMs: Long): Boolean =
@@ -1318,11 +1447,36 @@ class PlayerViewModel @Inject constructor(
         _playerState.value = _playerState.value.copy(currentPosition = request.positionMs)
     }
 
+    private fun seekMpvImmediately(player: MpvPlayerController, request: PendingSeek) {
+        player.seekTo(request.positionMs, request.exact)
+        _playerState.value = _playerState.value.copy(currentPosition = request.positionMs)
+        playbackReporter.onPlaybackPositionDiscontinuity()
+    }
+
     fun cancelPendingSeek() {
         seekPreloadJob?.cancel()
         seekPreloadJob = null
         pendingSeek = null
+        pendingSeekPositionMs = null
+        failedSeek = null
+        awaitingSeekDecision = false
         seekPreloader?.cancelPending()
+    }
+
+    fun dismissSeekRequest() {
+        val wasPending = pendingSeek != null || failedSeek != null
+        cancelPendingSeek()
+        if (wasPending && (exoPlayer?.playbackState == Player.STATE_ENDED || mpvPlayer?.hasReachedEnd == true)) {
+            handlePlaybackCompleted()
+        }
+    }
+
+    fun jumpToFailedSeek() {
+        val request = failedSeek ?: return
+        cancelPendingSeek()
+        val exo = exoPlayer
+        if (exo != null) seekExoImmediately(exo, request)
+        else mpvPlayer?.let { seekMpvImmediately(it, request) }
     }
 
     fun play() {
@@ -2181,6 +2335,7 @@ class PlayerViewModel @Inject constructor(
         seekPreloader = null
         mpvPlayer?.release()
         mpvPlayer = null
+        mpvSeekCache = null
         spatializerHelper?.cleanup()
         spatializerHelper = null
         playbackSession = PlaybackSessionContext()
@@ -2351,6 +2506,7 @@ class PlayerViewModel @Inject constructor(
 
             override fun onReady() {
                 val wasPlaying = _playerState.value.isPlaying
+                hasHandledPlaybackCompletion = false
                 _playerState.value = _playerState.value.copy(
                     isLoading = false,
                     isPlaying = isPlayingNow(),
@@ -2372,7 +2528,7 @@ class PlayerViewModel @Inject constructor(
                     playWhenReady = false,
                     isLoading = false
                 )
-                handlePlaybackCompleted()
+                if (pendingSeek == null && !awaitingSeekDecision) handlePlaybackCompleted()
             }
         }
     }
@@ -2838,14 +2994,7 @@ class PlayerViewModel @Inject constructor(
 
             if (playbackState == Player.STATE_ENDED) {
                 seekPreloader?.finishHandoff()
-                val request = pendingSeek
-                val player = exoPlayer
-                if (request != null && player != null) {
-                    cancelPendingSeek()
-                    seekExoImmediately(player, request)
-                } else {
-                    handlePlaybackCompleted()
-                }
+                if (pendingSeek == null && !awaitingSeekDecision) handlePlaybackCompleted()
             }
         }
 

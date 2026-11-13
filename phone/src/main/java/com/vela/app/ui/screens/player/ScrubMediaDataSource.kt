@@ -30,7 +30,10 @@ import java.io.IOException
 internal class ScrubMediaDataSource(
     factory: DataSource.Factory,
     private val uri: Uri,
-    private val cacheKey: String?
+    private val cacheKey: String?,
+    knownSize: Long? = null,
+    private val rangeBytes: Long? = null,
+    private val beforeRead: () -> Unit = {}
 ) : MediaDataSource() {
     private val source: DataSource = factory.createDataSource()
     /** 当前是否有已打开的顺序读取流。 */
@@ -38,9 +41,10 @@ internal class ScrubMediaDataSource(
     /** 顺序流下一次读取对应的文件偏移，单位字节；始终落在块边界上。 */
     private var streamPosition = 0L
     /** 文件总长度，单位字节。第一次打开后确定；服务端没有给出时为 -1。 */
-    private var totalSize = SIZE_UNKNOWN
+    private var totalSize = knownSize ?: SIZE_UNKNOWN
     /** 是否已经尝试过解析文件长度。 */
-    private var sizeResolved = false
+    private var sizeResolved = knownSize != null
+    private var streamEnd = Long.MAX_VALUE
     /** 最近读过的块，键是块序号；按访问顺序淘汰。最后一块可能短于 [BLOCK_SIZE]。 */
     private val blocks = object : LinkedHashMap<Long, ByteArray>(MAX_BLOCKS, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, ByteArray>): Boolean {
@@ -101,10 +105,17 @@ internal class ScrubMediaDataSource(
 
     /** 从当前流位置读满一块；遇到文件末尾时返回实际读到的部分。 */
     private fun readNextBlock(): ByteArray {
+        if (streamPosition == streamEnd && streamPosition < totalSize) openAt(streamPosition)
+        beforeRead()
         val data = ByteArray(BLOCK_SIZE)
         var read = 0
         while (read < BLOCK_SIZE) {
-            val count = source.read(data, read, BLOCK_SIZE - read)
+            val count = try {
+                source.read(data, read, BLOCK_SIZE - read)
+            } catch (error: IOException) {
+                closeStream()
+                throw error
+            }
             if (count == C.RESULT_END_OF_INPUT) break
             read += count
         }
@@ -121,10 +132,16 @@ internal class ScrubMediaDataSource(
      */
     private fun openAt(position: Long) {
         closeStream()
+        beforeRead()
         val spec = DataSpec.Builder()
             .setUri(uri)
             .setPosition(position)
             .apply { cacheKey?.let { setKey(it) } }
+            .apply {
+                // 限制单次读取的缓存写入范围，让主播放和预读可以同时写入不相交的区间。
+                rangeBytes?.let { setLength(minOf(it, totalSize - position)) }
+                if (rangeBytes != null) setFlags(DataSpec.FLAG_ALLOW_CACHE_FRAGMENTATION)
+            }
             .build()
         val remaining = try {
             source.open(spec)
@@ -134,6 +151,7 @@ internal class ScrubMediaDataSource(
         }
         opened = true
         streamPosition = position
+        streamEnd = if (spec.length > 0) position + spec.length else Long.MAX_VALUE
         if (!sizeResolved) {
             sizeResolved = true
             totalSize = if (remaining == C.LENGTH_UNSET.toLong()) SIZE_UNKNOWN else position + remaining

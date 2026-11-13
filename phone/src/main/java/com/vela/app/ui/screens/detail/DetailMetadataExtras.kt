@@ -2,10 +2,7 @@ package com.vela.app.ui.screens.detail
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -25,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -59,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.vela.app.ui.components.common.ImageViewer
 import com.vela.data.model.BaseItemDto
 import com.vela.data.model.ChapterInfo
 import com.vela.data.model.ExternalUrl
@@ -477,13 +474,22 @@ internal fun PhotosSection(
     }
 
     previewIndex?.let { index ->
-        PhotoPreviewDialog(
-            itemId = itemId,
-            images = images,
-            initialIndex = index,
-            mediaRepository = mediaRepository,
+        ImageViewer(
+            pageCount = images.size,
+            description = stringResource(R.string.detail_photos),
+            initialPage = index,
             onDismiss = { previewIndex = null }
-        )
+        ) { page ->
+            val image = images[page]
+            rememberImageUrl(
+                itemId = itemId,
+                imageType = image.imageType,
+                width = 2560,
+                quality = 95,
+                imageTag = image.imageTag,
+                mediaRepository = mediaRepository
+            )
+        }
     }
 }
 
@@ -520,95 +526,6 @@ private fun PhotoCard(
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
-        }
-    }
-}
-
-@Composable
-private fun PhotoPreviewDialog(
-    itemId: String,
-    images: List<DetailAlbumImage>,
-    initialIndex: Int,
-    mediaRepository: MediaRepository,
-    onDismiss: () -> Unit
-) {
-    if (images.isEmpty()) return
-    val context = LocalContext.current
-    val pagerState = rememberPagerState(
-        initialPage = initialIndex.coerceIn(0, images.lastIndex),
-        pageCount = { images.size }
-    )
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
-        )
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-        ) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize()
-            ) { page ->
-                val image = images[page]
-                val imageUrl = rememberImageUrl(
-                    itemId = itemId,
-                    imageType = image.imageType,
-                    width = 1920,
-                    height = null,
-                    quality = 95,
-                    imageTag = image.imageTag,
-                    mediaRepository = mediaRepository
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onDismiss
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (!imageUrl.isNullOrBlank()) {
-                        JellyfinPosterImage(
-                            context = context,
-                            imageUrl = imageUrl,
-                            contentDescription = stringResource(R.string.detail_photos),
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Fit
-                        )
-                    }
-                }
-            }
-            if (images.size > 1) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 28.dp),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    repeat(images.size) { index ->
-                        Box(
-                            modifier = Modifier
-                                .size(if (index == pagerState.currentPage) 7.dp else 6.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (index == pagerState.currentPage) {
-                                        Color.White
-                                    } else {
-                                        Color.White.copy(alpha = 0.35f)
-                                    }
-                                )
-                        )
-                    }
-                }
-            }
         }
     }
 }

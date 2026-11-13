@@ -5,10 +5,12 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.system.Os
 import android.util.Log
 import android.view.Surface
+import androidx.annotation.MainThread
 import androidx.media3.common.util.UnstableApi
 import com.vela.app.player.vr.VrFlattenFilter
 import com.vela.app.player.vr.VrLayout
@@ -79,13 +81,20 @@ class MpvPlayerController(
     @Volatile
     private var cacheAheadMs: Long = 0L
     @Volatile
+    var hasReachedEnd = false
+        private set
+    @Volatile
     private var sourceBitrate: Int? = null
+    @Volatile
     private var playWhenReady = true
     private var pendingSubtitleUrls: List<String> = emptyList()
     private var pendingSelectedSubtitleUrl: String? = null
     private var pendingSubtitleTrackId: String? = null
     private var preferFastSeek = false
     private var pendingRemoteHttpPlayback = false
+    @Volatile
+    private var playbackDescriptor: ParcelFileDescriptor? = null
+    private var descriptorFallbackCommand: Array<String>? = null
     private var surfaceWidth = 0
     private var surfaceHeight = 0
     private var subtitleFontFamily: String = "sans-serif"
@@ -154,6 +163,12 @@ class MpvPlayerController(
     val isPlaying: Boolean
         get() = ready && playWhenReady && !pausedForCache
 
+    val wantsPlayback: Boolean
+        get() = playWhenReady
+
+    val usesSeekCache: Boolean
+        get() = playbackDescriptor != null
+
     val currentPosition: Long
         get() = positionMs
 
@@ -162,6 +177,9 @@ class MpvPlayerController(
 
     val bufferedPosition: Long
         get() = (positionMs + cacheAheadMs).coerceAtLeast(positionMs)
+
+    fun isPositionBuffered(positionMs: Long): Boolean =
+        positionMs in currentPosition..bufferedPosition
 
     init {
         MPVLib.create(appContext)
@@ -177,6 +195,7 @@ class MpvPlayerController(
         MPVLib.observeProperty("container-fps", MpvFormat.MPV_FORMAT_DOUBLE)
     }
 
+    @MainThread
     fun load(
         url: String,
         requestHeaders: Map<String, String>,
@@ -188,12 +207,18 @@ class MpvPlayerController(
         startPlayback: Boolean,
         opticalDiscPlayback: Boolean,
         remoteHttpPlayback: Boolean = false,
-        bitrate: Int? = null
+        bitrate: Int? = null,
+        descriptor: ParcelFileDescriptor? = null
     ) {
-        if (released) return
+        if (released) {
+            descriptor?.close()
+            return
+        }
+        playbackDescriptor = descriptor
         sourceBitrate = bitrate
         ready = false
         pausedForCache = false
+        hasReachedEnd = false
         positionMs = startPositionMs?.coerceAtLeast(0L) ?: 0L
         cacheAheadMs = 0L
         restartStartedAtMs = SystemClock.elapsedRealtime()
@@ -232,7 +257,9 @@ class MpvPlayerController(
                 add("stream-buffer-size=1MiB")
             }
         }
-        val loadCommand = arrayOf("loadfile", url, "replace", "-1", loadOptions.joinToString(","))
+        val input = descriptor?.let { "fd://${it.fd}" } ?: url
+        val loadCommand = arrayOf("loadfile", input, "replace", "-1", loadOptions.joinToString(","))
+        descriptorFallbackCommand = if (descriptor == null) null else loadCommand.copyOf().apply { this[1] = url }
         MPVLib.command(loadCommand)
         applyCachePolicy(asOptions = false)
         Log.i(
@@ -380,6 +407,7 @@ class MpvPlayerController(
         if (released) return
         this.positionMs = positionMs.coerceAtLeast(0L)
         ready = false
+        hasReachedEnd = false
         cacheAheadMs = 0L
         restartStartedAtMs = SystemClock.elapsedRealtime()
         listener.onBuffering()
@@ -658,6 +686,8 @@ class MpvPlayerController(
         lifecycleExecutor.execute {
             runCatching { MPVLib.detachSurface() }
             runCatching { MPVLib.destroy() }
+            runCatching { playbackDescriptor?.close() }
+            playbackDescriptor = null
         }
     }
 
@@ -799,14 +829,26 @@ class MpvPlayerController(
                     listener.onReady()
                 }
             }
-            "eof-reached" -> if (value) listener.onEnded()
+            "eof-reached" -> {
+                hasReachedEnd = value
+                if (value) listener.onEnded()
+            }
         }
     }
 
     override fun event(eventId: Int) {
         when (eventId) {
-            MpvEvent.MPV_EVENT_END_FILE -> synchronized(brokenPtsDetector) { canRepairBrokenPts = false }
+            MpvEvent.MPV_EVENT_END_FILE -> {
+                synchronized(brokenPtsDetector) { canRepairBrokenPts = false }
+                descriptorFallbackCommand?.let { command ->
+                    descriptorFallbackCommand = null
+                    runCatching { playbackDescriptor?.close() }
+                    playbackDescriptor = null
+                    MPVLib.command(command)
+                }
+            }
             MpvEvent.MPV_EVENT_FILE_LOADED -> {
+                descriptorFallbackCommand = null
                 synchronized(brokenPtsDetector) { canRepairBrokenPts = true }
                 durationMs = (MPVLib.getPropertyDouble("duration")?.times(1000.0))
                     ?.toLong()

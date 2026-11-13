@@ -305,13 +305,17 @@ interface MediaServerApi {
         itemId: String,
         imageType: String,
         providerName: String? = null,
-        includeAllLanguages: Boolean = true
+        includeAllLanguages: Boolean = true,
+        startIndex: Int? = null,
+        limit: Int? = null
     ): ApiResponse<com.vela.data.model.RemoteImageResult>
 
     suspend fun getExternalIdInfos(itemId: String): ApiResponse<List<com.vela.data.model.ExternalIdInfo>>
 
     /** 条目当前的全部图片（含多张背景图的索引）。 */
     suspend fun getItemImages(itemId: String): ApiResponse<List<com.vela.data.model.ItemImageInfo>>
+
+    suspend fun updateItemImageIndex(itemId: String, imageType: String, imageIndex: Int, newIndex: Int): ApiResponse<Unit>
 
     suspend fun deleteItemImage(itemId: String, imageType: String, imageIndex: Int?): ApiResponse<Unit>
 

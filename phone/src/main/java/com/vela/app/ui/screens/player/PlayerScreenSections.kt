@@ -25,13 +25,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -463,7 +466,9 @@ internal fun BoxScope.PlayerOverlayHost(
         activeCreditsSegment?.startMs,
         activeCreditsSegment?.endMs,
         canWatchNextEpisode,
-        dismissedCreditsPrompt
+        dismissedCreditsPrompt,
+        viewModel.pendingSeekPositionMs,
+        viewModel.seekPreloadErrorPositionMs
     ) {
         mutableFloatStateOf(0f)
     }
@@ -477,6 +482,9 @@ internal fun BoxScope.PlayerOverlayHost(
         nextEpisodeButtonProgress = 0f
 
         if (activeCreditsSegment == null || !canWatchNextEpisode || dismissedCreditsPrompt) {
+            return@LaunchedEffect
+        }
+        if (viewModel.pendingSeekPositionMs != null || viewModel.seekPreloadErrorPositionMs != null) {
             return@LaunchedEffect
         }
         // 「自动播放下一集」关闭时只显示「下一集」按钮，不倒计时自动切换。
@@ -504,6 +512,15 @@ internal fun BoxScope.PlayerOverlayHost(
             showLoadingOverlay = false
         }
     }
+    val pendingSeek = viewModel.pendingSeekPositionMs
+    var showSeekPreload by remember(pendingSeek) { mutableStateOf(false) }
+    LaunchedEffect(pendingSeek) {
+        if (pendingSeek != null) {
+            delay(350)
+            showSeekPreload = true
+        }
+    }
+    val failedSeek = viewModel.seekPreloadErrorPositionMs
 
     // 控制层整体淡入淡出；顶栏、底栏、两侧和中央按各自方向做位移/缩放，由 ControlsOverlay 内部声明。
     val controlsMotion = MaterialTheme.velaMotion
@@ -718,6 +735,39 @@ internal fun BoxScope.PlayerOverlayHost(
             },
             modifier = Modifier.fillMaxSize()
         )
+    }
+
+    if ((showSeekPreload && pendingSeek != null) || failedSeek != null) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .safeDrawingPadding()
+                .padding(top = 64.dp)
+                .background(Color.Black.copy(alpha = 0.76f), RoundedCornerShape(24.dp))
+                .padding(start = 14.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (pendingSeek != null) {
+                CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                Text(stringResource(R.string.player_seek_preloading, formatPlaybackTime(pendingSeek)), color = Color.White)
+                TextButton(onClick = viewModel::dismissSeekRequest) {
+                    Text(stringResource(R.string.cancel), color = Color.White)
+                }
+            } else if (failedSeek != null) {
+                Text(
+                    stringResource(R.string.player_seek_preload_failed, formatPlaybackTime(failedSeek)),
+                    color = Color.White,
+                    modifier = Modifier.padding(vertical = 10.dp)
+                )
+                TextButton(onClick = viewModel::jumpToFailedSeek) {
+                    Text(stringResource(R.string.player_seek_now), color = Color.White)
+                }
+                TextButton(onClick = viewModel::dismissSeekRequest) {
+                    Text(stringResource(R.string.cancel), color = Color.White)
+                }
+            }
+        }
     }
 
     AnimatedVisibility(

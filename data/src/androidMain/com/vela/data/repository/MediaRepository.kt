@@ -976,13 +976,17 @@ class MediaRepository(private val context: Context) {
         itemId: String,
         imageType: com.vela.data.model.RemoteImageType,
         providerName: String? = null,
-        includeAllLanguages: Boolean = false
+        includeAllLanguages: Boolean = false,
+        startIndex: Int? = null,
+        limit: Int? = null
     ): Result<com.vela.data.model.RemoteImageResult> = remoteMetadataCall("load remote images") { api ->
         api.getRemoteImages(
             itemId = itemId,
             imageType = imageType.apiValue,
             providerName = providerName,
-            includeAllLanguages = includeAllLanguages
+            includeAllLanguages = includeAllLanguages,
+            startIndex = startIndex,
+            limit = limit
         )
     }.map { it ?: com.vela.data.model.RemoteImageResult() }
 
@@ -1008,6 +1012,15 @@ class MediaRepository(private val context: Context) {
 
     suspend fun getItemImages(itemId: String): Result<List<com.vela.data.model.ItemImageInfo>> =
         remoteMetadataCall("load item images") { api -> api.getItemImages(itemId) }.map { it.orEmpty() }
+
+    suspend fun updateItemImageIndex(
+        itemId: String,
+        imageType: String,
+        imageIndex: Int,
+        newIndex: Int
+    ): Result<Unit> = remoteMetadataCall("reorder images") { api ->
+        api.updateItemImageIndex(itemId, imageType, imageIndex, newIndex)
+    }.map { }
 
     suspend fun deleteItemImage(itemId: String, imageType: String, imageIndex: Int?): Result<Unit> =
         remoteMetadataCall("delete image") { api -> api.deleteItemImage(itemId, imageType, imageIndex) }.map { }

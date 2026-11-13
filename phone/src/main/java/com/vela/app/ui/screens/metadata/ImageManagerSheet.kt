@@ -2,6 +2,8 @@ package com.vela.app.ui.screens.metadata
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,12 +38,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -57,8 +62,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -74,6 +79,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.vela.app.ui.components.common.ImageViewer
 import com.vela.data.model.BaseItemDto
 import com.vela.data.model.ItemImageInfo
 import com.vela.data.model.RemoteImageInfo
@@ -82,6 +88,7 @@ import com.vela.data.model.RemoteImageType
 import com.vela.data.repository.MediaRepository
 import com.vela.shared.R
 import com.vela.shared.playback.UserDataRefreshSignals
+import com.vela.shared.util.image.rememberImageUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -89,6 +96,7 @@ import java.util.Locale
 
 /** 单张图片超过该大小（字节）不上传，避免 Base64 后请求体过大。 */
 private const val MAX_UPLOAD_BYTES = 20L * 1024 * 1024
+private const val REMOTE_IMAGE_PAGE_SIZE = 30
 
 /** “图片”分区可选的类型；背景图单独成区（可有多张）。 */
 private val SingleImageTypes = listOf(
@@ -105,7 +113,7 @@ private data class RemoteBrowse(val types: List<RemoteImageType>, val initial: R
 
 /**
  * 修改图片，对应 Emby/Jellyfin 网页端的“修改图片”页：
- * - 按“图片”“背景图”分区列出条目当前的图片（尺寸、类型），每张可远程搜索替换或删除；
+ * - 按“图片”“背景图”分区列出条目当前的图片，背景图可调整顺序；
  * - 分区标题旁可远程搜索（各提供方，按类型/提供方/语言筛选）或上传本地图片。
  *
  * 所有改动成功后重新读取图片列表，并广播刷新信号让详情页更新。
@@ -121,9 +129,10 @@ fun ImageManagerSheet(
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var browse by remember { mutableStateOf<RemoteBrowse?>(null) }
-    var reloadKey by remember { mutableIntStateOf(0) }
     var images by remember { mutableStateOf<List<ItemImageInfo>?>(null) }
     var loadError by remember { mutableStateOf<Throwable?>(null) }
+    var reloadKey by remember { mutableIntStateOf(0) }
+    var imageRevision by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     var busy by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<ItemImageInfo?>(null) }
     var choosingUploadType by remember { mutableStateOf(false) }
@@ -132,41 +141,7 @@ fun ImageManagerSheet(
     val tooLargeMessage = stringResource(R.string.metadata_images_too_large)
     val failedTemplate = stringResource(R.string.metadata_error_generic, "%s")
 
-    fun onMutated(result: Result<Unit>) {
-        scope.launch {
-            result.onSuccess {
-                UserDataRefreshSignals.notifyUserDataChanged(itemId)
-                reloadKey++
-                snackbar.showSnackbar(updatedMessage)
-            }.onFailure {
-                snackbar.showSnackbar(failedTemplate.replace("%s", it.message.orEmpty()))
-            }
-        }
-    }
-
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
-        val type = uploadType
-        busy = true
-        scope.launch {
-            val payload = withContext(Dispatchers.IO) { readImage(context, uri) }
-            if (payload == null) {
-                busy = false
-                snackbar.showSnackbar(tooLargeMessage)
-                return@launch
-            }
-            val result = mediaRepository.uploadItemImage(itemId, type.apiValue, payload.first, payload.second)
-            busy = false
-            onMutated(result)
-        }
-    }
-
-    fun startUpload(type: RemoteImageType) {
-        uploadType = type
-        picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-    }
-
-    LaunchedEffect(reloadKey) {
+    suspend fun reloadImages() {
         mediaRepository.getItemImages(itemId)
             .onSuccess {
                 images = it
@@ -175,13 +150,65 @@ fun ImageManagerSheet(
             .onFailure { loadError = it }
     }
 
+    fun mutate(operation: suspend () -> Result<Unit>) {
+        if (busy) return
+        busy = true
+        scope.launch {
+            val result = try {
+                operation().also { outcome ->
+                    if (outcome.isSuccess) {
+                        UserDataRefreshSignals.notifyUserDataChanged(itemId)
+                        browse = null
+                    }
+                    reloadImages()
+                    imageRevision = SystemClock.elapsedRealtime()
+                }
+            } finally {
+                busy = false
+            }
+            snackbar.currentSnackbarData?.dismiss()
+            snackbar.showSnackbar(result.fold(
+                onSuccess = { updatedMessage },
+                onFailure = { failedTemplate.replace("%s", it.message.orEmpty()) }
+            ))
+        }
+    }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        val type = uploadType
+        mutate {
+            val payload = withContext(Dispatchers.IO) { readImage(context, uri) }
+            if (payload == null) Result.failure(IllegalArgumentException(tooLargeMessage))
+            else {
+                mediaRepository.uploadItemImage(itemId, type.apiValue, payload.first, payload.second)
+            }
+        }
+    }
+
+    fun startUpload(type: RemoteImageType) {
+        uploadType = type
+        picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
+
+    LaunchedEffect(itemId, reloadKey) { reloadImages() }
+
+    fun back() {
+        if (busy) return
+        if (browse != null) browse = null else onDismiss()
+    }
+    // 兼容系统将返回手势发给活动的情况，避免外层导航先弹出详情页。
+    BackHandler { back() }
+
     val currentBrowse = browse
     MetadataSheetScaffold(
         title = stringResource(
             if (currentBrowse == null) R.string.item_action_edit_images else R.string.metadata_images_search_title
         ),
-        onDismiss = onDismiss,
-        onBack = currentBrowse?.let { { browse = null } },
+        onDismiss = ::back,
+        onBack = currentBrowse?.let { ::back },
+        onSystemBack = ::back,
+        canDismiss = !busy && currentBrowse == null,
         actions = {
             if (busy) {
                 CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
@@ -204,20 +231,28 @@ fun ImageManagerSheet(
                         itemId = itemId,
                         images = images,
                         loadError = loadError,
+                        imageRevision = imageRevision,
+                        enabled = !busy && loadError == null,
                         mediaRepository = mediaRepository,
+                        onRetry = { reloadKey++ },
                         onSearch = { types, initial -> browse = RemoteBrowse(types, initial) },
                         onUploadSingle = { choosingUploadType = true },
                         onUploadBackdrop = { startUpload(RemoteImageType.Backdrop) },
-                        onDelete = { pendingDelete = it }
+                        onDelete = { pendingDelete = it },
+                        onMove = { image, newIndex ->
+                            val type = image.imageType ?: return@CurrentImagesPage
+                            val index = image.imageIndex ?: return@CurrentImagesPage
+                            mutate { mediaRepository.updateItemImageIndex(itemId, type, index, newIndex) }
+                        }
                     )
                 } else {
                     RemoteImagesPage(
                         itemId = itemId,
                         browse = page,
                         mediaRepository = mediaRepository,
-                        onApplied = { result ->
-                            if (result.isSuccess) browse = null
-                            onMutated(result)
+                        applying = busy,
+                        onApply = { type, image ->
+                            mutate { mediaRepository.downloadRemoteImage(itemId, type, image) }
                         }
                     )
                 }
@@ -235,15 +270,12 @@ fun ImageManagerSheet(
             confirmButton = {
                 TextButton(onClick = {
                     pendingDelete = null
-                    busy = true
-                    scope.launch {
-                        val result = mediaRepository.deleteItemImage(
+                    mutate {
+                        mediaRepository.deleteItemImage(
                             itemId = itemId,
                             imageType = image.imageType.orEmpty(),
                             imageIndex = image.imageIndex
                         )
-                        busy = false
-                        onMutated(result)
                     }
                 }) {
                     Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
@@ -347,15 +379,24 @@ private fun CurrentImagesPage(
     itemId: String,
     images: List<ItemImageInfo>?,
     loadError: Throwable?,
+    imageRevision: Long,
+    enabled: Boolean,
     mediaRepository: MediaRepository,
+    onRetry: () -> Unit,
     onSearch: (List<RemoteImageType>, RemoteImageType) -> Unit,
     onUploadSingle: () -> Unit,
     onUploadBackdrop: () -> Unit,
-    onDelete: (ItemImageInfo) -> Unit
+    onDelete: (ItemImageInfo) -> Unit,
+    onMove: (ItemImageInfo, Int) -> Unit
 ) {
     when {
-        images == null && loadError != null -> {
-            CenteredBox { StatusText(errorText(loadError)) }
+        loadError != null -> {
+            CenteredBox {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    StatusText(errorText(loadError))
+                    TextButton(onClick = onRetry) { Text(stringResource(R.string.image_action_retry)) }
+                }
+            }
             return
         }
         images == null -> {
@@ -363,11 +404,17 @@ private fun CurrentImagesPage(
             return
         }
     }
-    val all = images.orEmpty()
+    val all = images.orEmpty().filter { !it.imageType.isNullOrBlank() }
     val backdrops = all.filter { it.imageType.equals(RemoteImageType.Backdrop.apiValue, true) }
         .sortedBy { it.imageIndex ?: 0 }
-    val singles = all.filterNot { it.imageType.equals(RemoteImageType.Backdrop.apiValue, true) }
+    val singles = all.filterNot {
+        it.imageType.equals(RemoteImageType.Backdrop.apiValue, true) || it.imageType.equals("Chapter", true)
+    }
         .sortedBy { type -> SingleImageTypes.indexOfFirst { it.apiValue.equals(type.imageType, true) }.let { if (it < 0) 99 else it } }
+    val imageGroups = all.filter { it.imageIndex != null }
+        .groupBy { it.imageType?.lowercase(Locale.ROOT) }
+        .mapValues { (_, group) -> group.sortedBy { it.imageIndex } }
+    var preview by remember { mutableStateOf<ItemImageInfo?>(null) }
     val landscape = LocalConfiguration.current.screenWidthDp > LocalConfiguration.current.screenHeightDp
 
     LazyVerticalGrid(
@@ -381,7 +428,8 @@ private fun CurrentImagesPage(
             SectionHeader(
                 title = stringResource(R.string.metadata_images_section_images),
                 onSearch = { onSearch(SingleImageTypes, RemoteImageType.Primary) },
-                onUpload = onUploadSingle
+                onUpload = onUploadSingle,
+                enabled = enabled
             )
         }
         if (singles.isEmpty()) {
@@ -389,15 +437,23 @@ private fun CurrentImagesPage(
                 StatusText(stringResource(R.string.metadata_images_none))
             }
         }
-        items(singles, key = { "img:${it.imageType}:${it.imageIndex}:${it.imageTag}" }) { image ->
+        items(singles, key = { "img:${it.imageType}:${it.imageIndex}:${it.path}" }) { image ->
+            val group = imageGroups[image.imageType?.lowercase(Locale.ROOT)].orEmpty()
+            val position = group.indexOf(image)
             val type = remoteImageTypeOf(image.imageType)
             CurrentImageCard(
                 itemId = itemId,
                 image = image,
                 label = type?.label() ?: image.imageType.orEmpty(),
                 mediaRepository = mediaRepository,
+                imageRevision = imageRevision,
+                enabled = enabled,
+                onPreview = { preview = image },
                 onSearch = type?.let { { onSearch(SingleImageTypes, it) } },
-                onDelete = { onDelete(image) }
+                onDelete = { onDelete(image) },
+                onMoveEarlier = group.getOrNull(position - 1)?.imageIndex?.let { { onMove(image, it) } },
+                onMoveLater = group.getOrNull(position + 1)?.imageIndex
+                    ?.takeIf { position >= 0 }?.let { { onMove(image, it) } }
             )
         }
         item(key = "header:backdrops", span = { GridItemSpan(maxLineSpan) }) {
@@ -405,6 +461,7 @@ private fun CurrentImagesPage(
                 title = stringResource(R.string.metadata_image_backdrop),
                 onSearch = { onSearch(listOf(RemoteImageType.Backdrop), RemoteImageType.Backdrop) },
                 onUpload = onUploadBackdrop,
+                enabled = enabled,
                 modifier = Modifier.padding(top = 12.dp)
             )
         }
@@ -413,15 +470,28 @@ private fun CurrentImagesPage(
                 StatusText(stringResource(R.string.metadata_images_none))
             }
         }
-        items(backdrops, key = { "bd:${it.imageIndex}:${it.imageTag}" }) { image ->
+        itemsIndexed(backdrops, key = { index, image -> "bd:${image.imageIndex ?: index}:${image.path}" }) { position, image ->
             CurrentImageCard(
                 itemId = itemId,
                 image = image,
                 label = stringResource(R.string.metadata_image_backdrop),
                 mediaRepository = mediaRepository,
-                onSearch = { onSearch(listOf(RemoteImageType.Backdrop), RemoteImageType.Backdrop) },
-                onDelete = { onDelete(image) }
+                imageRevision = imageRevision,
+                enabled = enabled,
+                onPreview = { preview = image },
+                onDelete = { onDelete(image) },
+                onMoveEarlier = backdrops.getOrNull(position - 1)?.imageIndex?.let { { onMove(image, it) } },
+                onMoveLater = backdrops.getOrNull(position + 1)?.imageIndex?.let { { onMove(image, it) } }
             )
+        }
+    }
+    preview?.let { image ->
+        ImageViewer(
+            pageCount = 1,
+            description = remoteImageTypeOf(image.imageType)?.label() ?: image.imageType,
+            onDismiss = { preview = null }
+        ) {
+            rememberManagedImageUrl(itemId, image, 2560, imageRevision, mediaRepository)
         }
     }
 }
@@ -431,6 +501,7 @@ private fun SectionHeader(
     title: String,
     onSearch: () -> Unit,
     onUpload: () -> Unit,
+    enabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -438,14 +509,36 @@ private fun SectionHeader(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = modifier.padding(top = 8.dp)
     ) {
-        Text(text = title, style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.width(4.dp))
-        FilledTonalIconButton(onClick = onSearch) {
-            Icon(Icons.Rounded.Search, contentDescription = stringResource(R.string.metadata_images_search_title))
+        Text(text = title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        FilledTonalButton(onClick = onSearch, enabled = enabled) {
+            Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(stringResource(R.string.metadata_images_search_title))
         }
-        FilledTonalIconButton(onClick = onUpload) {
+        FilledTonalIconButton(onClick = onUpload, enabled = enabled) {
             Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.metadata_images_upload_type))
         }
+    }
+}
+
+private val ItemImageInfo.apiPath: String
+    get() = imageType.orEmpty() + (imageIndex?.let { "/$it" } ?: "")
+
+@Composable
+private fun rememberManagedImageUrl(
+    itemId: String,
+    image: ItemImageInfo,
+    width: Int,
+    imageRevision: Long,
+    mediaRepository: MediaRepository
+): String? {
+    val url = rememberImageUrl(
+        itemId, image.apiPath, width = width, quality = if (width > 480) 95 else 85,
+        imageTag = image.imageTag, mediaRepository = mediaRepository
+    ) ?: return null
+    // Emby 的图片清单可能没有 tag。排序或替换后，同一索引需要用新 URL 读取。
+    return if (!image.imageTag.isNullOrBlank()) url else remember(url, imageRevision) {
+        Uri.parse(url).buildUpon().appendQueryParameter("velaImageRevision", imageRevision.toString()).build().toString()
     }
 }
 
@@ -459,22 +552,16 @@ private fun CurrentImageCard(
     image: ItemImageInfo,
     label: String,
     mediaRepository: MediaRepository,
-    onSearch: (() -> Unit)?,
-    onDelete: () -> Unit
+    imageRevision: Long,
+    enabled: Boolean,
+    onPreview: () -> Unit,
+    onSearch: (() -> Unit)? = null,
+    onDelete: () -> Unit,
+    onMoveEarlier: (() -> Unit)? = null,
+    onMoveLater: (() -> Unit)? = null
 ) {
-    val path = buildString {
-        append(image.imageType.orEmpty())
-        image.imageIndex?.let { append('/').append(it) }
-    }
-    val url by produceState<String?>(null, itemId, path, image.imageTag) {
-        value = mediaRepository.getImageUrlString(
-            itemId = itemId,
-            imageType = path,
-            width = 480,
-            quality = 85,
-            imageTag = image.imageTag
-        )
-    }
+    val url = rememberManagedImageUrl(itemId, image, 480, imageRevision, mediaRepository)
+    val index = image.imageIndex
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -485,6 +572,11 @@ private fun CurrentImageCard(
                     .fillMaxWidth()
                     .aspectRatio(4f / 3f)
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .clickable(
+                        enabled = url != null && enabled,
+                        onClickLabel = stringResource(R.string.image_viewer_open),
+                        onClick = onPreview
+                    )
             ) {
                 url?.let {
                     AsyncImage(
@@ -511,12 +603,26 @@ private fun CurrentImageCard(
             }
             Row {
                 if (onSearch != null) {
-                    IconButton(onClick = onSearch) {
+                    IconButton(onClick = onSearch, enabled = enabled) {
                         Icon(Icons.Rounded.Search, contentDescription = stringResource(R.string.metadata_images_search_title))
                     }
                 }
-                IconButton(onClick = onDelete) {
+                IconButton(onClick = onDelete, enabled = enabled) {
                     Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.delete))
+                }
+            }
+            if (index != null && (onMoveEarlier != null || onMoveLater != null)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { onMoveEarlier?.invoke() }, enabled = enabled && onMoveEarlier != null) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.metadata_images_move_earlier))
+                    }
+                    Text(
+                        text = (index + 1).toString(),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    IconButton(onClick = { onMoveLater?.invoke() }, enabled = enabled && onMoveLater != null) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowForward, stringResource(R.string.metadata_images_move_later))
+                    }
                 }
             }
         }
@@ -524,7 +630,7 @@ private fun CurrentImageCard(
 }
 
 /**
- * 远程图片搜索页：按类型、提供方、是否包含所有语言筛选，点选后由服务端下载替换。
+ * 远程图片搜索页：按类型、提供方、是否包含所有语言筛选，点选后由服务端下载。
  * 与网页端一致，默认只返回条目语言和无语言的图片，打开“所有语言”后返回全部。
  */
 @Composable
@@ -532,28 +638,43 @@ private fun RemoteImagesPage(
     itemId: String,
     browse: RemoteBrowse,
     mediaRepository: MediaRepository,
-    onApplied: (Result<Unit>) -> Unit
+    applying: Boolean,
+    onApply: (RemoteImageType, RemoteImageInfo) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
     val landscape = LocalConfiguration.current.screenWidthDp > LocalConfiguration.current.screenHeightDp
     var imageType by remember(browse) { mutableStateOf(browse.initial) }
     var provider by remember(browse) { mutableStateOf<String?>(null) }
     var allLanguages by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<RemoteImageResult?>(null) }
-    var error by remember { mutableStateOf<Throwable?>(null) }
-    var loading by remember { mutableStateOf(true) }
+    var providers by remember(imageType) { mutableStateOf<List<String>>(emptyList()) }
+    var result by remember(imageType, provider, allLanguages) { mutableStateOf<RemoteImageResult?>(null) }
+    var error by remember(imageType, provider, allLanguages) { mutableStateOf<Throwable?>(null) }
+    var loading by remember(imageType, provider, allLanguages) { mutableStateOf(true) }
+    var nextIndex by remember(imageType, provider, allLanguages) { mutableIntStateOf(0) }
+    var loadIndex by remember(imageType, provider, allLanguages) { mutableIntStateOf(0) }
+    var retry by remember { mutableIntStateOf(0) }
     var pending by remember { mutableStateOf<RemoteImageInfo?>(null) }
-    var applying by remember { mutableStateOf(false) }
 
-    LaunchedEffect(imageType, provider, allLanguages) {
+    LaunchedEffect(itemId, imageType, provider, allLanguages, loadIndex, retry) {
         loading = true
         error = null
-        mediaRepository.getRemoteImages(itemId, imageType, provider, allLanguages)
-            .onSuccess { result = it }
-            .onFailure {
-                result = null
-                error = it
+        mediaRepository.getRemoteImages(itemId, imageType, provider, allLanguages, loadIndex, REMOTE_IMAGE_PAGE_SIZE)
+            .onSuccess { page ->
+                val received = page.images.orEmpty()
+                providers = (providers + page.providers.orEmpty()).distinct()
+                nextIndex = loadIndex + received.size
+                result = page.copy(
+                    images = (result?.images.orEmpty() + received)
+                        .filter { !it.url.isNullOrBlank() }
+                        .distinctBy { it.providerName to it.url },
+                    totalRecordCount = when {
+                        received.isEmpty() -> nextIndex
+                        page.totalRecordCount != null -> page.totalRecordCount
+                        received.size == REMOTE_IMAGE_PAGE_SIZE -> nextIndex + 1
+                        else -> nextIndex
+                    }
+                )
             }
+            .onFailure { error = it }
         loading = false
     }
 
@@ -563,6 +684,7 @@ private fun RemoteImagesPage(
                 browse.types.forEach { type ->
                     FilterChip(
                         selected = imageType == type,
+                        enabled = !applying,
                         onClick = {
                             if (imageType != type) {
                                 imageType = type
@@ -577,28 +699,37 @@ private fun RemoteImagesPage(
         ChipRow(modifier = Modifier.padding(top = 4.dp)) {
             FilterChip(
                 selected = allLanguages,
+                enabled = !applying,
                 onClick = { allLanguages = !allLanguages },
                 label = { Text(stringResource(R.string.metadata_images_all_languages)) }
             )
             FilterChip(
                 selected = provider == null,
+                enabled = !applying,
                 onClick = { provider = null },
                 label = { Text(stringResource(R.string.metadata_images_all_providers)) }
             )
-            result?.providers.orEmpty().forEach { name ->
+            providers.forEach { name ->
                 FilterChip(
                     selected = provider == name,
+                    enabled = !applying,
                     onClick = { provider = name },
                     label = { Text(name) }
                 )
             }
         }
 
-        val images = result?.images.orEmpty().filter { !it.url.isNullOrBlank() }
+        val images = result?.images.orEmpty()
+        val hasMore = nextIndex < (result?.totalRecordCount ?: 0)
         when {
-            loading -> CenteredBox { CircularProgressIndicator() }
-            error != null -> CenteredBox { StatusText(errorText(error!!)) }
-            images.isEmpty() -> CenteredBox { StatusText(stringResource(R.string.metadata_images_empty)) }
+            loading && result == null -> CenteredBox { CircularProgressIndicator() }
+            error != null && result == null -> CenteredBox {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    StatusText(errorText(requireNotNull(error)))
+                    TextButton(onClick = { retry++ }) { Text(stringResource(R.string.image_action_retry)) }
+                }
+            }
+            images.isEmpty() && !hasMore -> CenteredBox { StatusText(stringResource(R.string.metadata_images_empty)) }
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(imageType.minCellWidth(landscape)),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 88.dp),
@@ -615,8 +746,31 @@ private fun RemoteImagesPage(
                         image = image,
                         aspect = imageType.gridAspect,
                         fitContent = imageType == RemoteImageType.Logo,
+                        enabled = !applying,
                         onClick = { pending = image }
                     )
+                }
+                if (hasMore) {
+                    item(key = "loadMore", span = { GridItemSpan(maxLineSpan) }) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            error?.let { StatusText(errorText(it)) }
+                            if (loading) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            } else {
+                                TextButton(
+                                    enabled = !applying,
+                                    onClick = {
+                                        loading = true
+                                        if (error != null) retry++ else loadIndex = nextIndex
+                                    }
+                                ) {
+                                    Text(stringResource(
+                                        if (error != null) R.string.image_action_retry else R.string.metadata_images_load_more
+                                    ))
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -654,21 +808,11 @@ private fun RemoteImagesPage(
                 Button(
                     enabled = !applying,
                     onClick = {
-                        applying = true
-                        val type = imageType
-                        scope.launch {
-                            val outcome = mediaRepository.downloadRemoteImage(itemId, type, image)
-                            applying = false
-                            pending = null
-                            onApplied(outcome)
-                        }
+                        pending = null
+                        onApply(imageType, image)
                     }
                 ) {
-                    if (applying) {
-                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                    } else {
-                        Text(stringResource(R.string.metadata_apply))
-                    }
+                    Text(stringResource(R.string.metadata_apply))
                 }
             },
             dismissButton = {
@@ -709,6 +853,7 @@ private fun RemoteImageCell(
     image: RemoteImageInfo,
     aspect: Float,
     fitContent: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit
 ) {
     Column {
@@ -719,7 +864,7 @@ private fun RemoteImageCell(
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                .clickable(onClick = onClick)
+                .clickable(enabled = enabled, onClick = onClick)
         ) {
             AsyncImage(
                 model = image.thumbnailUrl?.takeIf { it.isNotBlank() } ?: image.url,

@@ -55,6 +55,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.vela.app.ui.components.common.ImageViewer
 import com.vela.data.model.BaseItemDto
 import com.vela.data.peach.PeachIds
 import com.vela.data.peach.PeachImageUrls
@@ -812,7 +813,7 @@ private fun PeachJavDetailPage(code: String, onBack: () -> Unit, onOpenItem: (Ba
         }
     }
     if (showResources) PeachResourceDialog(code = code, title = null, onDismiss = { showResources = false })
-    viewing?.let { url -> PeachImageViewer(url) { viewing = null } }
+    viewing?.let { url -> ImageViewer(url, null) { viewing = null } }
 }
 
 // endregion
@@ -861,7 +862,7 @@ private fun PeachPhotosPage(arg: String, title: String?, onBack: () -> Unit, onO
         }
         peachPagerFooter(pager, R.string.peach_empty)
     }
-    viewing?.let { url -> PeachImageViewer(url) { viewing = null } }
+    viewing?.let { url -> ImageViewer(url, null) { viewing = null } }
 }
 
 private sealed interface PhotoTile {
@@ -899,26 +900,7 @@ private fun PeachPhotoSetPage(anchorId: Long, title: String?, onBack: () -> Unit
         }
         peachPagerFooter(pager, R.string.peach_empty)
     }
-    viewing?.let { url -> PeachImageViewer(url) { viewing = null } }
-}
-
-/** 全屏看大图，点任意处关闭。 */
-@Composable
-internal fun PeachImageViewer(url: String, onDismiss: () -> Unit) {
-    androidx.compose.ui.window.Dialog(
-        onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .clickable(onClick = onDismiss),
-            contentAlignment = Alignment.Center
-        ) {
-            AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-        }
-    }
+    viewing?.let { url -> ImageViewer(url, null) { viewing = null } }
 }
 
 // endregion

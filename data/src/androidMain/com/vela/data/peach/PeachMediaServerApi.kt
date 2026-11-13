@@ -864,9 +864,17 @@ class PeachMediaServerApi(
 
     override suspend fun remoteSearch(searchType: String, query: RemoteSearchQuery): ApiResponse<List<RemoteSearchResult>> = unsupported()
     override suspend fun applyRemoteSearchResult(itemId: String, result: RemoteSearchResult, replaceAllImages: Boolean): ApiResponse<Unit> = unsupported()
-    override suspend fun getRemoteImages(itemId: String, imageType: String, providerName: String?, includeAllLanguages: Boolean): ApiResponse<RemoteImageResult> = unsupported()
+    override suspend fun getRemoteImages(
+        itemId: String,
+        imageType: String,
+        providerName: String?,
+        includeAllLanguages: Boolean,
+        startIndex: Int?,
+        limit: Int?
+    ): ApiResponse<RemoteImageResult> = unsupported()
     override suspend fun getExternalIdInfos(itemId: String): ApiResponse<List<ExternalIdInfo>> = success(emptyList())
     override suspend fun getItemImages(itemId: String): ApiResponse<List<ItemImageInfo>> = success(emptyList())
+    override suspend fun updateItemImageIndex(itemId: String, imageType: String, imageIndex: Int, newIndex: Int): ApiResponse<Unit> = unsupported()
     override suspend fun deleteItemImage(itemId: String, imageType: String, imageIndex: Int?): ApiResponse<Unit> = unsupported()
     override suspend fun uploadItemImage(itemId: String, imageType: String, base64Data: String, mimeType: String): ApiResponse<Unit> = unsupported()
     override suspend fun getItemJson(userId: String, itemId: String): ApiResponse<JsonObject> = unsupported()

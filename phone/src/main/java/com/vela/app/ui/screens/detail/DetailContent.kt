@@ -77,10 +77,12 @@ import com.vela.shared.playback.UserDataRefreshSignals
 import com.vela.app.ui.components.common.DetailBackdropHero
 import com.vela.app.ui.components.common.DetailBackdropHeroStyle
 import com.vela.app.ui.components.common.DetailHeroCastButtonOverlay
+import com.vela.app.ui.components.common.ImageViewer
 import com.vela.app.ui.components.common.ScreenCastButton
 import com.vela.app.ui.components.common.containerHeightDp
 import com.vela.app.ui.components.common.containerWidthDp
 import com.vela.app.ui.components.common.detailActionWidth
+import com.vela.app.ui.components.common.detailHeroPreviewUrl
 import com.vela.app.ui.components.common.isTabletDetailLayout
 import com.vela.app.ui.components.common.isTabletLayout
 import com.vela.app.ui.components.common.TopChromeScrim
@@ -187,9 +189,11 @@ fun DetailContent(
     ) {
         episodeHeaderText(item)
     }
-    var heroImageCandidates by remember { mutableStateOf<List<String>>(emptyList()) }
+    var heroImageCandidates by remember(item.id) { mutableStateOf<List<String>>(emptyList()) }
     var heroImageIndex by remember(item.id) { mutableStateOf(0) }
     val backdropImageUrl = heroImageCandidates.getOrNull(heroImageIndex)
+    var heroPreviewUrl by remember(item.id) { mutableStateOf<String?>(null) }
+    val openHero: (() -> Unit)? = backdropImageUrl?.let { url -> { heroPreviewUrl = detailHeroPreviewUrl(url) } }
     var logoImageUrl by remember { mutableStateOf<String?>(null) }
     var logoResolved by remember { mutableStateOf(false) }
     var logoLookup by remember { mutableStateOf(true) }
@@ -511,7 +515,7 @@ fun DetailContent(
         previousDownloadStatus = itemDownloadState.status
     }
 
-    LaunchedEffect(item.id) {
+    LaunchedEffect(item.id, item.backdropImageTags, item.imageTags, activeServerId) {
         if (item.id == null) {
             return@LaunchedEffect
         }
@@ -807,16 +811,7 @@ fun DetailContent(
                 bottomFadeHeight = 0.dp,
                 contentFadeStartFraction = contentFadeStart,
                 onErrorStateChange = onBackdropLoadError
-            ) {
-                if (!isSeerDetail) {
-                    DetailHeroCastButtonOverlay(
-                        showWatchedButton = true,
-                        isWatched = isWatched,
-                        onWatchedClick = ::toggleWatched,
-                        onCastButtonClick = onCastButtonClick
-                    )
-                }
-            }
+            )
         }
 
         LazyColumn(
@@ -828,7 +823,18 @@ fun DetailContent(
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
 
-            if (!useTabletBackdropLayout) {
+            if (useTabletBackdropLayout) {
+                item {
+                    Spacer(
+                        Modifier.fillMaxWidth().height(layout.contentTopPadding).then(
+                            if (openHero == null) Modifier else Modifier.clickable(
+                                onClickLabel = stringResource(R.string.image_viewer_open),
+                                onClick = openHero
+                            )
+                        )
+                    )
+                }
+            } else {
                 item {
                     DetailBackdropHero(
                         imageUrl = backdropImageUrl,
@@ -837,7 +843,8 @@ fun DetailContent(
                         bottomFadeHeight = 156.dp,
                         overlayGradient = heroOverlayGradient,
                         bottomFadeGradient = heroBottomFadeGradient,
-                        onErrorStateChange = onBackdropLoadError
+                        onErrorStateChange = onBackdropLoadError,
+                        onImageClick = openHero
                     ) {
                         if (!isSeerDetail) {
                             DetailHeroCastButtonOverlay(
@@ -856,7 +863,6 @@ fun DetailContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = layout.horizontalPadding)
-                        .padding(top = layout.contentTopPadding)
                         .offset(y = layout.headerOffset)
                 ) {
                     Column(
@@ -1533,6 +1539,15 @@ fun DetailContent(
 
         TopChromeScrim(progress = { detailLogoCompactProgress.value })
 
+        if (useTabletBackdropLayout && !isSeerDetail) {
+            DetailHeroCastButtonOverlay(
+                showWatchedButton = true,
+                isWatched = isWatched,
+                onWatchedClick = ::toggleWatched,
+                onCastButtonClick = onCastButtonClick
+            )
+        }
+
         BackButton(
             onClick = onBackPressed,
             modifier = Modifier.align(Alignment.TopStart)
@@ -1566,6 +1581,10 @@ fun DetailContent(
                 modifier = Modifier.align(Alignment.TopEnd)
             )
         }
+    }
+
+    heroPreviewUrl?.let { url ->
+        ImageViewer(url, item.name) { heroPreviewUrl = null }
     }
 
     Dialogs(

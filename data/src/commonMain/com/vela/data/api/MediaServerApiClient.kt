@@ -605,13 +605,17 @@ internal class MediaServerApiClient(
         itemId: String,
         imageType: String,
         providerName: String?,
-        includeAllLanguages: Boolean
+        includeAllLanguages: Boolean,
+        startIndex: Int?,
+        limit: Int?
     ): ApiResponse<com.vela.data.model.RemoteImageResult> = get(
         endpoint = "Items/$itemId/RemoteImages",
         queryParameters = listOf(
             "Type" to imageType,
             "ProviderName" to providerName,
-            "IncludeAllLanguages" to includeAllLanguages
+            "IncludeAllLanguages" to includeAllLanguages,
+            "StartIndex" to startIndex,
+            "Limit" to limit
         )
     )
 
@@ -634,6 +638,16 @@ internal class MediaServerApiClient(
 
     override suspend fun getItemImages(itemId: String): ApiResponse<List<com.vela.data.model.ItemImageInfo>> =
         get("Items/$itemId/Images")
+
+    override suspend fun updateItemImageIndex(
+        itemId: String,
+        imageType: String,
+        imageIndex: Int,
+        newIndex: Int
+    ): ApiResponse<Unit> = post(
+        endpoint = "Items/$itemId/Images/$imageType/$imageIndex/Index",
+        queryParameters = listOf("NewIndex" to newIndex)
+    )
 
     override suspend fun deleteItemImage(itemId: String, imageType: String, imageIndex: Int?): ApiResponse<Unit> =
         execute(

@@ -204,18 +204,24 @@ object PlayerUtils {
      *
      * @param context 任意上下文，内部只保留 applicationContext
      * @param requestHeaders 打开直链时附带的请求头
+     * @param writeToCache 是否将上游读取写回共享缓存
+     * @param timeoutMs 旁路读取的连接与读取超时，单位毫秒
      * @return 读穿播放器缓存的数据源工厂
      */
     @UnstableApi
     fun createCachedDataSourceFactory(
         context: Context,
-        requestHeaders: Map<String, String> = emptyMap()
+        requestHeaders: Map<String, String> = emptyMap(),
+        writeToCache: Boolean = true,
+        timeoutMs: Int? = null
     ): DataSource.Factory {
         val cacheSizeMb = PlayerPreferences(context).getPlayerCacheSizeMb()
         return PlayerCacheManager.createDataSourceFactory(
             context = context,
             cacheSizeMb = cacheSizeMb,
-            defaultRequestHeaders = requestHeaders
+            defaultRequestHeaders = requestHeaders,
+            writeToCache = writeToCache,
+            timeoutMs = timeoutMs
         )
     }
 

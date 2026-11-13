@@ -1,6 +1,8 @@
 package com.vela.app.ui.components.common
 
+import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Arrangement
@@ -18,9 +20,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.vela.shared.ui.components.common.WatchedActionButton
+import com.vela.shared.R
 import com.vela.shared.util.image.JellyfinPosterImage
 
 enum class DetailBackdropHeroStyle {
@@ -120,6 +124,7 @@ fun DetailBackdropHero(
     overlayGradient: Array<Pair<Float, Color>>? = null,
     bottomFadeGradient: Array<Pair<Float, Color>>? = null,
     onErrorStateChange: (Boolean) -> Unit = {},
+    onImageClick: (() -> Unit)? = null,
     overlayContent: @Composable BoxScope.() -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -142,7 +147,12 @@ fun DetailBackdropHero(
             JellyfinPosterImage(
                 imageUrl = imageUrl,
                 contentDescription = contentDescription,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().then(
+                    if (onImageClick == null) Modifier else Modifier.clickable(
+                        onClickLabel = stringResource(R.string.image_viewer_open),
+                        onClick = onImageClick
+                    )
+                ),
                 context = context,
                 contentScale = ContentScale.Crop,
                 alignment = resolvedImageAlignment,
@@ -192,6 +202,21 @@ fun DetailBackdropHero(
 
         overlayContent()
     }
+}
+
+/** 详情页铺满用的填充尺寸会裁图，查看时保留图片比例和服务器的缓存标签。 */
+internal fun detailHeroPreviewUrl(imageUrl: String): String {
+    val uri = Uri.parse(imageUrl)
+    if (!uri.isHierarchical || uri.getQueryParameter("fillWidth") == null ||
+        uri.getQueryParameter("fillHeight") == null
+    ) return imageUrl
+
+    return uri.buildUpon().clearQuery().apply {
+        uri.queryParameterNames
+            .filterNot { it == "fillWidth" || it == "fillHeight" }
+            .forEach { name -> uri.getQueryParameters(name).forEach { appendQueryParameter(name, it) } }
+        appendQueryParameter("maxWidth", "2560")
+    }.build().toString()
 }
 
 @Composable
