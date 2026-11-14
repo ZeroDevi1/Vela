@@ -26,7 +26,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
 import com.vela.app.ui.screens.library.LibraryArtwork
 import com.vela.app.ui.screens.library.LibraryBrowser
@@ -50,6 +52,11 @@ private enum class MusicTab(val label: Int, val icon: ImageVector, val libraryTa
     MINE(R.string.navidrome_mine, Icons.Rounded.FavoriteBorder, MusicLibraryTab.MINE),
     SEARCH(R.string.search, Icons.Rounded.Search, MusicLibraryTab.SEARCH),
     SETTINGS(R.string.settings, Icons.Rounded.Settings)
+}
+
+internal class NavidromeHomeViewModel : ViewModel() {
+    var albums by mutableStateOf<List<BaseItemDto>?>(null)
+    var tracks by mutableStateOf<List<BaseItemDto>?>(null)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -93,18 +100,24 @@ internal fun NavidromeScreen(
             )
         },
         bottomBar = {
-            Column {
-                if (playback.item != null && playback.session?.accountKey == accountKey) {
-                    MusicMiniPlayer(onOpen = onOpenPlayer)
-                }
-                ShortNavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                    MusicTab.entries.forEach { page ->
-                        ShortNavigationBarItem(
-                            selected = tab == page,
-                            onClick = { tab = page },
-                            icon = { Icon(page.icon, null) },
-                            label = { Text(stringResource(page.label)) }
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (playback.item != null && playback.session?.accountKey == accountKey) {
+                        MusicMiniPlayer(
+                            onOpen = onOpenPlayer,
+                            modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                                .widthIn(max = 600.dp)
                         )
+                    }
+                    ShortNavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                        MusicTab.entries.forEach { page ->
+                            ShortNavigationBarItem(
+                                selected = tab == page,
+                                onClick = { tab = page },
+                                icon = { Icon(page.icon, null) },
+                                label = { Text(stringResource(page.label)) }
+                            )
+                        }
                     }
                 }
             }
@@ -140,28 +153,32 @@ private fun NavidromeHome(
     modifier: Modifier,
     onOpenPlayer: () -> Unit,
     onBrowse: () -> Unit,
-    onAlbum: (BaseItemDto) -> Unit
+    onAlbum: (BaseItemDto) -> Unit,
+    discovery: NavidromeHomeViewModel = viewModel(key = session.accountKey)
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var albums by remember(session) { mutableStateOf<List<BaseItemDto>>(emptyList()) }
-    var tracks by remember(session) { mutableStateOf<List<BaseItemDto>>(emptyList()) }
-    var loading by remember(session) { mutableStateOf(true) }
+    val albums = discovery.albums.orEmpty()
+    val tracks = discovery.tracks.orEmpty()
+    var loading by remember(session) { mutableStateOf(discovery.albums == null || discovery.tracks == null) }
     var reload by remember { mutableIntStateOf(0) }
     var opening by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val loadFailed = stringResource(R.string.connection_failed)
 
-    LaunchedEffect(session, reload) {
+    LaunchedEffect(session, reload, discovery) {
+        if (discovery.albums != null && discovery.tracks != null) return@LaunchedEffect
         loading = true
         error = null
         supervisorScope {
-            val newest = async { session.items(MediaLibraryQuery(includeItemTypes = "MusicAlbum", limit = 10, sortOrder = "Descending")).items.orEmpty() }
-            val random = async { session.randomTracks(10) }
-            try { albums = newest.await() }
+            val newest = async {
+                discovery.albums ?: session.items(MediaLibraryQuery(includeItemTypes = "MusicAlbum", limit = 10, sortOrder = "Descending")).items.orEmpty()
+            }
+            val random = async { discovery.tracks ?: session.randomTracks(10) }
+            try { discovery.albums = newest.await() }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { error = e.message ?: loadFailed }
-            try { tracks = random.await() }
+            try { discovery.tracks = random.await() }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { error = e.message ?: loadFailed }
         }

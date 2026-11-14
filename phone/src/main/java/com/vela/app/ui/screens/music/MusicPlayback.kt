@@ -50,10 +50,12 @@ internal data class MusicState(
     val session: MusicMediaSession? = null,
     val queue: List<BaseItemDto> = emptyList(),
     val index: Int = 0,
-    val playing: Boolean = false,
+    val playWhenReady: Boolean = false,
     val buffering: Boolean = false,
     val positionMs: Long = 0,
     val durationMs: Long = 0,
+    val canSeek: Boolean = false,
+    val speed: Float = 1f,
     val shuffle: Boolean = false,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val error: String? = null,
@@ -101,7 +103,7 @@ internal object MusicPlayback {
     }
 
     fun toggle() { controller?.let {
-        if (it.playWhenReady && it.playbackState != Player.STATE_ENDED) it.pause()
+        if (it.playWhenReady && it.playbackState in Player.STATE_BUFFERING..Player.STATE_READY) it.pause()
         else {
             if (it.playbackState == Player.STATE_ENDED) it.seekToDefaultPosition()
             mutableState.value = mutableState.value.copy(error = null)
@@ -111,7 +113,14 @@ internal object MusicPlayback {
     fun next() { controller?.seekToNextMediaItem() }
     fun previous() { controller?.let { if (it.currentPosition > 3000) it.seekTo(0) else it.seekToPreviousMediaItem() } }
     fun seek(position: Long) { controller?.seekTo(position.coerceAtLeast(0)) }
-    fun seekIndex(index: Int) { controller?.let { it.seekToDefaultPosition(index); it.play() } }
+    fun seekIndex(index: Int) {
+        controller?.let {
+            mutableState.value = mutableState.value.copy(error = null)
+            it.seekToDefaultPosition(index)
+            if (it.playbackState == Player.STATE_IDLE) it.prepare()
+            it.play()
+        }
+    }
     fun shuffle() { controller?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled } }
     fun repeat() { controller?.let { it.repeatMode = when (it.repeatMode) {
         Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
@@ -214,6 +223,7 @@ class MusicPlaybackService : MediaSessionService() {
                     listenedMs = 0
                     listeningSince = null
                     scrobbled = false
+                    MusicPlayback.mutableState.value = MusicPlayback.mutableState.value.copy(error = null)
                 }
                 if (player.playbackState == Player.STATE_READY) startReport()
                 publish()
@@ -378,9 +388,11 @@ class MusicPlaybackService : MediaSessionService() {
     }
     private fun publish() {
         MusicPlayback.mutableState.value = MusicPlayback.mutableState.value.copy(session = librarySession, queue = queue,
-            index = player.currentMediaItemIndex.coerceAtLeast(0), playing = player.isPlaying,
+            index = player.currentMediaItemIndex.coerceAtLeast(0),
+            playWhenReady = player.playWhenReady && player.playbackState in Player.STATE_BUFFERING..Player.STATE_READY,
             buffering = player.playbackState == Player.STATE_BUFFERING, positionMs = player.currentPosition.coerceAtLeast(0),
-            durationMs = player.duration.coerceAtLeast(0), shuffle = player.shuffleModeEnabled, repeatMode = player.repeatMode,
+            durationMs = player.duration.coerceAtLeast(0), canSeek = player.isCurrentMediaItemSeekable,
+            speed = player.playbackParameters.speed, shuffle = player.shuffleModeEnabled, repeatMode = player.repeatMode,
             compatibleAudio = compatible, sleepAtMs = sleepAt)
     }
 

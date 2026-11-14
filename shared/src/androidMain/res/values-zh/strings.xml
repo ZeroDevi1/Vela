@@ -807,6 +807,24 @@
     <string name="navidrome_manage">Navidrome 账号</string>
     <string name="navidrome_disconnect_failed">无法移除 Navidrome 账号。</string>
     <string name="navidrome_all_libraries">全部曲库</string>
+    <string name="music_player_failed">播放失败</string>
+    <string name="music_player_buffering">正在缓冲</string>
+    <string name="music_player_collapse">收起播放器</string>
+    <string name="music_player_previous">上一首</string>
+    <string name="music_player_next">下一首</string>
+    <string name="music_player_timer_active">睡眠定时已开启</string>
+    <string name="music_player_queue_count">播放队列 · %1$d</string>
+    <string name="music_player_repeat_off">关闭循环</string>
+    <string name="music_player_repeat_all">循环播放队列</string>
+    <string name="music_player_repeat_one">单曲循环</string>
+    <string name="music_player_progress">播放进度</string>
+    <string name="music_player_untitled">未知曲目</string>
+    <string name="music_player_favorite_error">无法更新收藏</string>
+    <string name="music_player_lyrics_error">无法加载歌词</string>
+    <string name="music_player_no_lyrics">暂无歌词</string>
+    <string name="music_player_follow_lyrics">跟随播放</string>
+    <string name="music_player_audio_original">原始音频</string>
+    <string name="music_player_audio_compatible">兼容音频 · MP3</string>
 
     <string name="about_title">关于</string>
     <string name="about_based_on_vela">Based on Vela</string>

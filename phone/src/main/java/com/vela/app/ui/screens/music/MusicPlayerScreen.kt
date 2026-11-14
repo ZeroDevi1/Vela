@@ -1,60 +1,50 @@
 package com.vela.app.ui.screens.music
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.Canvas
+import androidx.annotation.StringRes
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import coil3.compose.AsyncImage
 import com.vela.app.ui.screens.library.LibraryArtwork
-import com.vela.app.ui.screens.library.LibraryError
 import com.vela.app.ui.screens.library.librarySubtitle
-import com.vela.data.model.LyricLine
 import com.vela.data.model.BaseItemDto
 import com.vela.data.navidrome.NavidromeSession
 import com.vela.shared.R
+import com.vela.shared.ui.theme.velaMotion
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.isActive
 import java.util.Locale
 
 internal fun musicTime(ms: Long): String {
@@ -66,305 +56,443 @@ internal fun musicTime(ms: Long): String {
 @UnstableApi
 @Composable
 internal fun MusicMiniPlayer(onOpen: () -> Unit, modifier: Modifier = Modifier) {
-    val state by MusicPlayback.state.collectAsState()
+    val state by MusicPlayback.state.collectAsStateWithLifecycle()
     val item = state.item ?: return
-    Surface(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clip(MaterialTheme.shapes.extraLarge), color = MaterialTheme.colorScheme.secondaryContainer, tonalElevation = 5.dp) {
+    val colors = MaterialTheme.colorScheme
+    val shape = MaterialTheme.shapes.large
+    val bufferingLabel = stringResource(R.string.music_player_buffering)
+    Surface(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        color = colors.surfaceContainerHigh,
+        shape = shape,
+        border = BorderStroke(1.dp, colors.outlineVariant)
+    ) {
         Column {
-            LinearProgressIndicator(progress = { if (state.durationMs > 0) (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f) else 0f }, modifier = Modifier.fillMaxWidth().height(2.dp))
-            Row(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                LibraryArtwork(state.session, item, Modifier.size(44.dp))
-                Column(Modifier.weight(1f).musicSwipe(onPrevious = MusicPlayback::previous, onNext = MusicPlayback::next, onUp = onOpen).padding(horizontal = 12.dp)) {
-                    Text(item.name.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                    Text(if (state.error != null) "播放失败 · 点击查看" else item.librarySubtitle(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 4.dp)) {
+                Surface(
+                    onClick = onOpen,
+                    modifier = Modifier.weight(1f).miniPlayerSwipe(onOpen),
+                    color = Color.Transparent
+                ) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        LibraryArtwork(state.session, item, Modifier.size(44.dp), shape = MaterialTheme.shapes.small)
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(item.name.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                if (state.error != null) stringResource(R.string.music_player_failed) else item.librarySubtitle(),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
                 IconButton(onClick = MusicPlayback::toggle) {
-                    if (state.buffering) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                    else Icon(if (state.playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (state.playing) "暂停音乐" else "播放音乐")
+                    if (state.buffering && state.playWhenReady) {
+                        CircularProgressIndicator(
+                            Modifier.size(20.dp).semantics { contentDescription = bufferingLabel },
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            if (state.playWhenReady) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            stringResource(if (state.playWhenReady) R.string.pause else R.string.play)
+                        )
+                    }
                 }
-                IconButton(onClick = MusicPlayback::next, enabled = state.queue.size > 1) { Icon(Icons.Default.SkipNext, "下一首") }
+                IconButton(onClick = MusicPlayback::next, enabled = state.queue.size > 1) {
+                    Icon(Icons.Rounded.SkipNext, stringResource(R.string.music_player_next))
+                }
             }
+            LinearProgressIndicator(
+                progress = { if (state.durationMs > 0) (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f) else 0f },
+                modifier = Modifier.fillMaxWidth().height(2.dp)
+            )
         }
     }
 }
+
+private enum class PlayerPage(@StringRes val label: Int) {
+    RECOMMENDATIONS(R.string.navidrome_recommendations),
+    COVER(R.string.navidrome_cover),
+    LYRICS(R.string.navidrome_lyrics)
+}
+
+private enum class PlayerSheet { QUEUE, OPTIONS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @UnstableApi
 @Composable
 internal fun MusicNowPlayingScreen(onBack: () -> Unit) {
-    val state by MusicPlayback.state.collectAsState()
+    val state by MusicPlayback.state.collectAsStateWithLifecycle()
     val item = state.item
-    val navidrome = state.session as? NavidromeSession
-    val pager = rememberPagerState(initialPage = 1) { 3 }
-    val lyricsVisible = navidrome?.let { pager.settledPage == 2 } ?: false
-    val scope = rememberCoroutineScope()
-    var queue by remember { mutableStateOf(false) }
-    var showLyrics by remember { mutableStateOf(false) }
-    var settings by remember { mutableStateOf(false) }
-    var lyrics by remember(state.session, item?.id) { mutableStateOf<List<LyricLine>>(emptyList()) }
-    var lyricLoading by remember(state.session, item?.id) { mutableStateOf(true) }
-    var lyricError by remember(state.session, item?.id) { mutableStateOf<String?>(null) }
-    var lyricsRetry by remember { mutableIntStateOf(0) }
-    var favorite by remember(state.session, item?.id) { mutableStateOf(item?.userData?.isFavorite == true) }
-    var actionError by remember(state.session, item?.id) { mutableStateOf<String?>(null) }
-    var seek by remember(item?.id) { mutableStateOf<Float?>(null) }
-    val lyricList = rememberLazyListState()
-    val activeLine = lyrics.indexOfLast { it.startMs?.let { start -> start <= state.positionMs } == true }
-    val loadLyrics = navidrome == null || lyricsVisible
-    LaunchedEffect(item?.id, state.session, lyricsRetry, loadLyrics) {
-        if (!loadLyrics) return@LaunchedEffect
-        val session = state.session ?: return@LaunchedEffect
-        val track = item ?: return@LaunchedEffect
-        lyricLoading = true; lyricError = null
-        try { lyrics = session.lyrics(track) }
-        catch (e: CancellationException) { throw e }
-        catch (e: Exception) { lyricError = e.message ?: "歌词加载失败" }
-        finally { lyricLoading = false }
+    val session = state.session
+    if (item == null || session == null) {
+        LaunchedEffect(Unit) { onBack() }
+        return
     }
-    LaunchedEffect(activeLine, showLyrics, lyricsVisible) {
-        if ((showLyrics || lyricsVisible) && activeLine >= 0 && !lyricList.isScrollInProgress) {
-            lyricList.animateScrollToItem((activeLine - 2).coerceAtLeast(0))
+
+    val navidrome = session as? NavidromeSession
+    val pages = remember(navidrome != null) {
+        if (navidrome == null) listOf(PlayerPage.COVER, PlayerPage.LYRICS) else PlayerPage.entries.toList()
+    }
+    val pager = key(navidrome != null) {
+        rememberPagerState(initialPage = pages.indexOf(PlayerPage.COVER)) { pages.size }
+    }
+    val scope = rememberCoroutineScope()
+    val motion = MaterialTheme.velaMotion
+    var sheet by rememberSaveable { mutableStateOf<PlayerSheet?>(null) }
+
+    var favorite by remember(session, item.id) { mutableStateOf(item.userData?.isFavorite == true) }
+    var savingFavorite by remember(session, item.id) { mutableStateOf(false) }
+    var favoriteFailed by remember(session, item.id) { mutableStateOf(false) }
+
+    fun toggleFavorite() {
+        if (savingFavorite) return
+        savingFavorite = true
+        favoriteFailed = false
+        scope.launch {
+            try {
+                session.favorite(item, !favorite)
+                favorite = !favorite
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                favoriteFailed = true
+            } finally {
+                savingFavorite = false
+            }
         }
     }
-    BackHandler { onBack() }
-    if (item == null) { LaunchedEffect(Unit) { onBack() }; return }
-    Scaffold(
-        containerColor = if (navidrome == null) MaterialTheme.colorScheme.surface else Color.Transparent,
-        topBar = {
-        TopAppBar(title = {
-            if (navidrome == null) {
-                Column {
-                    Text("正在播放", style = MaterialTheme.typography.titleMedium)
-                    Text(if (state.compatibleAudio) "兼容音频 · MP3" else "原始音质", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+    val content: @Composable (Modifier) -> Unit = { pageModifier ->
+        HorizontalPager(
+            state = pager,
+            modifier = pageModifier,
+            verticalAlignment = Alignment.Top
+        ) { index ->
+            when (pages[index]) {
+                PlayerPage.COVER -> PlayerCover(session, item)
+                PlayerPage.LYRICS -> key(session, item.id) {
+                    PlayerLyrics(session, item, state.positionMs, state.canSeek)
                 }
-            } else {
-                val labels = listOf(R.string.navidrome_recommendations, R.string.navidrome_cover, R.string.navidrome_lyrics)
-                SingleChoiceSegmentedButtonRow(Modifier.widthIn(max = 360.dp).fillMaxWidth()) {
-                    labels.forEachIndexed { index, label ->
-                        SegmentedButton(
-                            selected = pager.currentPage == index,
-                            onClick = { scope.launch { pager.animateScrollToPage(index) } },
-                            shape = SegmentedButtonDefaults.itemShape(index, labels.size),
-                            icon = {},
-                            label = { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                PlayerPage.RECOMMENDATIONS -> if (navidrome != null) NavidromeRecommendations(navidrome, item)
+            }
+        }
+    }
+    val currentContent by rememberUpdatedState(content)
+    // 横竖屏共用同一份分页内容，旋转时保留已加载的歌词和列表位置。
+    val pagesContent = remember { movableContentOf { modifier: Modifier -> currentContent(modifier) } }
+    val controls: @Composable (Modifier, Boolean) -> Unit = { controlModifier, compact ->
+        PlaybackControls(
+            state = state,
+            item = item,
+            favorite = favorite,
+            favoriteEnabled = !savingFavorite,
+            favoriteFailed = favoriteFailed,
+            onFavorite = ::toggleFavorite,
+            onOpenQueue = { sheet = PlayerSheet.QUEUE },
+            compact = compact,
+            modifier = controlModifier
+        )
+    }
+
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        PlayerBackdrop(session, item)
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                PlayerHeader(
+                    pages = pages,
+                    selected = pager.currentPage.coerceIn(pages.indices),
+                    onSelect = { index ->
+                        scope.launch { pager.animateScrollToPage(index, animationSpec = motion.defaultSpatialSpec()) }
+                    },
+                    hasSleepTimer = state.sleepAtMs != null,
+                    onOptions = { sheet = PlayerSheet.OPTIONS },
+                    onClose = onBack
+                )
+            }
+        ) { padding ->
+            BoxWithConstraints(
+                Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                if (maxWidth >= 600.dp && maxWidth > maxHeight) {
+                    Row(
+                        Modifier.fillMaxHeight().widthIn(max = 1040.dp).fillMaxWidth().padding(horizontal = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(28.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        pagesContent(Modifier.weight(1f).fillMaxHeight())
+                        controls(Modifier.weight(1f).verticalScroll(rememberScrollState()), true)
+                    }
+                } else if (maxHeight < 400.dp) {
+                    val pageHeight = (maxHeight * .58f).coerceAtLeast(120.dp)
+                    Column(
+                        Modifier.fillMaxHeight().widthIn(max = 480.dp).fillMaxWidth().verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        pagesContent(Modifier.fillMaxWidth().height(pageHeight))
+                        controls(Modifier.fillMaxWidth().padding(horizontal = 24.dp), true)
+                    }
+                } else {
+                    val horizontalPadding = if (maxWidth < 360.dp) 16.dp else 28.dp
+                    val compact = maxHeight < 600.dp
+                    Column(
+                        Modifier.fillMaxHeight().widthIn(max = 520.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        pagesContent(Modifier.fillMaxWidth().weight(1f))
+                        controls(Modifier.fillMaxWidth().padding(horizontal = horizontalPadding), compact)
+                    }
+                }
+            }
+        }
+    }
+
+    when (sheet) {
+        PlayerSheet.QUEUE -> PlayerQueueSheet(state, onDismiss = { sheet = null }, onStop = {
+            MusicPlayback.stop()
+            sheet = null
+        })
+        PlayerSheet.OPTIONS -> PlayerOptionsSheet(state, onDismiss = { sheet = null })
+        null -> Unit
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlayerHeader(
+    pages: List<PlayerPage>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    hasSleepTimer: Boolean,
+    onOptions: () -> Unit,
+    onClose: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    CenterAlignedTopAppBar(
+        title = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    stringResource(if (pages[selected] == PlayerPage.COVER) R.string.player_playlist_now_playing else pages[selected].label),
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+                Row(Modifier.selectableGroup(), verticalAlignment = Alignment.CenterVertically) {
+                    pages.forEachIndexed { index, page ->
+                        val label = stringResource(page.label)
+                        val isSelected = index == selected
+                        val width by animateDpAsState(
+                            if (isSelected) 18.dp else 6.dp,
+                            animationSpec = MaterialTheme.velaMotion.fastSpatialSpec(),
+                            label = "musicPageIndicator"
                         )
+                        Box(
+                            Modifier.size(48.dp)
+                                .clip(CircleShape)
+                                .selectable(selected = isSelected, role = Role.Tab, onClick = { onSelect(index) })
+                                .semantics { contentDescription = label },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                Modifier.size(width, 5.dp).background(
+                                    if (isSelected) colors.primary else colors.onSurfaceVariant.copy(alpha = .55f),
+                                    CircleShape
+                                )
+                            )
+                        }
                     }
                 }
             }
         },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "收起播放器") } },
-            actions = { IconButton(onClick = { settings = true }) { Icon(Icons.Default.MoreHoriz, "播放设置") } },
-            colors = if (navidrome == null) TopAppBarDefaults.topAppBarColors() else
-                TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = .92f)))
-    }) { padding ->
-        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
-            if (navidrome != null) NavidromeBackdrop(navidrome, item)
-        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
-            val compact = maxHeight < 600.dp
-            val scrollForHeight = compact && navidrome == null
-            Column(Modifier.fillMaxSize().then(if (scrollForHeight) Modifier.verticalScroll(rememberScrollState()) else Modifier)
-                .then(if (navidrome == null) Modifier.background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .6f), MaterialTheme.colorScheme.surface))) else Modifier)
-                .padding(horizontal = if (compact && navidrome != null) 12.dp else 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                val pageModifier = (if (scrollForHeight) Modifier.height(240.dp) else Modifier.weight(1f)).fillMaxWidth()
-                val lyricsContent: @Composable () -> Unit = {
-                    when {
-                        lyricLoading -> CircularProgressIndicator()
-                        lyricError != null -> LibraryError(lyricError.orEmpty()) { lyricsRetry++ }
-                        lyrics.isEmpty() -> Text("暂无歌词", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        else -> LazyColumn(state = lyricList, contentPadding = PaddingValues(vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
-                            itemsIndexed(lyrics) { index, line -> Text(line.text, Modifier.fillMaxWidth().clickable(enabled = line.startMs != null) { line.startMs?.let(MusicPlayback::seek) },
-                                color = if (index == activeLine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.titleLarge, fontWeight = if (index == activeLine) FontWeight.Bold else FontWeight.Normal,
-                                textAlign = if (navidrome == null) TextAlign.Center else TextAlign.Start) }
-                        }
-                    }
-                }
-                if (navidrome != null) {
-                    HorizontalPager(state = pager, modifier = pageModifier) { page ->
-                        when (page) {
-                            0 -> NavidromeRecommendations(navidrome, item)
-                            1 -> BoxWithConstraints(Modifier.fillMaxSize().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                LibraryArtwork(navidrome, item, Modifier.size(minOf(maxWidth, maxHeight, 360.dp)), shape = MaterialTheme.shapes.extraLarge)
-                            }
-                            else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { lyricsContent() }
-                        }
-                    }
-                } else if (showLyrics) Box(pageModifier, contentAlignment = Alignment.Center) { lyricsContent() }
-                else Box(pageModifier.padding(vertical = if (compact) 8.dp else 24.dp), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(Modifier.weight(1f, fill = false).aspectRatio(1f, matchHeightConstraintsFirst = true).sizeIn(maxWidth = 420.dp, maxHeight = 420.dp)
-                            .musicSwipe(MusicPlayback::previous, MusicPlayback::next, onUp = { queue = true }, onDown = onBack)
-                            .pointerInput(Unit) { detectTapGestures(onTap = { showLyrics = true }, onDoubleTap = { MusicPlayback.toggle() }) }, contentAlignment = Alignment.Center) {
-                            VinylRecord(state.playing && !state.buffering) {
-                                LibraryArtwork(state.session, item, Modifier.fillMaxSize(.56f).clip(CircleShape))
-                            }
-                        }
-                        Text("轻点看歌词 · 双击播放/暂停 · 左右滑动切歌", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-                    }
-                }
-                Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(item.name.orEmpty(), style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(item.artists?.joinToString(" / ") ?: item.albumArtist ?: item.album.orEmpty(), Modifier.padding(top = 6.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    IconButton(onClick = { scope.launch {
-                        try { state.session?.favorite(item, !favorite); favorite = !favorite }
-                        catch (e: CancellationException) { throw e }
-                        catch (e: Exception) { actionError = e.message ?: "收藏失败" }
-                    } }) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, "收藏歌曲", tint = if (favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
-                }
-                state.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                state.reportingError?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
-                actionError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                Slider(value = seek ?: state.positionMs.toFloat().coerceAtMost(state.durationMs.toFloat()),
-                    onValueChange = { seek = it }, onValueChangeFinished = { seek?.let { MusicPlayback.seek(it.toLong()) }; seek = null },
-                    valueRange = 0f..state.durationMs.coerceAtLeast(1).toFloat(), enabled = state.durationMs > 0)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(musicTime((seek?.toLong() ?: state.positionMs)), style = MaterialTheme.typography.labelMedium)
-                    Text(musicTime(state.durationMs), style = MaterialTheme.typography.labelMedium)
-                }
-                Row(Modifier.fillMaxWidth().padding(vertical = if (compact) 6.dp else 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = MusicPlayback::shuffle) { Icon(Icons.Default.Shuffle, "随机播放", tint = if (state.shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
-                    IconButton(onClick = MusicPlayback::previous) { Icon(Icons.Default.SkipPrevious, "上一首", Modifier.size(32.dp)) }
-                    FilledIconButton(onClick = MusicPlayback::toggle, Modifier.size(if (compact) 60.dp else 72.dp), shape = CircleShape) {
-                        if (state.buffering) CircularProgressIndicator(Modifier.size(28.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                        else Icon(if (state.playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (state.playing) "暂停" else "播放", Modifier.size(36.dp))
-                    }
-                    IconButton(onClick = MusicPlayback::next, enabled = state.queue.size > 1) { Icon(Icons.Default.SkipNext, "下一首", Modifier.size(32.dp)) }
-                    IconButton(onClick = MusicPlayback::repeat) { Icon(if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat, "循环模式", tint = if (state.repeatMode != Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
-                }
-                Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    if (navidrome == null) TextButton(onClick = { showLyrics = !showLyrics }) { Icon(Icons.Default.Lyrics, null, Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text(if (showLyrics) "封面" else "歌词") }
-                    TextButton(onClick = { queue = true }) { Icon(Icons.AutoMirrored.Filled.QueueMusic, null, Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text("队列 ${state.queue.size}") }
-                    TextButton(onClick = { settings = true }) { Icon(Icons.Default.Bedtime, null, Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text(if (state.sleepAtMs != null) "定时中" else "定时") }
-                }
+        navigationIcon = {
+            IconButton(onClick = onClose) {
+                Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.music_player_collapse))
             }
-        }
-        }
-    }
-    if (queue) ModalBottomSheet(onDismissRequest = { queue = false }) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("播放队列 · ${state.queue.size}", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-            TextButton(onClick = { MusicPlayback.stop(); queue = false; onBack() }) { Text("停止播放") }
-        }
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-            itemsIndexed(state.queue) { index, track -> ListItem(headlineContent = { Text(track.name.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                supportingContent = { Text(track.librarySubtitle(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                leadingContent = { if (index == state.index) Icon(Icons.Default.GraphicEq, "正在播放", tint = MaterialTheme.colorScheme.primary) else Text("${index + 1}") },
-                modifier = Modifier.clickable { MusicPlayback.seekIndex(index); queue = false }) }
-        }
-    }
-    if (settings) AlertDialog(onDismissRequest = { settings = false }, title = { Text("播放设置") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("睡眠定时", style = MaterialTheme.typography.titleSmall)
-            Row { listOf(15, 30, 60).forEach { minutes -> TextButton(onClick = { MusicPlayback.sleep(minutes); settings = false }) { Text("${minutes}分钟") } } }
-            if (state.sleepAtMs != null) TextButton(onClick = { MusicPlayback.sleep(null); settings = false }) { Text("关闭定时") }
-            Text("播放速度", style = MaterialTheme.typography.titleSmall)
-            Row { listOf(.75f, 1f, 1.25f, 1.5f).forEach { speed -> TextButton(onClick = { MusicPlayback.speed(speed); settings = false }, contentPadding = PaddingValues(4.dp)) { Text("${speed}×") } } }
-            TextButton(onClick = { MusicPlayback.retryAudio(!state.compatibleAudio); settings = false }) {
-                Text(if (state.compatibleAudio) "使用原始音频重新播放" else "使用兼容音频重新播放")
+        },
+        actions = {
+            IconButton(onClick = onOptions) {
+                Icon(
+                    if (hasSleepTimer) Icons.Rounded.Bedtime else Icons.Rounded.MoreHoriz,
+                    stringResource(if (hasSleepTimer) R.string.music_player_timer_active else R.string.player_settings_title),
+                    tint = if (hasSleepTimer) colors.primary else colors.onSurfaceVariant
+                )
             }
-            Text("兼容音频由服务器转为 MP3，适用于设备无法解码的格式。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }, confirmButton = { TextButton(onClick = { settings = false }) { Text("完成") } })
+        },
+        expandedHeight = 76.dp,
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+    )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@UnstableApi
 @Composable
-private fun NavidromeBackdrop(session: NavidromeSession, item: BaseItemDto) {
-    var cover by remember(session, item.id) { mutableStateOf<ByteArray?>(null) }
-    LaunchedEffect(session, item.id) {
-        try { cover = session.cover(item, width = 144) }
-        catch (e: CancellationException) { throw e }
-        catch (_: Exception) { /* 封面不可用时使用下方的主题背景。 */ }
+private fun PlaybackControls(
+    state: MusicState,
+    item: BaseItemDto,
+    favorite: Boolean,
+    favoriteEnabled: Boolean,
+    favoriteFailed: Boolean,
+    onFavorite: () -> Unit,
+    onOpenQueue: () -> Unit,
+    compact: Boolean,
+    modifier: Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    val bufferingLabel = stringResource(R.string.music_player_buffering)
+    val positionLabel = stringResource(R.string.music_player_progress)
+    val repeatLabel = when (state.repeatMode) {
+        Player.REPEAT_MODE_ALL -> R.string.music_player_repeat_all
+        Player.REPEAT_MODE_ONE -> R.string.music_player_repeat_one
+        else -> R.string.music_player_repeat_off
     }
-    val surface = MaterialTheme.colorScheme.surface
-    Box(Modifier.fillMaxSize().clip(MaterialTheme.shapes.extraSmall).background(surface)) {
-        AsyncImage(
-            model = cover,
-            contentDescription = null,
-            modifier = Modifier.matchParentSize().blur(48.dp).graphicsLayer { alpha = .48f },
-            contentScale = ContentScale.Crop
-        )
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(surface.copy(alpha = .38f), surface.copy(alpha = .96f)))))
+    var scrub by remember(state.session, state.index, item.id) { mutableStateOf<Float?>(null) }
+    val position = scrub?.toLong() ?: state.positionMs
+    val artist = item.artists.orEmpty().filter { it.isNotBlank() }.joinToString(" / ").ifBlank { item.albumArtist.orEmpty() }
+    val subtitle = listOf(artist, item.album.orEmpty()).filter { it.isNotBlank() }.distinct().joinToString(" · ")
+
+    Column(
+        modifier.padding(top = 8.dp, bottom = if (compact) 12.dp else 24.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    item.name.orEmpty().ifBlank { stringResource(R.string.music_player_untitled) },
+                    style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            IconToggleButton(checked = favorite, onCheckedChange = { onFavorite() }, enabled = favoriteEnabled) {
+                Icon(
+                    if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    stringResource(if (favorite) R.string.item_action_remove_favorite else R.string.item_action_add_favorite),
+                    tint = when {
+                        !favoriteEnabled -> colors.onSurface.copy(alpha = .38f)
+                        favorite -> colors.primary
+                        else -> colors.onSurfaceVariant
+                    }
+                )
+            }
+        }
+
+        val message = state.error ?: state.reportingError
+            ?: if (favoriteFailed) stringResource(R.string.music_player_favorite_error) else null
+        if (message != null) {
+            Text(
+                message,
+                color = colors.error,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Column {
+            Slider(
+                value = position.toFloat().coerceIn(0f, state.durationMs.coerceAtLeast(1).toFloat()),
+                onValueChange = { scrub = it },
+                onValueChangeFinished = {
+                    scrub?.let { if (state.canSeek) MusicPlayback.seek(it.toLong()) }
+                    scrub = null
+                },
+                valueRange = 0f..state.durationMs.coerceAtLeast(1).toFloat(),
+                enabled = state.canSeek && state.durationMs > 0,
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = positionLabel }
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                val counterStyle = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
+                Text(musicTime(position), style = counterStyle, color = colors.onSurfaceVariant)
+                Text(musicTime(state.durationMs), style = counterStyle, color = colors.onSurfaceVariant)
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = MusicPlayback::repeat) {
+                Icon(
+                    if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                    stringResource(repeatLabel),
+                    tint = if (state.repeatMode == Player.REPEAT_MODE_OFF) colors.onSurfaceVariant else colors.primary
+                )
+            }
+            IconButton(onClick = MusicPlayback::previous) {
+                Icon(Icons.Rounded.SkipPrevious, stringResource(R.string.music_player_previous), Modifier.size(30.dp))
+            }
+            FilledIconButton(
+                onClick = MusicPlayback::toggle,
+                modifier = Modifier.size(if (compact) 60.dp else 72.dp),
+                shape = CircleShape
+            ) {
+                if (state.buffering && state.playWhenReady) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp).semantics { contentDescription = bufferingLabel },
+                        strokeWidth = 2.dp,
+                        color = colors.onPrimary
+                    )
+                } else {
+                    Icon(
+                        if (state.playWhenReady) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        stringResource(if (state.playWhenReady) R.string.pause else R.string.play),
+                        Modifier.size(36.dp)
+                    )
+                }
+            }
+            IconButton(onClick = MusicPlayback::next, enabled = state.queue.size > 1) {
+                Icon(Icons.Rounded.SkipNext, stringResource(R.string.music_player_next), Modifier.size(30.dp))
+            }
+            IconButton(onClick = onOpenQueue) {
+                Icon(
+                    Icons.AutoMirrored.Rounded.QueueMusic,
+                    stringResource(R.string.music_player_queue_count, state.queue.size)
+                )
+            }
+        }
     }
 }
 
 @UnstableApi
 @Composable
-private fun NavidromeRecommendations(session: NavidromeSession, item: BaseItemDto) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var songs by remember(session, item.id) { mutableStateOf<List<BaseItemDto>?>(null) }
-    var error by remember(session, item.id) { mutableStateOf<String?>(null) }
-    var retry by remember { mutableIntStateOf(0) }
-    val fallback = stringResource(R.string.connection_failed)
-    LaunchedEffect(session, item.id, retry) {
-        error = null
-        try { songs = session.similarTracks(item) }
-        catch (e: CancellationException) { throw e }
-        catch (e: Exception) { error = e.message ?: fallback }
-    }
-    val recommendations = songs
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        when {
-            error != null -> LibraryError(error.orEmpty()) { retry++ }
-            recommendations == null -> CircularProgressIndicator()
-            recommendations.isEmpty() -> Text(stringResource(R.string.navidrome_recommendations_empty))
-            else -> LazyColumn(Modifier.fillMaxSize()) {
-                itemsIndexed(recommendations) { index, track ->
-                    MusicTrackRow(session, track, onClick = {
-                        scope.launch {
-                            try { MusicPlayback.play(context, session, recommendations, index) }
-                            catch (e: CancellationException) { throw e }
-                            catch (e: Exception) { error = e.message ?: fallback }
-                        }
-                    })
-                }
-            }
-        }
-    }
-}
-
-/** 手势仅绑定封面和迷你播放器标题，避免抢占歌词滚动与进度条拖动。 */
-@Composable
-private fun Modifier.musicSwipe(onPrevious: () -> Unit, onNext: () -> Unit, onUp: () -> Unit, onDown: () -> Unit = {}): Modifier {
-    val previous by rememberUpdatedState(onPrevious)
-    val next by rememberUpdatedState(onNext)
-    val up by rememberUpdatedState(onUp)
-    val down by rememberUpdatedState(onDown)
+private fun Modifier.miniPlayerSwipe(onOpen: () -> Unit): Modifier {
+    val open by rememberUpdatedState(onOpen)
     val threshold = with(LocalDensity.current) { 56.dp.toPx() }
     return pointerInput(threshold) {
         var distance = 0f
-        detectHorizontalDragGestures(onDragStart = { distance = 0f }, onDragCancel = { distance = 0f },
-            onDragEnd = { if (distance < -threshold) next() else if (distance > threshold) previous() }) { change, amount ->
-            change.consume(); distance += amount
+        detectHorizontalDragGestures(
+            onDragStart = { distance = 0f },
+            onDragEnd = {
+                if (distance < -threshold) MusicPlayback.next()
+                else if (distance > threshold) MusicPlayback.previous()
+            }
+        ) { change, amount ->
+            change.consume()
+            distance += amount
         }
     }.pointerInput(threshold) {
         var distance = 0f
-        detectVerticalDragGestures(onDragStart = { distance = 0f }, onDragCancel = { distance = 0f },
-            onDragEnd = { if (distance < -threshold) up() else if (distance > threshold) down() }) { change, amount ->
-            change.consume(); distance += amount
+        detectVerticalDragGestures(
+            onDragStart = { distance = 0f },
+            onDragEnd = { if (distance < -threshold) open() }
+        ) { change, amount ->
+            change.consume()
+            distance += amount
         }
-    }
-}
-
-@Composable
-private fun VinylRecord(playing: Boolean, artwork: @Composable () -> Unit) {
-    val rotation = remember { Animatable(0f) }
-    LaunchedEffect(playing) {
-        if (playing) while (isActive) {
-            rotation.animateTo(rotation.value + 360f, tween(24_000, easing = LinearEasing))
-            rotation.snapTo(rotation.value % 360f)
-        }
-    }
-    Box(Modifier.fillMaxSize().graphicsLayer { rotationZ = rotation.value }, contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val radius = size.minDimension / 2
-            drawCircle(Color(0xFF303139), radius)
-            drawCircle(Brush.radialGradient(listOf(Color(0xFF34353C), Color(0xFF101116))), radius * .98f)
-            for (index in 0..15) drawCircle(Color.White.copy(alpha = .07f), radius * (.60f + index * .024f), style = Stroke(1.dp.toPx()))
-        }
-        artwork()
-        Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF141519)))
     }
 }
