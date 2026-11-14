@@ -5,6 +5,8 @@ import java.net.URI
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vela.app.ui.screens.dashboard.home.CachedData
+import com.vela.data.navidrome.NavidromeStore
+import com.vela.data.network.ServerType
 import com.vela.data.repository.AuthRepository
 import com.vela.data.repository.AuthRepositoryProvider
 import com.vela.data.repository.MediaRepositoryProvider
@@ -40,6 +42,8 @@ data class ServersUiState(
 class ServersViewModel(application: Application) : AndroidViewModel(application) {
     private val authRepository = AuthRepositoryProvider.getInstance(application)
     private val mediaRepository = MediaRepositoryProvider.getInstance(application)
+    private val navidromeStore = NavidromeStore.getInstance(application)
+    val musicServers = navidromeStore.sessions
 
     private val _uiState = MutableStateFlow(
         ServersUiState(
@@ -71,6 +75,24 @@ class ServersViewModel(application: Application) : AndroidViewModel(application)
         _uiState.update { it.copy(actionError = null) }
     }
 
+    fun addNavidrome(address: String, username: String, secret: String, apiKey: Boolean, note: String, onSuccess: (String) -> Unit) {
+        if (_uiState.value.isBusy) return
+        _uiState.update { it.copy(isConnecting = true, connectError = null) }
+        viewModelScope.launch {
+            val accountKey = try {
+                navidromeStore.connect(address, username, secret, apiKey, note).accountKey
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _uiState.update { it.copy(connectError = error.message ?: string(R.string.invalid_credentials)) }
+                null
+            } finally {
+                _uiState.update { it.copy(isConnecting = false) }
+            }
+            if (accountKey != null) onSuccess(accountKey)
+        }
+    }
+
     fun addServer(
         host: String,
         https: Boolean,
@@ -79,6 +101,7 @@ class ServersViewModel(application: Application) : AndroidViewModel(application)
         username: String,
         password: String,
         note: String,
+        serverType: ServerType? = null,
         onSuccess: () -> Unit
     ) {
         if (_uiState.value.isBusy) return
@@ -88,7 +111,7 @@ class ServersViewModel(application: Application) : AndroidViewModel(application)
             _uiState.update { it.copy(connectError = string(R.string.auth_error_enter_server_url)) }
             return
         }
-        if (trimmedUsername.isBlank()) {
+        if (trimmedUsername.isBlank() && serverType != ServerType.PEACH) {
             _uiState.update { it.copy(connectError = string(R.string.auth_error_enter_username)) }
             return
         }
@@ -107,7 +130,8 @@ class ServersViewModel(application: Application) : AndroidViewModel(application)
                     serverUrl = serverUrl,
                     username = trimmedUsername,
                     password = password,
-                    note = note
+                    note = note,
+                    serverType = serverType
                 )
             } catch (error: CancellationException) {
                 throw error

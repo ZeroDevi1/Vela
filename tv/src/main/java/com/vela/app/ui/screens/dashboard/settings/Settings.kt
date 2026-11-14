@@ -153,10 +153,10 @@ fun Settings(
                 )
             }
 
-            item { SectionLabel(stringResource(R.string.settings_preferences)) }
+            item { TvSettingsSectionLabel(stringResource(R.string.settings_preferences)) }
             item {
-                SettingsSection {
-                    SettingsItem(
+                TvSettingsSection {
+                    TvSettingsItem(
                         icon = Icons.Rounded.Router,
                         title = stringResource(R.string.settings_server_lines),
                         subtitle = stringResource(R.string.settings_server_lines_subtitle),
@@ -167,7 +167,7 @@ fun Settings(
                         thickness = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
-                    SettingsItem(
+                    TvSettingsItem(
                         icon = Icons.Rounded.DisplaySettings,
                         title = stringResource(R.string.settings_interface),
                         subtitle = stringResource(R.string.settings_visual_options),
@@ -178,7 +178,7 @@ fun Settings(
                         thickness = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
-                    SettingsItem(
+                    TvSettingsItem(
                         icon = Icons.Rounded.SettingsEthernet,
                         title = stringResource(R.string.settings_network),
                         subtitle = stringResource(R.string.settings_network_subtitle),
@@ -189,7 +189,7 @@ fun Settings(
                         thickness = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
-                    SettingsItem(
+                    TvSettingsItem(
                         icon = Icons.Rounded.Storage,
                         title = stringResource(R.string.settings_cache),
                         subtitle = stringResource(R.string.settings_cache_subtitle),
@@ -199,10 +199,10 @@ fun Settings(
                 }
             }
 
-            item { SectionLabel(stringResource(R.string.settings_device_info)) }
+            item { TvSettingsSectionLabel(stringResource(R.string.settings_device_info)) }
             item {
-                SettingsSection {
-                    SettingsItem(
+                TvSettingsSection {
+                    TvSettingsItem(
                         icon = Icons.Rounded.Smartphone,
                         title = stringResource(R.string.settings_device_model),
                         subtitle = stringResource(
@@ -216,7 +216,7 @@ fun Settings(
                         thickness = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
-                    SettingsItem(
+                    TvSettingsItem(
                         icon = Icons.Rounded.Android,
                         title = stringResource(R.string.settings_android_version),
                         subtitle = stringResource(
@@ -230,7 +230,7 @@ fun Settings(
                         thickness = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
-                    SettingsItem(
+                    TvSettingsItem(
                         icon = Icons.Rounded.VideoLibrary,
                         title = stringResource(R.string.settings_video_codecs),
                         subtitle = supportedCodecs,
@@ -239,10 +239,10 @@ fun Settings(
                 }
             }
 
-            item { SectionLabel(stringResource(R.string.settings_account)) }
+            item { TvSettingsSectionLabel(stringResource(R.string.settings_account)) }
             item {
-                SettingsSection {
-                    SettingsItem(
+                TvSettingsSection {
+                    TvSettingsItem(
                         icon = Icons.AutoMirrored.Rounded.Logout,
                         title = stringResource(R.string.logout),
                         subtitle = stringResource(R.string.settings_sign_out_subtitle),
@@ -559,7 +559,7 @@ private fun ActionTile(
 }
 
 @Composable
-private fun SectionLabel(title: String) {
+internal fun TvSettingsSectionLabel(title: String) {
     Text(
         text = title.uppercase(),
         style = MaterialTheme.typography.labelLarge,
@@ -588,7 +588,7 @@ private fun openAppLanguageSettings(context: Context) {
 }
 
 @Composable
-private fun SettingsSection(
+internal fun TvSettingsSection(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
@@ -610,7 +610,7 @@ private fun SettingsSection(
 }
 
 @Composable
-private fun SettingsItem(
+internal fun TvSettingsItem(
     icon: ImageVector,
     title: String,
     subtitle: String,

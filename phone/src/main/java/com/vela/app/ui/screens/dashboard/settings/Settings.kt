@@ -504,7 +504,7 @@ private fun SeerrRequestedItem.toBaseItem(): BaseItemDto {
  * @param rows 各条目；由分组统一插入分隔线，条目自身不关心位置。
  */
 @Composable
-private fun SettingsGroup(
+internal fun SettingsGroup(
     title: String?,
     rows: List<@Composable () -> Unit>,
     footer: String? = null,
@@ -561,10 +561,11 @@ private fun SettingsGroup(
  * @param enabled 为 false 时变灰且不可点击（如没有已解锁的私密服务器时的「立即锁定」）。
  */
 @Composable
-private fun SettingsRow(
+internal fun SettingsRow(
     title: String,
     icon: ImageVector? = null,
     subtitle: String? = null,
+    subtitleMaxLines: Int = 1,
     value: String? = null,
     titleColor: Color = MaterialTheme.colorScheme.onSurface,
     enabled: Boolean = true,
@@ -603,7 +604,7 @@ private fun SettingsRow(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = subtitleMaxLines,
                     overflow = TextOverflow.Ellipsis
                 )
             }

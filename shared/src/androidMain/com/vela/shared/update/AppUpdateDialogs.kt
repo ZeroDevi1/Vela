@@ -13,6 +13,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import com.vela.data.update.compareVersions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -155,10 +156,11 @@ private fun ReleaseDialog(viewModel: AppUpdateViewModel, uiState: AppUpdateUiSta
         onDismissRequest = viewModel::dismissReleaseDialog,
         title = {
             Text(
-                text = if (uiState.isNewer) {
-                    stringResource(R.string.about_update_available, release.versionName)
-                } else {
-                    stringResource(R.string.about_update_latest, release.versionName)
+                text = when {
+                    uiState.isNewer -> stringResource(R.string.about_update_available, release.versionName)
+                    compareVersions(release.versionName, uiState.currentVersion) < 0 ->
+                        stringResource(R.string.about_update_behind, release.versionName)
+                    else -> stringResource(R.string.about_update_latest, release.versionName)
                 }
             )
         },

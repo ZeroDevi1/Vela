@@ -790,6 +790,23 @@
     </plurals>
 
     <!-- About -->
+    <string name="navidrome_home">首页</string>
+    <string name="navidrome_library">曲库</string>
+    <string name="navidrome_mine">我的</string>
+    <string name="navidrome_discover">音乐发现</string>
+    <string name="navidrome_shuffle">随机播放</string>
+    <string name="navidrome_recent_albums">最近添加的专辑</string>
+    <string name="navidrome_discover_tracks">发现歌曲</string>
+    <string name="navidrome_search_prompt">输入关键词搜索歌曲、专辑或歌手</string>
+    <string name="navidrome_cover">封面</string>
+    <string name="navidrome_recommendations">推荐</string>
+    <string name="navidrome_recommendations_empty">暂无相关推荐</string>
+    <string name="navidrome_lyrics">歌词</string>
+    <string name="navidrome_api_key">API 密钥</string>
+    <string name="navidrome_manage">Navidrome 账号</string>
+    <string name="navidrome_disconnect_failed">无法移除 Navidrome 账号。</string>
+    <string name="navidrome_all_libraries">全部曲库</string>
+
     <string name="about_title">关于</string>
     <string name="about_based_on_vela">Based on Vela</string>
     <string name="about_version_chip">版本 %1$s</string>
@@ -813,6 +830,7 @@
     <string name="about_check_update_checking">正在检查…</string>
     <string name="about_update_available">发现新版本：%1$s</string>
     <string name="about_update_latest">已是最新版本（%1$s）</string>
+    <string name="about_update_behind">已安装版本比最新发布版（%1$s）更新</string>
     <string name="about_update_none">还没有发布 GitHub Release</string>
     <string name="about_update_download_mirror">下载加速</string>
     <string name="about_update_mirror_auto">自动（测速选最快）</string>

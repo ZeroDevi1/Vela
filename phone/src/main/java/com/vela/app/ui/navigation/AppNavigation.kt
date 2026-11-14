@@ -65,6 +65,8 @@ import com.vela.app.ui.screens.library.MediaLibraryKind
 import com.vela.app.ui.screens.library.MediaLibraryScreen
 import com.vela.app.ui.screens.music.MusicPlayback
 import com.vela.app.ui.screens.music.MusicMiniPlayer
+import com.vela.app.ui.screens.music.MusicNowPlayingScreen
+import com.vela.app.ui.screens.music.NavidromeScreen
 
 /**
  * 应用内预测性返回的手势状态。手势进行中，被返回的页面按 M3 规范跟手缩小、向手势侧平移、圆角渐显；
@@ -240,6 +242,12 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
     val authRepository = remember(context) { AuthRepositoryProvider.getInstance(context) }
     val mediaRepository = remember(context) { MediaRepositoryProvider.getInstance(context) }
 
+    fun openNowPlaying() {
+        if (MusicPlayback.state.value.item != null) {
+            navController.navigate("music_now_playing") { launchSingleTop = true }
+        }
+    }
+
     LaunchedEffect(authRepository) {
         authRepository.lineSwitchEvents.collect { event ->
             mediaRepository.clearPersistedHomeSnapshot()
@@ -263,7 +271,7 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
 
     LaunchedEffect(openMusic) {
         if (openMusic) {
-            navController.navigate("media_library/MUSIC?nowPlaying=true") { launchSingleTop = true }
+            openNowPlaying()
             onMusicOpened()
         }
     }
@@ -510,19 +518,34 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
             }
 
             scene(
-                "media_library/{kind}?libraryId={libraryId}&itemId={itemId}&nowPlaying={nowPlaying}",
+                "navidrome/{accountKey}",
+                arguments = listOf(navArgument("accountKey") { type = NavType.StringType })
+            ) { entry ->
+                NavidromeScreen(
+                    accountKey = requireNotNull(entry.arguments?.getString("accountKey")),
+                    onOpenPlayer = ::openNowPlaying,
+                    onSwitchServer = { navController.openServerPicker() },
+                    onAbout = { navController.navigate("about") }
+                )
+            }
+
+            scene("music_now_playing") {
+                MusicNowPlayingScreen(onBack = { navController.popBackStack() })
+            }
+
+            scene(
+                "media_library/{kind}?libraryId={libraryId}&itemId={itemId}",
                 arguments = listOf(
                     navArgument("kind") { type = NavType.StringType },
                     navArgument("libraryId") { type = NavType.StringType; nullable = true; defaultValue = null },
-                    navArgument("itemId") { type = NavType.StringType; nullable = true; defaultValue = null },
-                    navArgument("nowPlaying") { type = NavType.BoolType; defaultValue = false }
+                    navArgument("itemId") { type = NavType.StringType; nullable = true; defaultValue = null }
                 )
             ) { entry ->
                 MediaLibraryScreen(
                     kind = if (entry.arguments?.getString("kind") == "BOOKS") MediaLibraryKind.BOOKS else MediaLibraryKind.MUSIC,
                     libraryId = entry.arguments?.getString("libraryId")?.takeIf { it.isNotBlank() },
                     initialItemId = entry.arguments?.getString("itemId")?.takeIf { it.isNotBlank() },
-                    showNowPlaying = entry.arguments?.getBoolean("nowPlaying") == true,
+                    onOpenPlayer = ::openNowPlaying,
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -822,7 +845,13 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                 exitTransition = { NavTransitions.exit() }
             ) {
                 AppHomeContainer(
+                    onNavigateToNavidrome = { accountKey ->
+                        val playing = MusicPlayback.state.value.session
+                        if (playing != null && playing.accountKey != accountKey) MusicPlayback.stop()
+                        navController.navigate("navidrome/${android.net.Uri.encode(accountKey)}") { launchSingleTop = true }
+                    },
                     onServerSwitched = {
+                        if (MusicPlayback.state.value.session is com.vela.data.navidrome.NavidromeSession) MusicPlayback.stop()
                         navController.enterDashboard()
                     },
                     onNavigateToDetail = { item -> navController.openMediaItem(item) },
@@ -969,9 +998,11 @@ fun AppNavigation(openMusic: Boolean = false, onMusicOpened: () -> Unit = {}) {
                 )
             }
         }
-        if (musicState.item != null && currentEntry?.destination?.route?.startsWith("media_library/") != true) {
+        val route = currentEntry?.destination?.route
+        if (musicState.item != null && route?.startsWith("media_library/") != true &&
+            route?.startsWith("navidrome/") != true && route != "music_now_playing") {
             MusicMiniPlayer(
-                onOpen = { navController.navigate("media_library/MUSIC?nowPlaying=true") { launchSingleTop = true } },
+                onOpen = ::openNowPlaying,
                 modifier = Modifier.navigationBarsPadding()
             )
         }

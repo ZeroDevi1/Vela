@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -28,6 +29,10 @@ import com.vela.data.model.BaseItemDto
 import com.vela.data.repository.AuthRepositoryProvider
 import com.vela.data.repository.LibraryAudioSource
 import com.vela.data.repository.LibraryMediaSession
+import com.vela.data.repository.MusicMediaSession
+import com.vela.data.navidrome.NavidromeSession
+import com.vela.data.navidrome.NavidromeStore
+import com.vela.data.network.ServerTrust.applyServerTrust
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,7 +47,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 internal data class MusicState(
-    val session: LibraryMediaSession? = null,
+    val session: MusicMediaSession? = null,
     val queue: List<BaseItemDto> = emptyList(),
     val index: Int = 0,
     val playing: Boolean = false,
@@ -68,7 +73,7 @@ internal object MusicPlayback {
     private var controller: MediaController? = null
     private var connecting: ListenableFuture<MediaController>? = null
 
-    suspend fun play(context: Context, session: LibraryMediaSession, items: List<BaseItemDto>, index: Int = 0) {
+    suspend fun play(context: Context, session: MusicMediaSession, items: List<BaseItemDto>, index: Int = 0) {
         require(items.isNotEmpty()) { "没有可播放的音频" }
         connect(context)
         val playbackService = service ?: throw IOException("音乐播放服务未连接，请重试")
@@ -115,7 +120,7 @@ internal object MusicPlayback {
     } } }
     fun speed(speed: Float) { controller?.setPlaybackSpeed(speed) }
     fun sleep(minutes: Int?) { service?.setSleepTimer(minutes) }
-    fun retryCompatible() { service?.retryCompatible() }
+    fun retryAudio(transcode: Boolean) { service?.retryAudio(transcode) }
     fun pauseForVideo() { controller?.pause() }
     fun stop() {
         service?.clear()
@@ -132,11 +137,15 @@ internal object MusicPlayback {
 class MusicPlaybackService : MediaSessionService() {
     private lateinit var player: ExoPlayer
     private var mediaSession: MediaSession? = null
-    private var librarySession: LibraryMediaSession? = null
+    private var librarySession: MusicMediaSession? = null
     private var queue: List<BaseItemDto> = emptyList()
     private var sources: List<LibraryAudioSource> = emptyList()
     private var current: LibraryAudioSource? = null
+    private var currentIndex = -1
     private var reportStarted = false
+    private var listeningSince: Long? = null
+    private var listenedMs = 0L
+    private var scrobbled = false
     private var lastPosition = 0L
     private var compatible = false
     private var sleepAt: Long? = null
@@ -144,11 +153,25 @@ class MusicPlaybackService : MediaSessionService() {
     private val reportScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val reports = Channel<suspend () -> Unit>(Channel.UNLIMITED)
     private val http = OkHttpClient()
+    private val navidromeHttp = http.newBuilder().applyServerTrust()
+        .followRedirects(false).followSslRedirects(false).build()
 
     override fun onCreate() {
         super.onCreate()
         val factory = DataSource.Factory {
             val session = librarySession ?: throw IOException("音乐会话已失效")
+            if (session is NavidromeSession) {
+                val client = navidromeHttp.newBuilder().addInterceptor { chain ->
+                    try {
+                        val request = chain.request()
+                        chain.proceed(session.authorizeStreamRequest(request)).newBuilder().request(request).build()
+                    } catch (_: IOException) {
+                        // 请求的真实 URL 含鉴权参数，不向播放器透传。
+                        throw IOException("无法读取 Navidrome 音频")
+                    }
+                }.build()
+                return@Factory OkHttpDataSource.Factory(client).createDataSource()
+            }
             val origin = session.baseUrl.toHttpUrl()
             val client = http.newBuilder().addNetworkInterceptor { chain ->
                 val url = chain.request().url
@@ -185,8 +208,12 @@ class MusicPlaybackService : MediaSessionService() {
                 if (next?.playSessionId != current?.playSessionId) {
                     stopReport()
                     current = next
+                    currentIndex = player.currentMediaItemIndex
                     reportStarted = false
                     lastPosition = 0
+                    listenedMs = 0
+                    listeningSince = null
+                    scrobbled = false
                 }
                 if (player.playbackState == Player.STATE_READY) startReport()
                 publish()
@@ -198,6 +225,10 @@ class MusicPlaybackService : MediaSessionService() {
             }
             override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
                 if (oldPosition.mediaItemIndex != newPosition.mediaItemIndex) lastPosition = oldPosition.positionMs
+            }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) startReport()
+                updateListeningTime(isPlaying)
             }
             override fun onEvents(player: Player, events: Player.Events) { publish() }
             override fun onPlayerError(error: PlaybackException) {
@@ -221,9 +252,10 @@ class MusicPlaybackService : MediaSessionService() {
                 delay(1000)
                 if (sleepAt?.let { System.currentTimeMillis() >= it } == true) { player.pause(); sleepAt = null }
                 lastPosition = player.currentPosition.coerceAtLeast(0)
+                updateListeningTime(player.isPlaying)
                 publish()
                 if (++ticks % 10 == 0 && reportStarted) {
-                    val session = librarySession
+                    val session = librarySession as? LibraryMediaSession
                     val source = current
                     val position = lastPosition
                     val paused = !player.isPlaying
@@ -235,18 +267,29 @@ class MusicPlaybackService : MediaSessionService() {
         scope.launch {
             combine(auth.getActiveServerId(), auth.getServerUrl(), auth.getAccessToken()) { id, url, token -> Triple(id, url, token) }
                 .collect { (id, url, token) ->
-                    val session = librarySession ?: return@collect
+                    val session = librarySession as? LibraryMediaSession ?: return@collect
                     if (id != session.accountKey || url?.trimEnd('/') != session.baseUrl.trimEnd('/') || !session.matchesToken(token)) {
                         clear()
                     }
                 }
         }
+        scope.launch {
+            NavidromeStore.getInstance(this@MusicPlaybackService).sessions.collect { accounts ->
+                val session = librarySession as? NavidromeSession ?: return@collect
+                if (session !in accounts) clear()
+            }
+        }
     }
 
-    internal fun load(session: LibraryMediaSession, items: List<BaseItemDto>, index: Int) {
+    internal fun load(session: MusicMediaSession, items: List<BaseItemDto>, index: Int) {
+        if (session is NavidromeSession && !NavidromeStore.getInstance(this).contains(session)) {
+            throw IOException("Navidrome 账号已变更，请重新打开曲库")
+        }
         stopReport()
         player.stop()
         current = null
+        listenedMs = 0
+        scrobbled = false
         librarySession = session
         queue = items
         compatible = false
@@ -267,14 +310,16 @@ class MusicPlaybackService : MediaSessionService() {
             .setAlbumTitle(item.album).setMediaType(if (item.type.equals("AudioBook", true)) MediaMetadata.MEDIA_TYPE_AUDIO_BOOK else MediaMetadata.MEDIA_TYPE_MUSIC)
             .build()).build()
 
-    internal fun retryCompatible() {
+    internal fun retryAudio(transcode: Boolean) {
         val session = librarySession ?: return
         val index = player.currentMediaItemIndex.coerceAtLeast(0)
         val position = player.currentPosition.coerceAtLeast(0)
         stopReport()
         current = null
-        compatible = true
-        sources = queue.map { session.audioSource(it, transcode = true) }
+        listenedMs = 0
+        scrobbled = false
+        compatible = transcode
+        sources = queue.map { session.audioSource(it, transcode = transcode) }
         MusicPlayback.mutableState.value = MusicPlayback.mutableState.value.copy(error = null)
         player.setMediaItems(queue.mapIndexed { i, item -> mediaItem(item, sources[i]) }, index, position)
         player.prepare(); player.play(); publish()
@@ -292,18 +337,44 @@ class MusicPlaybackService : MediaSessionService() {
         if (reportStarted) return
         val session = librarySession ?: return
         val source = current ?: return
+        if (session is NavidromeSession && !player.isPlaying) return
         reportStarted = true
         val position = player.currentPosition.coerceAtLeast(0)
         val paused = !player.playWhenReady
-        reports.trySend { session.reportStart(source, position, paused) }
+        reports.trySend {
+            if (session !is NavidromeSession || NavidromeStore.getInstance(this).contains(session)) {
+                session.reportStart(source, position, paused)
+            }
+        }
     }
     private fun stopReport(failed: Boolean = false) {
+        if (!failed) updateListeningTime(playing = false)
+        listeningSince = null
         if (!reportStarted) return
         val session = librarySession ?: return
         val source = current ?: return
         val position = lastPosition
         reportStarted = false
-        reports.trySend { session.reportStop(source, position, failed) }
+        if (session is LibraryMediaSession) reports.trySend { session.reportStop(source, position, failed) }
+    }
+
+    /** 用实际播放时间计入收听记录，拖动进度条不会直接触发 scrobble。 */
+    private fun updateListeningTime(playing: Boolean) {
+        val session = librarySession as? NavidromeSession ?: return
+        val source = current ?: return
+        if (scrobbled) return
+        val now = SystemClock.elapsedRealtime()
+        listeningSince?.let { listenedMs += now - it }
+        listeningSince = now.takeIf { playing }
+        val duration = player.duration.takeIf { it > 0 && player.currentMediaItem?.mediaId == source.playSessionId }
+            ?: queue.getOrNull(currentIndex)?.runTimeTicks?.div(10_000L)?.takeIf { it > 0 }
+        val threshold = duration?.let { (it / 2).coerceIn(500, 240_000) } ?: 30_000
+        if (listenedMs >= threshold) {
+            scrobbled = true
+            reports.trySend {
+                if (NavidromeStore.getInstance(this).contains(session)) session.scrobble(source)
+            }
+        }
     }
     private fun publish() {
         MusicPlayback.mutableState.value = MusicPlayback.mutableState.value.copy(session = librarySession, queue = queue,

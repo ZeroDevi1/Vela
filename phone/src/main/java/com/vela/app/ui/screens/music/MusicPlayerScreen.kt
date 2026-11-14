@@ -13,6 +13,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -26,22 +28,30 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import coil3.compose.AsyncImage
 import com.vela.app.ui.screens.library.LibraryArtwork
 import com.vela.app.ui.screens.library.LibraryError
 import com.vela.app.ui.screens.library.librarySubtitle
 import com.vela.data.model.LyricLine
+import com.vela.data.model.BaseItemDto
+import com.vela.data.navidrome.NavidromeSession
+import com.vela.shared.R
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
@@ -83,42 +93,80 @@ internal fun MusicMiniPlayer(onOpen: () -> Unit, modifier: Modifier = Modifier) 
 internal fun MusicNowPlayingScreen(onBack: () -> Unit) {
     val state by MusicPlayback.state.collectAsState()
     val item = state.item
+    val navidrome = state.session as? NavidromeSession
+    val pager = rememberPagerState(initialPage = 1) { 3 }
+    val lyricsVisible = navidrome?.let { pager.settledPage == 2 } ?: false
     val scope = rememberCoroutineScope()
     var queue by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
-    var lyrics by remember(item?.id) { mutableStateOf<List<LyricLine>>(emptyList()) }
-    var lyricLoading by remember(item?.id) { mutableStateOf(true) }
-    var lyricError by remember(item?.id) { mutableStateOf<String?>(null) }
+    var lyrics by remember(state.session, item?.id) { mutableStateOf<List<LyricLine>>(emptyList()) }
+    var lyricLoading by remember(state.session, item?.id) { mutableStateOf(true) }
+    var lyricError by remember(state.session, item?.id) { mutableStateOf<String?>(null) }
     var lyricsRetry by remember { mutableIntStateOf(0) }
-    var favorite by remember(item?.id) { mutableStateOf(item?.userData?.isFavorite == true) }
-    var actionError by remember(item?.id) { mutableStateOf<String?>(null) }
+    var favorite by remember(state.session, item?.id) { mutableStateOf(item?.userData?.isFavorite == true) }
+    var actionError by remember(state.session, item?.id) { mutableStateOf<String?>(null) }
     var seek by remember(item?.id) { mutableStateOf<Float?>(null) }
     val lyricList = rememberLazyListState()
     val activeLine = lyrics.indexOfLast { it.startMs?.let { start -> start <= state.positionMs } == true }
-    LaunchedEffect(item?.id, state.session, lyricsRetry) {
+    val loadLyrics = navidrome == null || lyricsVisible
+    LaunchedEffect(item?.id, state.session, lyricsRetry, loadLyrics) {
+        if (!loadLyrics) return@LaunchedEffect
         val session = state.session ?: return@LaunchedEffect
-        val id = item?.id ?: return@LaunchedEffect
+        val track = item ?: return@LaunchedEffect
         lyricLoading = true; lyricError = null
-        try { lyrics = session.lyrics(id) }
+        try { lyrics = session.lyrics(track) }
         catch (e: CancellationException) { throw e }
         catch (e: Exception) { lyricError = e.message ?: "歌词加载失败" }
         finally { lyricLoading = false }
     }
-    LaunchedEffect(activeLine, showLyrics) {
-        if (showLyrics && activeLine >= 0 && !lyricList.isScrollInProgress) lyricList.animateScrollToItem((activeLine - 2).coerceAtLeast(0))
+    LaunchedEffect(activeLine, showLyrics, lyricsVisible) {
+        if ((showLyrics || lyricsVisible) && activeLine >= 0 && !lyricList.isScrollInProgress) {
+            lyricList.animateScrollToItem((activeLine - 2).coerceAtLeast(0))
+        }
     }
     BackHandler { onBack() }
     if (item == null) { LaunchedEffect(Unit) { onBack() }; return }
-    Scaffold(topBar = {
-        TopAppBar(title = { Column { Text("正在播放", style = MaterialTheme.typography.titleMedium); Text(if (state.compatibleAudio) "兼容音频 · MP3" else "原始音质", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
+    Scaffold(
+        containerColor = if (navidrome == null) MaterialTheme.colorScheme.surface else Color.Transparent,
+        topBar = {
+        TopAppBar(title = {
+            if (navidrome == null) {
+                Column {
+                    Text("正在播放", style = MaterialTheme.typography.titleMedium)
+                    Text(if (state.compatibleAudio) "兼容音频 · MP3" else "原始音质", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                val labels = listOf(R.string.navidrome_recommendations, R.string.navidrome_cover, R.string.navidrome_lyrics)
+                SingleChoiceSegmentedButtonRow(Modifier.widthIn(max = 360.dp).fillMaxWidth()) {
+                    labels.forEachIndexed { index, label ->
+                        SegmentedButton(
+                            selected = pager.currentPage == index,
+                            onClick = { scope.launch { pager.animateScrollToPage(index) } },
+                            shape = SegmentedButtonDefaults.itemShape(index, labels.size),
+                            icon = {},
+                            label = { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        )
+                    }
+                }
+            }
+        },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "收起播放器") } },
-            actions = { IconButton(onClick = { settings = true }) { Icon(Icons.Default.MoreHoriz, "播放设置") } })
+            actions = { IconButton(onClick = { settings = true }) { Icon(Icons.Default.MoreHoriz, "播放设置") } },
+            colors = if (navidrome == null) TopAppBarDefaults.topAppBarColors() else
+                TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = .92f)))
     }) { padding ->
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+            if (navidrome != null) NavidromeBackdrop(navidrome, item)
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val compact = maxHeight < 600.dp
-            Column(Modifier.fillMaxSize().then(if (compact) Modifier.verticalScroll(rememberScrollState()) else Modifier).background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .6f), MaterialTheme.colorScheme.surface))).padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                if (showLyrics) Box((if (compact) Modifier.height(240.dp) else Modifier.weight(1f)).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            val scrollForHeight = compact && navidrome == null
+            Column(Modifier.fillMaxSize().then(if (scrollForHeight) Modifier.verticalScroll(rememberScrollState()) else Modifier)
+                .then(if (navidrome == null) Modifier.background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .6f), MaterialTheme.colorScheme.surface))) else Modifier)
+                .padding(horizontal = if (compact && navidrome != null) 12.dp else 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                val pageModifier = (if (scrollForHeight) Modifier.height(240.dp) else Modifier.weight(1f)).fillMaxWidth()
+                val lyricsContent: @Composable () -> Unit = {
                     when {
                         lyricLoading -> CircularProgressIndicator()
                         lyricError != null -> LibraryError(lyricError.orEmpty()) { lyricsRetry++ }
@@ -126,10 +174,23 @@ internal fun MusicNowPlayingScreen(onBack: () -> Unit) {
                         else -> LazyColumn(state = lyricList, contentPadding = PaddingValues(vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
                             itemsIndexed(lyrics) { index, line -> Text(line.text, Modifier.fillMaxWidth().clickable(enabled = line.startMs != null) { line.startMs?.let(MusicPlayback::seek) },
                                 color = if (index == activeLine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.titleLarge, fontWeight = if (index == activeLine) FontWeight.Bold else FontWeight.Normal, textAlign = TextAlign.Center) }
+                                style = MaterialTheme.typography.titleLarge, fontWeight = if (index == activeLine) FontWeight.Bold else FontWeight.Normal,
+                                textAlign = if (navidrome == null) TextAlign.Center else TextAlign.Start) }
                         }
                     }
-                } else Box((if (compact) Modifier.height(240.dp) else Modifier.weight(1f)).fillMaxWidth().padding(vertical = if (compact) 8.dp else 24.dp), contentAlignment = Alignment.Center) {
+                }
+                if (navidrome != null) {
+                    HorizontalPager(state = pager, modifier = pageModifier) { page ->
+                        when (page) {
+                            0 -> NavidromeRecommendations(navidrome, item)
+                            1 -> BoxWithConstraints(Modifier.fillMaxSize().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                LibraryArtwork(navidrome, item, Modifier.size(minOf(maxWidth, maxHeight, 360.dp)), shape = MaterialTheme.shapes.extraLarge)
+                            }
+                            else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { lyricsContent() }
+                        }
+                    }
+                } else if (showLyrics) Box(pageModifier, contentAlignment = Alignment.Center) { lyricsContent() }
+                else Box(pageModifier.padding(vertical = if (compact) 8.dp else 24.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(Modifier.weight(1f, fill = false).aspectRatio(1f, matchHeightConstraintsFirst = true).sizeIn(maxWidth = 420.dp, maxHeight = 420.dp)
                             .musicSwipe(MusicPlayback::previous, MusicPlayback::next, onUp = { queue = true }, onDown = onBack)
@@ -147,7 +208,7 @@ internal fun MusicNowPlayingScreen(onBack: () -> Unit) {
                         Text(item.artists?.joinToString(" / ") ?: item.albumArtist ?: item.album.orEmpty(), Modifier.padding(top = 6.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     IconButton(onClick = { scope.launch {
-                        try { state.session?.favorite(requireNotNull(item.id), !favorite); favorite = !favorite }
+                        try { state.session?.favorite(item, !favorite); favorite = !favorite }
                         catch (e: CancellationException) { throw e }
                         catch (e: Exception) { actionError = e.message ?: "收藏失败" }
                     } }) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, "收藏歌曲", tint = if (favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -173,11 +234,12 @@ internal fun MusicNowPlayingScreen(onBack: () -> Unit) {
                     IconButton(onClick = MusicPlayback::repeat) { Icon(if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat, "循环模式", tint = if (state.repeatMode != Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
                 Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    TextButton(onClick = { showLyrics = !showLyrics }) { Icon(Icons.Default.Lyrics, null, Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text(if (showLyrics) "封面" else "歌词") }
+                    if (navidrome == null) TextButton(onClick = { showLyrics = !showLyrics }) { Icon(Icons.Default.Lyrics, null, Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text(if (showLyrics) "封面" else "歌词") }
                     TextButton(onClick = { queue = true }) { Icon(Icons.AutoMirrored.Filled.QueueMusic, null, Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text("队列 ${state.queue.size}") }
                     TextButton(onClick = { settings = true }) { Icon(Icons.Default.Bedtime, null, Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text(if (state.sleepAtMs != null) "定时中" else "定时") }
                 }
             }
+        }
         }
     }
     if (queue) ModalBottomSheet(onDismissRequest = { queue = false }) {
@@ -199,10 +261,68 @@ internal fun MusicNowPlayingScreen(onBack: () -> Unit) {
             if (state.sleepAtMs != null) TextButton(onClick = { MusicPlayback.sleep(null); settings = false }) { Text("关闭定时") }
             Text("播放速度", style = MaterialTheme.typography.titleSmall)
             Row { listOf(.75f, 1f, 1.25f, 1.5f).forEach { speed -> TextButton(onClick = { MusicPlayback.speed(speed); settings = false }, contentPadding = PaddingValues(4.dp)) { Text("${speed}×") } } }
-            TextButton(onClick = { MusicPlayback.retryCompatible(); settings = false }) { Text("使用兼容音频重新播放") }
+            TextButton(onClick = { MusicPlayback.retryAudio(!state.compatibleAudio); settings = false }) {
+                Text(if (state.compatibleAudio) "使用原始音频重新播放" else "使用兼容音频重新播放")
+            }
             Text("兼容音频由服务器转为 MP3，适用于设备无法解码的格式。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }, confirmButton = { TextButton(onClick = { settings = false }) { Text("完成") } })
+}
+
+@Composable
+private fun NavidromeBackdrop(session: NavidromeSession, item: BaseItemDto) {
+    var cover by remember(session, item.id) { mutableStateOf<ByteArray?>(null) }
+    LaunchedEffect(session, item.id) {
+        try { cover = session.cover(item, width = 144) }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { /* 封面不可用时使用下方的主题背景。 */ }
+    }
+    val surface = MaterialTheme.colorScheme.surface
+    Box(Modifier.fillMaxSize().clip(MaterialTheme.shapes.extraSmall).background(surface)) {
+        AsyncImage(
+            model = cover,
+            contentDescription = null,
+            modifier = Modifier.matchParentSize().blur(48.dp).graphicsLayer { alpha = .48f },
+            contentScale = ContentScale.Crop
+        )
+        Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(surface.copy(alpha = .38f), surface.copy(alpha = .96f)))))
+    }
+}
+
+@UnstableApi
+@Composable
+private fun NavidromeRecommendations(session: NavidromeSession, item: BaseItemDto) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var songs by remember(session, item.id) { mutableStateOf<List<BaseItemDto>?>(null) }
+    var error by remember(session, item.id) { mutableStateOf<String?>(null) }
+    var retry by remember { mutableIntStateOf(0) }
+    val fallback = stringResource(R.string.connection_failed)
+    LaunchedEffect(session, item.id, retry) {
+        error = null
+        try { songs = session.similarTracks(item) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { error = e.message ?: fallback }
+    }
+    val recommendations = songs
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        when {
+            error != null -> LibraryError(error.orEmpty()) { retry++ }
+            recommendations == null -> CircularProgressIndicator()
+            recommendations.isEmpty() -> Text(stringResource(R.string.navidrome_recommendations_empty))
+            else -> LazyColumn(Modifier.fillMaxSize()) {
+                itemsIndexed(recommendations) { index, track ->
+                    MusicTrackRow(session, track, onClick = {
+                        scope.launch {
+                            try { MusicPlayback.play(context, session, recommendations, index) }
+                            catch (e: CancellationException) { throw e }
+                            catch (e: Exception) { error = e.message ?: fallback }
+                        }
+                    })
+                }
+            }
+        }
+    }
 }
 
 /** 手势仅绑定封面和迷你播放器标题，避免抢占歌词滚动与进度条拖动。 */

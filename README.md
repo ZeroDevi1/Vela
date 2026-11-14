@@ -5,7 +5,7 @@
 <h1 align="center">Vela</h1>
 
 <p align="center">
-  面向 <strong>Jellyfin</strong> 与 <strong>Emby</strong> 的 Jetpack Compose 客户端，覆盖手机、电视，并在继续向更多平台扩展。
+  面向 <strong>Jellyfin</strong>、<strong>Emby</strong> 和 <strong>Navidrome</strong> 的 Jetpack Compose 客户端。支持手机与电视，Navidrome 音乐目前面向手机端。
 </p>
 
 <p align="center">
@@ -33,6 +33,12 @@
 - 存在 IntroDB / TheIntroDB 标记时可跳过片头
 - 字幕样式与轨道处理
 - Google Cast，以及界面内的远程播放控制
+
+### Navidrome 音乐（手机）
+
+- 在「服务器 → 添加服务器」选择 Navidrome。地址支持反代子路径，省略协议时默认使用 HTTPS。可用账号密码登录，支持 OpenSubsonic API 密钥的服务器也可用密钥登录。
+- 从服务器列表进入对应账号的音乐首页，在曲库、我的、搜索和设置之间切换。支持分曲库浏览、播放歌单、收藏和逐行歌词。
+- 复用手机端播放队列、迷你播放器及后台媒体控制。默认播放原始音频，解码遇到问题时可以在播放设置里尝试服务器 MP3 转码。
 
 ### 发现
 

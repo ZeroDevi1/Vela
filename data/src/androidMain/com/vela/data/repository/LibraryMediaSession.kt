@@ -26,15 +26,15 @@ import kotlin.coroutines.resumeWithException
 
 /** 固定到打开页面时的账户；后台播放和阅读不能随着全局选服把请求发给另一账户。 */
 class LibraryMediaSession internal constructor(
-    val accountKey: String,
-    val baseUrl: String,
+    override val accountKey: String,
+    override val baseUrl: String,
     val userId: String,
     val serverType: ServerType?,
-    val requestHeaders: Map<String, String>,
+    override val requestHeaders: Map<String, String>,
     private val accessToken: String,
     private val deviceId: String,
     private val api: MediaServerApi
-) {
+) : BrowsableMediaSession {
     /** 当前账户会话内的文件夹封面候选；空列表表示没有可用子项，随会话释放。 */
     private val folderArtwork = ConcurrentHashMap<String, List<BaseItemDto>>()
     /** 限制书架滚动时的补图请求，最多四个并发，避免挤占主列表查询。 */
@@ -42,34 +42,36 @@ class LibraryMediaSession internal constructor(
 
     fun matchesToken(token: String?): Boolean = token == accessToken
 
-    suspend fun items(query: MediaLibraryQuery): QueryResult<BaseItemDto> =
+    override suspend fun items(query: MediaLibraryQuery): QueryResult<BaseItemDto> =
         api.getMediaLibraryItems(userId, query).requiredBody()
 
-    suspend fun item(id: String): BaseItemDto = api.getItemById(
+    override suspend fun item(id: String): BaseItemDto = api.getItemById(
         userId, id, "Overview,People,Genres,Path,MediaSources,Chapters,ChildCount"
     ).requiredBody()
 
-    suspend fun people(parentId: String?, personTypes: String, search: String?, start: Int, limit: Int): QueryResult<BaseItemDto> =
+    override suspend fun people(parentId: String?, personTypes: String, search: String?, start: Int, limit: Int): QueryResult<BaseItemDto> =
         api.getMediaLibraryPeople(userId, parentId, personTypes, search, start, limit).requiredBody()
 
-    suspend fun playlistItems(id: String, start: Int = 0, limit: Int = 60): QueryResult<BaseItemDto> =
+    override suspend fun playlistItems(id: String, start: Int, limit: Int): QueryResult<BaseItemDto> =
         api.getPlaylistItems(userId, id, start, limit).requiredBody()
 
-    suspend fun genres(parentId: String?, types: String, start: Int, limit: Int): QueryResult<BaseItemDto> =
+    override suspend fun genres(parentId: String?, types: String, start: Int, limit: Int): QueryResult<BaseItemDto> =
         api.getGenres(userId, parentId, types, true, "SortName", "Ascending", true, true, start, limit).requiredBody()
 
     suspend fun favorite(itemId: String, favorite: Boolean) {
         (if (favorite) api.markAsFavorite(userId, itemId) else api.unmarkAsFavorite(userId, itemId)).requireSuccess()
     }
 
-    suspend fun createPlaylist(name: String, ids: List<String>): String {
+    override suspend fun favorite(item: BaseItemDto, favorite: Boolean) = favorite(requireNotNull(item.id), favorite)
+
+    override suspend fun createPlaylist(name: String, ids: List<String>) {
         require(name.isNotBlank()) { "请输入歌单名称" }
-        return api.createPlaylist(name.trim(), ids.joinToString(","), userId).requiredBody().id
+        api.createPlaylist(name.trim(), ids.joinToString(","), userId).requiredBody().id
             ?: throw IOException("服务器未返回歌单编号")
     }
 
-    suspend fun lyrics(id: String): List<LyricLine> {
-        val response = api.getLyrics(id)
+    override suspend fun lyrics(item: BaseItemDto): List<LyricLine> {
+        val response = api.getLyrics(requireNotNull(item.id))
         if (response.code() == 404) return emptyList()
         return response.requiredBody().lyrics
     }
@@ -125,7 +127,7 @@ class LibraryMediaSession internal constructor(
         }
     }
 
-    fun audioSource(item: BaseItemDto, transcode: Boolean = false): LibraryAudioSource {
+    override fun audioSource(item: BaseItemDto, transcode: Boolean): LibraryAudioSource {
         require(item.isAudioItem()) { "该条目不是音频" }
         val id = requireNotNull(item.id) { "音频缺少编号" }
         val sourceId = item.mediaSources?.firstOrNull()?.id
@@ -140,19 +142,19 @@ class LibraryMediaSession internal constructor(
             sourceId, playSessionId, if (transcode) "Transcode" else "DirectPlay")
     }
 
-    suspend fun reportStart(source: LibraryAudioSource, positionMs: Long, paused: Boolean) {
+    override suspend fun reportStart(source: LibraryAudioSource, positionMs: Long, paused: Boolean) {
         api.reportPlaybackStart(PlaybackStartRequest(itemId = source.itemId, mediaSourceId = source.mediaSourceId,
             playSessionId = source.playSessionId, positionTicks = positionMs.coerceAtLeast(0) * 10_000,
             isPaused = paused, playMethod = source.playMethod, canSeek = true)).requireSuccess()
     }
 
-    suspend fun reportProgress(source: LibraryAudioSource, positionMs: Long, paused: Boolean) {
+    override suspend fun reportProgress(source: LibraryAudioSource, positionMs: Long, paused: Boolean) {
         api.reportPlaybackProgress(PlaybackProgressRequest(itemId = source.itemId, mediaSourceId = source.mediaSourceId,
             playSessionId = source.playSessionId, positionTicks = positionMs.coerceAtLeast(0) * 10_000,
             isPaused = paused, playMethod = source.playMethod)).requireSuccess()
     }
 
-    suspend fun reportStop(source: LibraryAudioSource, positionMs: Long, failed: Boolean = false) {
+    override suspend fun reportStop(source: LibraryAudioSource, positionMs: Long, failed: Boolean) {
         api.reportPlaybackStopped(PlaybackStoppedRequest(itemId = source.itemId, mediaSourceId = source.mediaSourceId,
             playSessionId = source.playSessionId, positionTicks = positionMs.coerceAtLeast(0) * 10_000,
             failed = failed)).requireSuccess()

@@ -31,32 +31,39 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import coil3.compose.AsyncImage
+import com.vela.shared.R
 import com.vela.app.ui.screens.books.BookReaderScreen
 import com.vela.app.ui.screens.books.BookArtwork
 import com.vela.app.ui.screens.books.RemoteComicArchive
 import com.vela.data.repository.BookRangeUnsupportedException
 import com.vela.app.ui.screens.music.MusicMiniPlayer
-import com.vela.app.ui.screens.music.MusicNowPlayingScreen
 import com.vela.app.ui.screens.music.MusicPlayback
 import com.vela.app.ui.screens.music.musicTime
 import com.vela.data.model.*
 import com.vela.data.repository.AuthRepositoryProvider
+import com.vela.data.repository.BrowsableMediaSession
 import com.vela.data.repository.LibraryMediaSession
 import com.vela.data.repository.MediaRepositoryProvider
+import com.vela.data.repository.MusicMediaSession
 import com.vela.data.repository.libraryCacheKey
+import com.vela.data.navidrome.NavidromeFolder
+import com.vela.data.navidrome.NavidromeSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -68,9 +75,25 @@ private enum class LibrarySection(val label: String) {
     BOOKS("书架"), AUTHORS("作者"), AUDIOBOOKS("有声书"), FAVORITES("收藏"), FOLDERS("文件夹")
 }
 
+internal enum class MusicLibraryTab { LIBRARY, MINE, SEARCH }
+
+// 返回播放器时恢复浏览层级，只保存重查列表所需的字段。
+private val LibraryGroupStackSaver = listSaver<List<BaseItemDto>, String>(
+    save = { stack -> stack.flatMap { listOf(it.id.orEmpty(), it.name.orEmpty(), it.type.orEmpty()) } },
+    restore = { saved -> saved.chunked(3).map { (id, name, type) ->
+        BaseItemDto(id = id, name = name, type = type)
+    } }
+)
+
 @UnstableApi
 @Composable
-internal fun MediaLibraryScreen(kind: MediaLibraryKind, libraryId: String?, initialItemId: String?, showNowPlaying: Boolean = false, onBack: () -> Unit) {
+internal fun MediaLibraryScreen(
+    kind: MediaLibraryKind,
+    libraryId: String?,
+    initialItemId: String?,
+    onOpenPlayer: () -> Unit,
+    onBack: () -> Unit
+) {
     val context = LocalContext.current
     val repository = remember(context) { MediaRepositoryProvider.getInstance(context) }
     val auth = remember(context) { AuthRepositoryProvider.getInstance(context) }
@@ -88,27 +111,48 @@ internal fun MediaLibraryScreen(kind: MediaLibraryKind, libraryId: String?, init
     }
     val current = session
     if (current != null) key(current.accountKey, current.baseUrl, libraryId, initialItemId, kind) {
-        LibraryBrowser(current, kind, libraryId, initialItemId, showNowPlaying, onBack)
+        LibraryBrowser(current, kind, libraryId, initialItemId, onOpenPlayer, onBack)
     } else LibraryLoadingScaffold(kind.title, onBack, error, { reload++ })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @UnstableApi
 @Composable
-private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind, libraryId: String?, initialItemId: String?, showNowPlaying: Boolean, onBack: () -> Unit) {
+internal fun LibraryBrowser(
+    session: BrowsableMediaSession,
+    kind: MediaLibraryKind,
+    libraryId: String?,
+    initialItemId: String?,
+    onOpenPlayer: () -> Unit,
+    onBack: () -> Unit,
+    musicTab: MusicLibraryTab? = null,
+    modifier: Modifier = Modifier,
+    openAlbum: BaseItemDto? = null,
+    onAlbumOpened: () -> Unit = {}
+) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
-    val sections = if (kind == MediaLibraryKind.MUSIC) listOf(LibrarySection.SONGS, LibrarySection.ALBUMS, LibrarySection.ARTISTS,
-        LibrarySection.PLAYLISTS, LibrarySection.GENRES, LibrarySection.FAVORITES, LibrarySection.FOLDERS)
-    else listOf(LibrarySection.BOOKS, LibrarySection.AUTHORS, LibrarySection.AUDIOBOOKS, LibrarySection.FAVORITES, LibrarySection.FOLDERS)
+    val navidrome = session as? NavidromeSession
+    val bookSession = session as? LibraryMediaSession
+    val sections = when (musicTab) {
+        MusicLibraryTab.LIBRARY -> listOf(LibrarySection.ALBUMS, LibrarySection.ARTISTS, LibrarySection.SONGS, LibrarySection.GENRES)
+        MusicLibraryTab.MINE -> listOf(LibrarySection.FAVORITES, LibrarySection.PLAYLISTS)
+        MusicLibraryTab.SEARCH -> listOf(LibrarySection.SONGS, LibrarySection.ALBUMS, LibrarySection.ARTISTS)
+        null -> if (kind == MediaLibraryKind.MUSIC) listOf(LibrarySection.SONGS, LibrarySection.ALBUMS, LibrarySection.ARTISTS,
+            LibrarySection.PLAYLISTS, LibrarySection.GENRES, LibrarySection.FAVORITES, LibrarySection.FOLDERS)
+        else listOf(LibrarySection.BOOKS, LibrarySection.AUTHORS, LibrarySection.AUDIOBOOKS, LibrarySection.FAVORITES, LibrarySection.FOLDERS)
+    }
     var section by rememberSaveable { mutableStateOf(sections.first()) }
     var query by rememberSaveable { mutableStateOf("") }
     var listView by rememberSaveable(kind) { mutableStateOf(false) }
     var newest by rememberSaveable { mutableStateOf(false) }
     var title by remember { mutableStateOf(kind.title) }
-    var group by remember { mutableStateOf<BaseItemDto?>(null) }
-    var trail by remember { mutableStateOf<List<BaseItemDto>>(emptyList()) }
+    var groups by rememberSaveable(stateSaver = LibraryGroupStackSaver) { mutableStateOf(emptyList<BaseItemDto>()) }
+    val group = groups.lastOrNull()
+    var folders by remember { mutableStateOf<List<NavidromeFolder>>(emptyList()) }
+    var selectedFolder by rememberSaveable { mutableStateOf<String?>(null) }
+    var folderMenu by remember { mutableStateOf(false) }
     var items by remember { mutableStateOf<List<BaseItemDto>>(emptyList()) }
     var total by remember { mutableIntStateOf(0) }
     var canLoadMore by remember { mutableStateOf(false) }
@@ -118,13 +162,24 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
     var error by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableIntStateOf(0) }
     var selectedBook by remember { mutableStateOf<BaseItemDto?>(null) }
-    var showPlayer by rememberSaveable { mutableStateOf(showNowPlaying) }
+    var openedInitialItem by rememberSaveable { mutableStateOf(false) }
     var actionItem by remember { mutableStateOf<BaseItemDto?>(null) }
     var playlistName by rememberSaveable { mutableStateOf<String?>(null) }
     var recent by remember { mutableStateOf<BaseItemDto?>(null) }
     val recentPrefs = remember(context) { context.getSharedPreferences("book_library", Context.MODE_PRIVATE) }
     val recentKey = libraryCacheKey(session.accountKey + "|" + libraryId.orEmpty())
     val playback by MusicPlayback.state.collectAsState()
+    val awaitingSearch = musicTab == MusicLibraryTab.SEARCH && group == null && query.isBlank()
+    val currentLibraryId = if (navidrome != null) selectedFolder.takeUnless { section == LibrarySection.PLAYLISTS } else libraryId
+
+    LaunchedEffect(openAlbum) {
+        if (openAlbum != null) {
+            section = LibrarySection.ALBUMS
+            query = ""
+            groups = listOf(openAlbum)
+            onAlbumOpened()
+        }
+    }
 
     fun open(item: BaseItemDto) {
         when {
@@ -134,11 +189,11 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
                     val audio = items.filter { it.isAudioItem() }
                     val position = audio.indexOfFirst { it.id == item.id }
                     MusicPlayback.play(context, session, if (position >= 0) audio else listOf(item), position.coerceAtLeast(0))
-                    showPlayer = true
+                    onOpenPlayer()
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) { error = e.message ?: "无法开始播放" }
             }
-            else -> { group?.let { trail = trail + it }; group = item; query = "" }
+            else -> { groups = groups + item; query = "" }
         }
     }
 
@@ -155,7 +210,7 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
         }
         val person = group?.takeIf { it.type in setOf("Person", "MusicArtist") }?.id
         val genre = group?.takeIf { it.type in setOf("Genre", "MusicGenre") }?.id
-        val parent = if (person != null || genre != null) libraryId else group?.id ?: libraryId
+        val parent = if (person != null || genre != null) currentLibraryId else group?.id ?: currentLibraryId
         return MediaLibraryQuery(parentId = parent, includeItemTypes = type,
             recursive = section != LibrarySection.FOLDERS || person != null || genre != null,
             searchTerm = query.trim().takeIf { it.isNotEmpty() }, startIndex = start, limit = limit,
@@ -167,16 +222,24 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
     val groupSnapshot = group
     val sectionSnapshot = section
     val querySnapshot = request(0, 60)
-    val signature = listOf(section, query, newest, group?.id, reload)
+    val signature = listOf(section, query, newest, group?.id, currentLibraryId, reload)
     val latestSignature by rememberUpdatedState(signature)
     suspend fun page(start: Int, limit: Int): QueryResult<BaseItemDto> = when {
+        navidrome != null && groupSnapshot != null -> navidrome.children(groupSnapshot, currentLibraryId, querySnapshot.searchTerm, start, limit)
         groupSnapshot?.type == "Playlist" -> session.playlistItems(requireNotNull(groupSnapshot.id), start, limit)
         groupSnapshot == null && sectionSnapshot in listOf(LibrarySection.ARTISTS, LibrarySection.AUTHORS) ->
-            session.people(libraryId, if (sectionSnapshot == LibrarySection.ARTISTS) "Artist,AlbumArtist" else "Author", querySnapshot.searchTerm, start, limit)
-        groupSnapshot == null && sectionSnapshot == LibrarySection.GENRES -> session.genres(libraryId, "Audio", start, limit)
+            session.people(currentLibraryId, if (sectionSnapshot == LibrarySection.ARTISTS) "Artist,AlbumArtist" else "Author", querySnapshot.searchTerm, start, limit)
+        groupSnapshot == null && sectionSnapshot == LibrarySection.GENRES -> session.genres(currentLibraryId, "Audio", start, limit)
         else -> session.items(querySnapshot.copy(startIndex = start, limit = limit))
     }
 
+    LaunchedEffect(navidrome, reload) {
+        if (navidrome != null) try {
+            folders = navidrome.folders()
+            if (folders.none { it.id == selectedFolder }) selectedFolder = null
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { /* 曲库筛选不可用时，仍可浏览全部音乐。 */ }
+    }
     LaunchedEffect(session, libraryId) {
         try {
             if (libraryId != null) title = session.item(libraryId).name ?: kind.title
@@ -185,17 +248,24 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
         catch (_: Exception) { /* 可选标题/续读不影响书库主体，主查询独立展示错误。 */ }
     }
     LaunchedEffect(initialItemId) {
-        if (initialItemId != null) try {
+        if (initialItemId != null && !openedInitialItem && groups.isEmpty()) try {
             val item = session.item(initialItemId)
             if (item.isAudioItem()) {
-                MusicPlayback.play(context, session, listOf(item)); showPlayer = true
-            } else if (item.isBookItem()) selectedBook = item else group = item
+                MusicPlayback.play(context, session, listOf(item))
+                openedInitialItem = true
+                onOpenPlayer()
+            } else if (item.isBookItem()) selectedBook = item else groups = listOf(item)
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { error = e.message ?: "无法打开条目" }
     }
-    LaunchedEffect(section, query, newest, group?.id, reload) {
+    LaunchedEffect(signature) {
         loading = true; loadingMore = false; items = emptyList(); error = null
         try {
+            if (awaitingSearch) {
+                total = 0
+                canLoadMore = false
+                return@LaunchedEffect
+            }
             if (query.isNotBlank()) delay(300)
             val result = page(0, 60)
             items = result.items.orEmpty()
@@ -235,7 +305,7 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
             if (signature != latestSignature) return@launch
             if (all.isEmpty()) throw IllegalStateException("没有可播放的音频")
             MusicPlayback.play(context, session, if (shuffle) all.shuffled() else all)
-            showPlayer = true
+            onOpenPlayer()
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { error = e.message ?: "准备播放列表失败" }
         finally { preparingQueue = false }
@@ -243,39 +313,58 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
 
     val back = {
         when {
-            showPlayer -> showPlayer = false
             selectedBook != null -> selectedBook = null
-            group != null -> { group = trail.lastOrNull(); trail = trail.dropLast(1); query = "" }
+            group != null -> { groups = groups.dropLast(1); query = "" }
             else -> onBack()
         }
     }
-    BackHandler { back() }
-    if (showPlayer && playback.item != null) {
-        MusicNowPlayingScreen(onBack = { showPlayer = false }); return
-    }
-    selectedBook?.let { book ->
-        BookDetailScreen(session, book, onBack = { selectedBook = null }, onRead = {
+    BackHandler(enabled = musicTab == null || group != null || selectedBook != null) { back() }
+    selectedBook?.takeIf { bookSession != null }?.let { book ->
+        BookDetailScreen(requireNotNull(bookSession), book, onBack = { selectedBook = null }, onRead = {
             recentPrefs.edit().putString(recentKey, book.id).apply(); recent = book
         })
         return
     }
 
-    val supportsGrid = group?.type !in listOf("MusicAlbum", "Playlist") &&
+    val supportsGrid = (navidrome != null && group?.type == "MusicArtist") || (group?.type !in listOf("MusicAlbum", "Playlist") &&
         (section in listOf(LibrarySection.BOOKS, LibrarySection.ALBUMS, LibrarySection.PLAYLISTS, LibrarySection.AUDIOBOOKS) ||
-            (kind == MediaLibraryKind.BOOKS && section == LibrarySection.FAVORITES))
-    Scaffold(topBar = {
-        TopAppBar(title = { Column {
+            (kind == MediaLibraryKind.BOOKS && section == LibrarySection.FAVORITES)))
+    Scaffold(modifier = modifier, contentWindowInsets = if (musicTab == null) ScaffoldDefaults.contentWindowInsets else WindowInsets(0, 0, 0, 0), topBar = {
+        if (musicTab == null || group != null) TopAppBar(
+            windowInsets = if (musicTab == null) TopAppBarDefaults.windowInsets else WindowInsets(0, 0, 0, 0),
+            title = { Column {
             Text(group?.name ?: title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
-            Text(if (kind == MediaLibraryKind.BOOKS) "每一页，都是新的世界" else "让喜欢的声音陪伴你", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (musicTab == null) Text(if (kind == MediaLibraryKind.BOOKS) "每一页，都是新的世界" else "让喜欢的声音陪伴你", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } }, navigationIcon = {
             IconButton(onClick = { back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
         }, actions = {
             IconButton(onClick = { reload++ }, enabled = !loading) { Icon(Icons.Default.Refresh, "刷新") }
         })
-    }, bottomBar = { if (playback.item != null) MusicMiniPlayer(onOpen = { showPlayer = true }, modifier = Modifier.navigationBarsPadding()) }) { padding ->
+    }, bottomBar = { if (musicTab == null && playback.item != null) MusicMiniPlayer(onOpen = onOpenPlayer, modifier = Modifier.navigationBarsPadding()) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding.excludeBottom())) {
+            if (group == null && folders.size > 1 && section != LibrarySection.PLAYLISTS) {
+                Box(Modifier.padding(horizontal = 16.dp)) {
+                    FilterChip(
+                        selected = selectedFolder != null,
+                        onClick = { folderMenu = true },
+                        label = { Text(folders.firstOrNull { it.id == selectedFolder }?.name ?: stringResource(R.string.navidrome_all_libraries)) },
+                        trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) }
+                    )
+                    DropdownMenu(expanded = folderMenu, onDismissRequest = { folderMenu = false }) {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.navidrome_all_libraries)) },
+                            onClick = { selectedFolder = null; folderMenu = false })
+                        folders.forEach { folder -> DropdownMenuItem(text = { Text(folder.name) },
+                            onClick = { selectedFolder = folder.id; folderMenu = false }) }
+                    }
+                }
+            }
             if (group == null) LazyRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(sections) { tab -> FilterChip(selected = section == tab, onClick = { section = tab; query = "" }, label = { Text(tab.label) }) }
+                items(sections) { tab ->
+                    FilterChip(selected = section == tab, onClick = {
+                        section = tab
+                        if (musicTab != MusicLibraryTab.SEARCH) query = ""
+                    }, label = { Text(tab.label) })
+                }
             }
             if (group?.type != "Playlist" && section != LibrarySection.GENRES) OutlinedTextField(query, { query = it },
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), singleLine = true,
@@ -285,10 +374,15 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
                 // 列表随输入实时过滤，IME 搜索键只需收起键盘。
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }))
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (loading) "正在加载…" else "${section.label} · $total 项", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!awaitingSearch) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                val summary = when {
+                    loading -> "正在加载…"
+                    navidrome != null && canLoadMore -> section.label
+                    else -> "${section.label} · $total 项"
+                }
+                Text(summary, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (supportsGrid) IconButton(onClick = { listView = !listView }) { Icon(if (listView) Icons.Default.GridView else Icons.AutoMirrored.Filled.ViewList, if (listView) "网格视图" else "列表视图") }
-                TextButton(onClick = { newest = !newest }, enabled = !loading && group?.type != "Playlist") {
+                if (navidrome == null || (group == null && section == LibrarySection.ALBUMS && query.isBlank())) TextButton(onClick = { newest = !newest }, enabled = !loading && group?.type != "Playlist") {
                     Icon(Icons.AutoMirrored.Filled.Sort, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(if (newest) "最近添加" else "名称排序")
                 }
             }
@@ -301,9 +395,12 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
             error?.let { LibraryError(it, { reload++ }) }
             PullToRefreshBox(isRefreshing = loading, onRefresh = { reload++ }, modifier = Modifier.weight(1f)) {
             when {
+                awaitingSearch -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                    Text(stringResource(R.string.navidrome_search_prompt), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 items.isEmpty() && error == null -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                    Text(if (query.isNotBlank()) "没有匹配的内容，试试其他关键词" else "这里还没有${section.label}，可在 Jellyfin 中添加或整理媒体", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (query.isNotBlank()) "没有匹配的内容，试试其他关键词" else if (navidrome != null) "这里还没有${section.label}" else "这里还没有${section.label}，可在 Jellyfin 中添加或整理媒体", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 else -> {
                     val grid = !listView && supportsGrid
@@ -342,7 +439,7 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
                                 supportingContent = { Text(item.librarySubtitle(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 leadingContent = { LibraryArtwork(session, item, Modifier.size(52.dp)) },
                                 trailingContent = { if (item.isAudioItem() || item.isBookItem()) IconButton(onClick = { actionItem = item }) { Icon(Icons.Default.MoreVert, "${item.name}的更多操作") } else Icon(Icons.Default.ChevronRight, null) },
-                                colors = ListItemDefaults.colors(containerColor = if (item.id == playback.item?.id && item.isAudioItem()) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
+                                colors = ListItemDefaults.colors(containerColor = if (session.accountKey == playback.session?.accountKey && item.id == playback.item?.id && item.isAudioItem()) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
                                 modifier = Modifier.combinedClickable(onClick = { open(item) }, onLongClickLabel = "更多操作", onLongClick = { actionItem = item }))
                         }
                         if (canLoadMore) item { LoadMore(loadingMore) { loadMore() } }
@@ -359,9 +456,9 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
             ListItem(headlineContent = { Text(if (item.isBookItem()) "查看书籍 / 继续阅读" else if (item.isAudioItem()) "立即播放" else "打开") },
                 leadingContent = { Icon(if (item.isBookItem()) Icons.AutoMirrored.Filled.MenuBook else Icons.Default.PlayArrow, null) },
                 modifier = Modifier.clickable { actionItem = null; open(item) })
-            ListItem(headlineContent = { Text(if (item.userData?.isFavorite == true) "取消收藏" else "添加收藏") },
+            if (session.canFavorite(item)) ListItem(headlineContent = { Text(if (item.userData?.isFavorite == true) "取消收藏" else "添加收藏") },
                 leadingContent = { Icon(Icons.Default.FavoriteBorder, null) }, modifier = Modifier.clickable { scope.launch {
-                    try { session.favorite(requireNotNull(item.id), item.userData?.isFavorite != true); actionItem = null; reload++ }
+                    try { session.favorite(item, item.userData?.isFavorite != true); actionItem = null; reload++ }
                     catch (e: CancellationException) { throw e }
                     catch (e: Exception) { error = e.message ?: "收藏失败"; actionItem = null }
                 } })
@@ -387,13 +484,24 @@ private fun LibraryBrowser(session: LibraryMediaSession, kind: MediaLibraryKind,
  * @return 无返回值；图片加载由 Coil 管理并随组合销毁取消。
  */
 @Composable
-internal fun LibraryArtwork(session: LibraryMediaSession?, item: BaseItemDto, modifier: Modifier = Modifier) {
+internal fun LibraryArtwork(
+    session: MusicMediaSession?,
+    item: BaseItemDto,
+    modifier: Modifier = Modifier,
+    shape: Shape = MaterialTheme.shapes.medium
+) {
     val context = LocalContext.current
-    var artwork by remember(session, item) { mutableStateOf<Any?>(session?.artworkUrl(item)) }
+    var artwork by remember(session, item) { mutableStateOf<Any?>((session as? LibraryMediaSession)?.artworkUrl(item)) }
     var failed by remember(session, item) { mutableStateOf(false) }
     // 只为进入组合的可见封面补查子条目，离屏取消请求；失败显式展示错误图标。
     LaunchedEffect(session, item) {
-        try { artwork = session?.let { BookArtwork.resolve(context, it, item) } }
+        try {
+            artwork = when (session) {
+                is LibraryMediaSession -> BookArtwork.resolve(context, session, item)
+                is NavidromeSession -> session.cover(item)
+                else -> null
+            }
+        }
         catch (e: CancellationException) { throw e }
         catch (e: Exception) {
             failed = true
@@ -403,7 +511,7 @@ internal fun LibraryArtwork(session: LibraryMediaSession?, item: BaseItemDto, mo
         }
     }
     // 文件夹没有封面是合法状态，不能误显示音乐图标。
-    Box(modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
+    Box(modifier.clip(shape).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
         Icon(when {
             failed -> Icons.Default.BrokenImage
             item.isFolder == true -> Icons.Default.Folder

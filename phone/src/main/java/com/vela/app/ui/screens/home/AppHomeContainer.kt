@@ -65,6 +65,7 @@ fun AppHomeContainer(
     onNavigateToDownloads: () -> Unit = {},
     onNavigateToCacheSettings: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
+    onNavigateToNavidrome: (String) -> Unit = {},
     onNavigateToServerInfo: () -> Unit = {},
     onNavigateToPeach: () -> Unit = {},
     onAddUser: (serverUrl: String, serverName: String?) -> Unit = { _, _ -> }
@@ -101,6 +102,7 @@ fun AppHomeContainer(
             when (activeTab) {
                 AppHomeTab.SERVERS -> ServersScreen(
                     onServerSwitched = onServerSwitched,
+                    onNavigateToNavidrome = onNavigateToNavidrome,
                     onAddUser = onAddUser,
                     modifier = contentModifier
                 )

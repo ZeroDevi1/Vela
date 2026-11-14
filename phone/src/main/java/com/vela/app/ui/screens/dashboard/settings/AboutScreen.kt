@@ -1,402 +1,159 @@
 package com.vela.app.ui.screens.dashboard.settings
 
-import com.vela.shared.ui.components.common.bottomContentPadding
-import com.vela.shared.ui.components.common.excludeBottom
 import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Gavel
+import androidx.compose.material.icons.rounded.LocalCafe
 import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material.icons.rounded.StarRate
 import androidx.compose.material.icons.rounded.SystemUpdate
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil3.compose.AsyncImage
 import com.vela.app.BuildConfig
 import com.vela.data.update.AUTO_DOWNLOAD_MIRROR_ID
 import com.vela.data.update.CUSTOM_DOWNLOAD_MIRROR_ID
 import com.vela.data.update.DIRECT_DOWNLOAD_MIRROR_ID
+import com.vela.data.update.compareVersions
 import com.vela.shared.R
+import com.vela.shared.ui.components.common.bottomContentPadding
+import com.vela.shared.ui.components.common.excludeBottom
 import com.vela.shared.update.AppUpdateDialogs
 import com.vela.shared.update.AppUpdateUiState
 import com.vela.shared.update.AppUpdateViewModel
 
 private const val GithubUrl = "https://github.com/ZeroDevi1/Vela"
-private const val PrivacyUrl = "https://github.com/ZeroDevi1/Vela/blob/main/PRIVACY"
-private const val LicenseUrl = "https://github.com/ZeroDevi1/Vela/blob/main/LICENSE"
-private const val PlayStoreUrl = "https://play.google.com/store/apps/details?id=com.vela.app"
-private const val BuyMeACoffeeUrl = "https://www.buymeacoffee.com/ZeroDevi1"
-private const val PatreonUrl = "https://www.patreon.com/c/sureshs/membership"
+private const val PrivacyUrl = "$GithubUrl/blob/main/PRIVACY"
+private const val LicenseUrl = "$GithubUrl/blob/main/LICENSE"
+private const val SupportUrl = "https://www.buymeacoffee.com/ZeroDevi1"
 private const val ContactEmail = "ZeroDevi10503@gmail.com"
-private const val GithubIconUrl = "https://cdn.simpleicons.org/github/white?viewbox=auto"
-private const val BuyMeACoffeeIconUrl = "https://cdn.simpleicons.org/buymeacoffee?viewbox=auto"
-private const val PatreonIconUrl = "https://cdn.simpleicons.org/patreon/white?viewbox=auto"
-
-private val AboutCardColor = Color(0xFF0B0E12)
-private val AboutBorderColor = Color.White.copy(alpha = 0.08f)
-private val AboutSecondaryText = Color.White.copy(alpha = 0.70f)
-private val AboutAccent = Color(0xFF5AA9FA)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AboutScreen(
-    onBackPressed: () -> Unit = {}
-) {
+fun AboutScreen(onBackPressed: () -> Unit = {}) {
     val context = LocalContext.current
     val updateViewModel: AppUpdateViewModel = viewModel {
         AppUpdateViewModel(context.applicationContext as Application, BuildConfig.VERSION_NAME)
     }
-    val updateState by updateViewModel.uiState.collectAsState()
+    val state by updateViewModel.uiState.collectAsStateWithLifecycle()
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
-        containerColor = Color.Black,
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.about_title),
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackPressed) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = stringResource(R.string.cd_back_button),
-                            tint = Color.White
-                        )
-                    }
-                },
+            LargeTopAppBar(
+                title = { Text(stringResource(R.string.about_title)) },
+                navigationIcon = { IconButton(onClick = onBackPressed) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.cd_back_button))
+                } },
+                scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Black,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background
                 )
             )
         }
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues.excludeBottom())
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = paddingValues.bottomContentPadding()
-        ) {
-            item {
-                AboutHeader(
-                    onGithubClick = { openUrl(context, GithubUrl) },
-                    onCoffeeClick = { openUrl(context, BuyMeACoffeeUrl) },
-                    onPatreonClick = { openUrl(context, PatreonUrl) },
-                    onVersionClick = updateViewModel::checkForUpdate
-                )
-            }
-
-            item { AboutSectionLabel(stringResource(R.string.about_section_update)) }
-            item {
-                AboutSectionCard {
-                    AboutActionRow(
-                        icon = Icons.Rounded.SystemUpdate,
-                        title = stringResource(R.string.about_check_update),
-                        subtitle = checkUpdateSubtitle(updateState),
-                        onClick = updateViewModel::checkForUpdate
-                    )
-                    HorizontalDivider(color = AboutBorderColor)
-                    AboutActionRow(
-                        icon = Icons.Rounded.Speed,
-                        title = stringResource(R.string.about_update_download_mirror),
-                        subtitle = mirrorSubtitle(updateState),
-                        onClick = updateViewModel::openMirrorPicker
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding.excludeBottom()), contentAlignment = Alignment.TopCenter) {
+            LazyColumn(
+                modifier = Modifier.widthIn(max = 640.dp).fillMaxSize(),
+                contentPadding = padding.bottomContentPadding()
+            ) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Image(painterResource(R.drawable.vela_logo), null, Modifier.size(64.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall)
+                            Text(stringResource(R.string.about_update_current, BuildConfig.VERSION_NAME),
+                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                item {
+                    SettingsGroup(
+                        title = stringResource(R.string.about_section_update),
+                        rows = listOf(
+                            {
+                                SettingsRow(
+                                    title = stringResource(R.string.about_check_update),
+                                    subtitle = checkUpdateSubtitle(state),
+                                    subtitleMaxLines = 3,
+                                    icon = Icons.Rounded.SystemUpdate,
+                                    onClick = updateViewModel::checkForUpdate,
+                                    enabled = !state.checking,
+                                    showChevron = false,
+                                    trailing = if (state.checking) {
+                                        { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) }
+                                    } else null
+                                )
+                            },
+                            {
+                                SettingsRow(
+                                    title = stringResource(R.string.about_update_download_mirror),
+                                    subtitle = mirrorSubtitle(state),
+                                    subtitleMaxLines = 2,
+                                    icon = Icons.Rounded.Speed,
+                                    onClick = updateViewModel::openMirrorPicker
+                                )
+                            }
+                        )
                     )
                 }
-            }
-
-            item { AboutSectionLabel(stringResource(R.string.about_section_project)) }
-            item {
-                AboutSectionCard {
-                    AboutActionRow(
-                        icon = Icons.Rounded.Policy,
-                        title = stringResource(R.string.about_privacy_policy),
-                        subtitle = stringResource(R.string.about_privacy_policy_subtitle),
-                        onClick = { openUrl(context, PrivacyUrl) }
-                    )
-                    HorizontalDivider(color = AboutBorderColor)
-                    AboutActionRow(
-                        icon = Icons.Rounded.Gavel,
-                        title = stringResource(R.string.about_open_source_license),
-                        subtitle = stringResource(R.string.about_open_source_license_subtitle),
-                        onClick = { openUrl(context, LicenseUrl) }
-                    )
-                }
-            }
-
-            item { AboutSectionLabel(stringResource(R.string.about_section_connect)) }
-            item {
-                AboutSectionCard {
-                    AboutActionRow(
-                        icon = Icons.Rounded.StarRate,
-                        title = stringResource(R.string.about_rate_app),
-                        subtitle = stringResource(R.string.about_rate_app_subtitle),
-                        onClick = { openUrl(context, PlayStoreUrl) }
-                    )
-                    HorizontalDivider(color = AboutBorderColor)
-                    AboutActionRow(
-                        icon = Icons.Rounded.Email,
-                        title = stringResource(R.string.about_contact_developer),
-                        subtitle = stringResource(R.string.about_contact_developer_subtitle),
-                        onClick = { composeEmail(context) }
+                item {
+                    SettingsGroup(
+                        title = stringResource(R.string.about_section_project),
+                        rows = listOf(
+                            {
+                                SettingsRow(title = stringResource(R.string.about_source_code), icon = Icons.Rounded.Code,
+                                    subtitle = "ZeroDevi1 / Vela", onClick = { openUrl(context, GithubUrl) })
+                            },
+                            {
+                                SettingsRow(title = stringResource(R.string.about_privacy_policy), icon = Icons.Rounded.Policy,
+                                    onClick = { openUrl(context, PrivacyUrl) })
+                            },
+                            {
+                                SettingsRow(title = stringResource(R.string.about_open_source_license), icon = Icons.Rounded.Gavel,
+                                    onClick = { openUrl(context, LicenseUrl) })
+                            },
+                            {
+                                SettingsRow(title = stringResource(R.string.about_contact_developer), icon = Icons.Rounded.Email,
+                                    onClick = { composeEmail(context) })
+                            },
+                            {
+                                SettingsRow(title = stringResource(R.string.about_buy_me_a_coffee), icon = Icons.Rounded.LocalCafe,
+                                    onClick = { openUrl(context, SupportUrl) })
+                            }
+                        )
                     )
                 }
+                item { Spacer(Modifier.height(24.dp)) }
             }
         }
     }
-
-    AppUpdateDialogs(viewModel = updateViewModel, uiState = updateState)
-}
-
-@Composable
-private fun AboutHeader(
-    onGithubClick: () -> Unit,
-    onCoffeeClick: () -> Unit,
-    onPatreonClick: () -> Unit,
-    onVersionClick: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 24.dp, bottom = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Image(
-            painter = painterResource(id = R.drawable.vela_logo),
-            contentDescription = stringResource(R.string.app_name),
-            modifier = Modifier.size(112.dp)
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = stringResource(R.string.app_name),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = stringResource(R.string.about_author),
-            style = MaterialTheme.typography.bodyMedium,
-            color = AboutSecondaryText
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = stringResource(R.string.about_based_on_vela),
-            style = MaterialTheme.typography.bodySmall,
-            color = AboutSecondaryText.copy(alpha = 0.78f)
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Surface(
-            color = AboutAccent.copy(alpha = 0.14f),
-            shape = RoundedCornerShape(999.dp),
-            border = BorderStroke(1.dp, AboutAccent.copy(alpha = 0.28f)),
-            onClick = onVersionClick
-        ) {
-            Text(
-                text = stringResource(R.string.about_version_chip, BuildConfig.VERSION_NAME),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(26.dp))
-
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            BrandIconButton(
-                contentDescription = stringResource(R.string.about_source_code),
-                imageUrl = GithubIconUrl,
-                onClick = onGithubClick
-            )
-            BrandIconButton(
-                contentDescription = stringResource(R.string.about_buy_me_a_coffee),
-                imageUrl = BuyMeACoffeeIconUrl,
-                onClick = onCoffeeClick
-            )
-            BrandIconButton(
-                contentDescription = stringResource(R.string.about_patreon),
-                imageUrl = PatreonIconUrl,
-                onClick = onPatreonClick
-            )
-        }
-    }
-}
-
-@Composable
-private fun BrandIconButton(
-    contentDescription: String,
-    imageUrl: String,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .semantics { this.contentDescription = contentDescription }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        AsyncImage(
-            model = imageUrl,
-            contentDescription = null,
-            modifier = Modifier.size(30.dp)
-        )
-    }
-}
-
-@Composable
-private fun AboutSectionLabel(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleSmall,
-        color = Color.White.copy(alpha = 0.88f),
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 2.dp)
-    )
-}
-
-@Composable
-private fun AboutSectionCard(
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = AboutCardColor),
-        border = BorderStroke(1.dp, AboutBorderColor),
-        shape = RoundedCornerShape(18.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(content = content)
-    }
-}
-
-@Composable
-private fun AboutActionRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 15.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Surface(
-            modifier = Modifier.size(40.dp),
-            color = AboutAccent.copy(alpha = 0.12f),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = AboutAccent,
-                    modifier = Modifier.size(19.dp)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.width(14.dp))
-
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(end = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = AboutSecondaryText
-            )
-        }
-
-        Icon(
-            imageVector = Icons.Rounded.ChevronRight,
-            contentDescription = title,
-            tint = Color.White.copy(alpha = 0.42f)
-        )
-    }
+    AppUpdateDialogs(viewModel = updateViewModel, uiState = state)
 }
 
 private fun openUrl(context: Context, url: String) {
@@ -428,6 +185,8 @@ private fun checkUpdateSubtitle(state: AppUpdateUiState): String {
         error != null -> error
         state.isNewer && release != null ->
             stringResource(R.string.about_update_available, release.versionName)
+        release != null && compareVersions(release.versionName, state.currentVersion) < 0 ->
+            stringResource(R.string.about_update_behind, release.versionName)
         release != null ->
             stringResource(R.string.about_update_latest, release.versionName)
         else -> stringResource(R.string.about_check_update_subtitle)

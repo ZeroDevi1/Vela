@@ -22,10 +22,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -36,12 +38,17 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -53,6 +60,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,6 +81,8 @@ import com.vela.app.ui.components.common.amoledAuthFieldColors
 import com.vela.app.ui.screens.auth.ProfileImageLoader
 import com.vela.app.ui.screens.auth.RemoveServerConfirmDialog
 import com.vela.data.repository.AuthRepository
+import com.vela.data.network.ServerType
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import com.vela.shared.R
 
 private val OnlineDotColor = Color(0xFF4FD06B)
@@ -81,6 +91,7 @@ private val OnlineDotColor = Color(0xFF4FD06B)
 @Composable
 fun ServersScreen(
     onServerSwitched: () -> Unit = {},
+    onNavigateToNavidrome: (String) -> Unit = {},
     onAddUser: (serverUrl: String, serverName: String?) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
@@ -89,8 +100,9 @@ fun ServersScreen(
         ServersViewModel(context.applicationContext as android.app.Application)
     }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val musicServers by viewModel.musicServers.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    var showAddDialog by remember { mutableStateOf(false) }
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var serverPendingRemoval by remember { mutableStateOf<AuthRepository.SavedServer?>(null) }
     var configuringServerId by remember { mutableStateOf<String?>(null) }
 
@@ -126,7 +138,7 @@ fun ServersScreen(
             }
         }
     ) { innerPadding ->
-        if (uiState.servers.isEmpty()) {
+        if (uiState.servers.isEmpty() && musicServers.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -172,6 +184,23 @@ fun ServersScreen(
                         }
                     )
                 }
+                items(musicServers, key = { it.accountKey }) { server ->
+                    ListItem(
+                        headlineContent = { Text(server.displayName, style = MaterialTheme.typography.titleMedium) },
+                        supportingContent = { Text("Navidrome · ${server.username}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        leadingContent = {
+                            Box(Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
+                                contentAlignment = Alignment.Center) {
+                                Icon(Icons.Rounded.MusicNote, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                            }
+                        },
+                        trailingContent = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
+                        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                        modifier = Modifier.clip(MaterialTheme.shapes.large).clickable(enabled = !uiState.isBusy) {
+                            onNavigateToNavidrome(server.accountKey)
+                        }
+                    )
+                }
             }
         }
     }
@@ -180,13 +209,14 @@ fun ServersScreen(
         AddServerDialog(
             isConnecting = uiState.isConnecting,
             errorMessage = uiState.connectError,
+            onEdit = viewModel::clearConnectError,
             onDismiss = {
                 if (!uiState.isConnecting) {
                     viewModel.clearConnectError()
                     showAddDialog = false
                 }
             },
-            onConnect = { host, https, port, path, username, password, note ->
+            onConnect = { serverType, host, https, port, path, username, password, note ->
                 viewModel.addServer(
                     host = host,
                     https = https,
@@ -195,11 +225,18 @@ fun ServersScreen(
                     username = username,
                     password = password,
                     note = note,
+                    serverType = serverType,
                     onSuccess = {
                         showAddDialog = false
                         onServerSwitched()
                     }
                 )
+            },
+            onConnectNavidrome = { address, username, secret, apiKey, note ->
+                viewModel.addNavidrome(address, username, secret, apiKey, note) { accountKey ->
+                    showAddDialog = false
+                    onNavigateToNavidrome(accountKey)
+                }
             }
         )
     }
@@ -405,12 +442,23 @@ private fun ServerAccountRow(
     }
 }
 
+private enum class AddServerType(val label: String, val videoType: ServerType? = null) {
+    AUTO(""),
+    JELLYFIN("Jellyfin", ServerType.JELLYFIN),
+    EMBY("Emby", ServerType.EMBY),
+    PEACH("Peach", ServerType.PEACH),
+    NAVIDROME("Navidrome")
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddServerDialog(
     isConnecting: Boolean,
     errorMessage: String?,
+    onEdit: () -> Unit,
     onDismiss: () -> Unit,
     onConnect: (
+        serverType: ServerType?,
         host: String,
         https: Boolean,
         port: String,
@@ -418,8 +466,11 @@ private fun AddServerDialog(
         username: String,
         password: String,
         note: String
-    ) -> Unit
+    ) -> Unit,
+    onConnectNavidrome: (address: String, username: String, secret: String, apiKey: Boolean, note: String) -> Unit
 ) {
+    var type by rememberSaveable { mutableStateOf(AddServerType.AUTO) }
+    var typeExpanded by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("") }
     var https by remember { mutableStateOf(false) }
@@ -427,6 +478,19 @@ private fun AddServerDialog(
     var path by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var musicAddress by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf(false) }
+    val isNavidrome = type == AddServerType.NAVIDROME
+    val needsUsername = type != AddServerType.PEACH && !(isNavidrome && apiKey)
+    val canConnect = !isConnecting && (!needsUsername || username.isNotBlank()) &&
+        if (isNavidrome) musicAddress.isNotBlank() && password.isNotBlank() else host.isNotBlank()
+    val automatic = stringResource(R.string.settings_auto)
+
+    fun connect() {
+        if (!canConnect) return
+        if (isNavidrome) onConnectNavidrome(musicAddress, username, password, apiKey, note)
+        else onConnect(type.videoType, host, https, port, path, username, password, note)
+    }
 
     AmoledDialogFrame(
         dismissOnRequest = !isConnecting,
@@ -445,6 +509,37 @@ private fun AddServerDialog(
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(18.dp))
+            ExposedDropdownMenuBox(
+                expanded = typeExpanded,
+                onExpandedChange = { if (!isConnecting) typeExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = type.label.ifBlank { automatic },
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = !isConnecting,
+                    modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                    label = { Text(stringResource(R.string.auth_server_type)) },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeExpanded) },
+                    colors = amoledAuthFieldColors()
+                )
+                ExposedDropdownMenu(expanded = typeExpanded, onDismissRequest = { typeExpanded = false }) {
+                    AddServerType.entries.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.label.ifBlank { automatic }) },
+                            onClick = {
+                                if (type != option) {
+                                    type = option
+                                    password = ""
+                                    onEdit()
+                                }
+                                typeExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
             OutlinedTextField(
                 value = note,
                 onValueChange = { note = it },
@@ -457,7 +552,37 @@ private fun AddServerDialog(
                 colors = amoledAuthFieldColors()
             )
             Spacer(modifier = Modifier.height(12.dp))
-            ServerAddressFields(
+            if (isNavidrome) {
+                OutlinedTextField(
+                    value = musicAddress,
+                    onValueChange = { musicAddress = it; onEdit() },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.server_url)) },
+                    placeholder = { Text("https://music.example.com") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+                    enabled = !isConnecting,
+                    colors = amoledAuthFieldColors()
+                )
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    listOf(R.string.password, R.string.navidrome_api_key).forEachIndexed { index, label ->
+                        val useKey = index == 1
+                        SegmentedButton(
+                            selected = apiKey == useKey,
+                            enabled = !isConnecting,
+                            shape = SegmentedButtonDefaults.itemShape(index, 2),
+                            onClick = {
+                                if (apiKey != useKey) {
+                                    apiKey = useKey
+                                    password = ""
+                                    onEdit()
+                                }
+                            },
+                            label = { Text(stringResource(label)) }
+                        )
+                    }
+                }
+            } else ServerAddressFields(
                 host = host,
                 path = path,
                 port = port,
@@ -482,9 +607,9 @@ private fun AddServerDialog(
                 }
             )
             Spacer(modifier = Modifier.height(12.dp))
-            OutlinedTextField(
+            if (needsUsername) OutlinedTextField(
                 value = username,
-                onValueChange = { username = it },
+                onValueChange = { username = it; onEdit() },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(stringResource(R.string.username)) },
                 singleLine = true,
@@ -495,11 +620,12 @@ private fun AddServerDialog(
             Spacer(modifier = Modifier.height(12.dp))
             OutlinedTextField(
                 value = password,
-                onValueChange = { password = it },
+                onValueChange = { password = it; onEdit() },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(R.string.password)) },
+                label = { Text(stringResource(if (isNavidrome && apiKey) R.string.navidrome_api_key else R.string.password)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { connect() }),
                 enabled = !isConnecting,
                 visualTransformation = PasswordVisualTransformation(),
                 colors = amoledAuthFieldColors()
@@ -526,10 +652,8 @@ private fun AddServerDialog(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(
-                    onClick = {
-                        onConnect(host, https, port, path, username, password, note)
-                    },
-                    enabled = !isConnecting && host.isNotBlank() && username.isNotBlank(),
+                    onClick = ::connect,
+                    enabled = canConnect,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
