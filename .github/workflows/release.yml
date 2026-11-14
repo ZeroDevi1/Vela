@@ -112,12 +112,17 @@ jobs:
             "$signer" verify --print-certs "$apk"
           done
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload individual phone release APKs
+        uses: ./.github/actions/upload-apks
         with:
-          name: vela-release
-          path: |
-            phone/build/outputs/apk/release/*.apk
-            tv/build/outputs/apk/release/*.apk
+          module: phone
+          variant: release
+
+      - name: Upload universal TV release APK
+        uses: ./.github/actions/upload-apks
+        with:
+          module: tv
+          variant: release
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

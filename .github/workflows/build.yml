@@ -98,14 +98,13 @@ jobs:
             echo "These optimized APKs require signing before installation. Configure the existing VELA release secrets and build the default branch for installable APKs." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Upload individual APKs
+        uses: ./.github/actions/upload-apks
         with:
-          name: vela-${{ matrix.module }}-${{ matrix.variant.name }}${{ steps.signing.outputs.state == 'unsigned' && '-unsigned' || '' }}-${{ github.sha }}
-          path: ${{ matrix.module }}/build/outputs/apk/${{ matrix.variant.name }}/*.apk
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
+          module: ${{ matrix.module }}
+          variant: ${{ matrix.variant.name }}
+          signing-state: ${{ steps.signing.outputs.state }}
+          retention-days: '14'
 
       - name: Remove temporary signing keystore
         if: always() && matrix.variant.name == 'release'

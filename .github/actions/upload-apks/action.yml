@@ -1,0 +1,64 @@
+name: Upload individual APKs
+description: Upload one unarchived artifact per phone ABI or one universal TV APK.
+
+inputs:
+  module:
+    description: Android module to upload (phone or tv).
+    required: true
+  variant:
+    description: Build variant to upload (debug or release).
+    required: true
+  signing-state:
+    description: Set to unsigned when APK filenames have the -unsigned suffix.
+    default: ''
+  retention-days:
+    description: Days to keep artifacts, or 0 for the repository default.
+    default: '0'
+
+runs:
+  using: composite
+  steps:
+    - name: Upload phone arm64-v8a APK
+      if: inputs.module == 'phone'
+      uses: actions/upload-artifact@v7
+      with:
+        path: phone/build/outputs/apk/${{ inputs.variant }}/vela-phone-${{ inputs.variant }}-*-arm64-v8a${{ inputs.signing-state == 'unsigned' && '-unsigned' || '' }}.apk
+        archive: false
+        if-no-files-found: error
+        retention-days: ${{ inputs.retention-days }}
+
+    - name: Upload phone armeabi-v7a APK
+      if: inputs.module == 'phone'
+      uses: actions/upload-artifact@v7
+      with:
+        path: phone/build/outputs/apk/${{ inputs.variant }}/vela-phone-${{ inputs.variant }}-*-armeabi-v7a${{ inputs.signing-state == 'unsigned' && '-unsigned' || '' }}.apk
+        archive: false
+        if-no-files-found: error
+        retention-days: ${{ inputs.retention-days }}
+
+    - name: Upload phone x86 APK
+      if: inputs.module == 'phone'
+      uses: actions/upload-artifact@v7
+      with:
+        path: phone/build/outputs/apk/${{ inputs.variant }}/vela-phone-${{ inputs.variant }}-*-x86${{ inputs.signing-state == 'unsigned' && '-unsigned' || '' }}.apk
+        archive: false
+        if-no-files-found: error
+        retention-days: ${{ inputs.retention-days }}
+
+    - name: Upload phone x86_64 APK
+      if: inputs.module == 'phone'
+      uses: actions/upload-artifact@v7
+      with:
+        path: phone/build/outputs/apk/${{ inputs.variant }}/vela-phone-${{ inputs.variant }}-*-x86_64${{ inputs.signing-state == 'unsigned' && '-unsigned' || '' }}.apk
+        archive: false
+        if-no-files-found: error
+        retention-days: ${{ inputs.retention-days }}
+
+    - name: Upload universal TV APK
+      if: inputs.module == 'tv'
+      uses: actions/upload-artifact@v7
+      with:
+        path: tv/build/outputs/apk/${{ inputs.variant }}/vela-tv-${{ inputs.variant }}-*${{ inputs.signing-state == 'unsigned' && '-unsigned' || '' }}.apk
+        archive: false
+        if-no-files-found: error
+        retention-days: ${{ inputs.retention-days }}
