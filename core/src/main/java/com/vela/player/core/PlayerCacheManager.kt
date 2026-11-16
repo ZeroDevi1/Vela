@@ -32,7 +32,6 @@ internal object PlayerCacheManager {
         context: Context,
         cacheSizeMb: Int,
         defaultRequestHeaders: Map<String, String> = emptyMap(),
-        writeToCache: Boolean = true,
         timeoutMs: Int? = null
     ): DataSource.Factory {
         val appContext = context.applicationContext
@@ -48,7 +47,6 @@ internal object PlayerCacheManager {
             .setCache(getOrCreateCache(appContext, cacheSizeMb))
             .setUpstreamDataSourceFactory(upstream)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-            .apply { if (!writeToCache) setCacheWriteDataSinkFactory(null) }
     }
 
     fun prefetchToCache(

@@ -9,18 +9,17 @@ import androidx.media3.datasource.DataSpec
 import java.io.IOException
 
 /**
- * 让 MediaExtractor 通过播放器的 Media3 数据源读取直链。
+ * 让 MediaExtractor 和 MPV 的代理描述符通过 Media3 数据源读取直链。
  *
  * 系统自带的 HTTP 抽取路径每次 seek 都会断开重连，并在后台一路预读到十几 MB，
  * 与主播放器抢带宽。这里改成按需读取：只拉解复用器真正要的字节，已缓冲、已播过的
  * 区间直接命中播放器的磁盘缓存。
  *
- * 解复用器（尤其是 MKV）会在同一区域内来回做大量小读取；mpv 播放时主播放器不写
- * Media3 缓存，这些小读取原本每次都要重开一次 Range 请求。因此按 [BLOCK_SIZE]
- * 对齐整块读取并在内存里保留最近 [MAX_BLOCKS] 块，目标块就在当前流前方不远处时
+ * 解复用器（尤其是 MKV）会在同一区域内来回做大量小读取。按 [BLOCK_SIZE]
+ * 对齐读取并在内存里保留最近 [MAX_BLOCKS] 块，目标块就在当前流前方不远处时
  * 顺读过去而不是重开连接。
  *
- * 只在抽帧线程上使用，不做线程同步。
+ * 每个实例只在所属的抽帧线程或代理描述符线程使用。
  *
  * @param factory 读穿播放器缓存的数据源工厂
  * @param uri 直链地址
@@ -31,9 +30,7 @@ internal class ScrubMediaDataSource(
     factory: DataSource.Factory,
     private val uri: Uri,
     private val cacheKey: String?,
-    knownSize: Long? = null,
-    private val rangeBytes: Long? = null,
-    private val beforeRead: () -> Unit = {}
+    knownSize: Long? = null
 ) : MediaDataSource() {
     private val source: DataSource = factory.createDataSource()
     /** 当前是否有已打开的顺序读取流。 */
@@ -44,7 +41,6 @@ internal class ScrubMediaDataSource(
     private var totalSize = knownSize ?: SIZE_UNKNOWN
     /** 是否已经尝试过解析文件长度。 */
     private var sizeResolved = knownSize != null
-    private var streamEnd = Long.MAX_VALUE
     /** 最近读过的块，键是块序号；按访问顺序淘汰。最后一块可能短于 [BLOCK_SIZE]。 */
     private val blocks = object : LinkedHashMap<Long, ByteArray>(MAX_BLOCKS, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, ByteArray>): Boolean {
@@ -105,8 +101,6 @@ internal class ScrubMediaDataSource(
 
     /** 从当前流位置读满一块；遇到文件末尾时返回实际读到的部分。 */
     private fun readNextBlock(): ByteArray {
-        if (streamPosition == streamEnd && streamPosition < totalSize) openAt(streamPosition)
-        beforeRead()
         val data = ByteArray(BLOCK_SIZE)
         var read = 0
         while (read < BLOCK_SIZE) {
@@ -132,16 +126,12 @@ internal class ScrubMediaDataSource(
      */
     private fun openAt(position: Long) {
         closeStream()
-        beforeRead()
         val spec = DataSpec.Builder()
             .setUri(uri)
             .setPosition(position)
             .apply { cacheKey?.let { setKey(it) } }
-            .apply {
-                // 限制单次读取的缓存写入范围，让主播放和预读可以同时写入不相交的区间。
-                rangeBytes?.let { setLength(minOf(it, totalSize - position)) }
-                if (rangeBytes != null) setFlags(DataSpec.FLAG_ALLOW_CACHE_FRAGMENTATION)
-            }
+            // 让长的顺序读取分段提交缓存，回跳可读到已提交的段，无需等待整个请求关闭。
+            .setFlags(DataSpec.FLAG_ALLOW_CACHE_FRAGMENTATION)
             .build()
         val remaining = try {
             source.open(spec)
@@ -151,7 +141,6 @@ internal class ScrubMediaDataSource(
         }
         opened = true
         streamPosition = position
-        streamEnd = if (spec.length > 0) position + spec.length else Long.MAX_VALUE
         if (!sizeResolved) {
             sizeResolved = true
             totalSize = if (remaining == C.LENGTH_UNSET.toLong()) SIZE_UNKNOWN else position + remaining

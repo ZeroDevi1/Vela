@@ -17,7 +17,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
-import androidx.media3.exoplayer.source.preload.DefaultPreloadManager
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import com.vela.player.video.HardwareAcceleration
@@ -70,7 +69,6 @@ object PlayerUtils {
     fun createPlayer(
         context: Context,
         bufferOverride: PlaybackBufferOverride? = null,
-        preloadBuilder: DefaultPreloadManager.Builder? = null,
         renderersFactory: HardwareAcceleration? = null
     ): ExoPlayer {
         val playerPreferences = PlayerPreferences(context)
@@ -107,11 +105,7 @@ object PlayerUtils {
                 Log.d("PlayerUtils", "Applying battery optimization settings")
                 applyBatteryOptimization(playerBuilder)
             }
-            return preloadBuilder
-                ?.setRenderersFactory(factory)
-                ?.setLoadControl(loadControl)
-                ?.buildExoPlayer(playerBuilder)
-                ?: playerBuilder.setTrackSelector(DefaultTrackSelector(context)).build()
+            return playerBuilder.setTrackSelector(DefaultTrackSelector(context)).build()
         } catch (e: Exception) {
             Log.e("PlayerUtils", "Player creation failed", e)
             throw e // Re-throw to let caller handle it
@@ -197,22 +191,19 @@ object PlayerUtils {
     }
 
     /**
-     * 提供与主播放器共用磁盘缓存的数据源工厂。
+     * 提供读取播放器磁盘缓存的数据源工厂。
      *
-     * 进度预览抽帧等旁路读取用它打开同一条直链：已经播过、缓冲过的区间直接命中本地缓存，
-     * 新拉下来的字节也会写回缓存供主播放器复用。
+     * MPV 直放与进度预览可用相同缓存键打开同一条直链，复用已缓存的字节并把缺失的字节写回。
      *
      * @param context 任意上下文，内部只保留 applicationContext
      * @param requestHeaders 打开直链时附带的请求头
-     * @param writeToCache 是否将上游读取写回共享缓存
-     * @param timeoutMs 旁路读取的连接与读取超时，单位毫秒
+     * @param timeoutMs 连接与读取超时，单位毫秒
      * @return 读穿播放器缓存的数据源工厂
      */
     @UnstableApi
     fun createCachedDataSourceFactory(
         context: Context,
         requestHeaders: Map<String, String> = emptyMap(),
-        writeToCache: Boolean = true,
         timeoutMs: Int? = null
     ): DataSource.Factory {
         val cacheSizeMb = PlayerPreferences(context).getPlayerCacheSizeMb()
@@ -220,7 +211,6 @@ object PlayerUtils {
             context = context,
             cacheSizeMb = cacheSizeMb,
             defaultRequestHeaders = requestHeaders,
-            writeToCache = writeToCache,
             timeoutMs = timeoutMs
         )
     }

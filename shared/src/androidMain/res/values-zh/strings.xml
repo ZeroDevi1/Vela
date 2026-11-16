@@ -1046,9 +1046,6 @@
     <string name="server_private_unlock">解锁</string>
     <string name="server_private_use_public">访问 %1$s</string>
     <string name="player_error_title">播放出错</string>
-    <string name="player_seek_preloading">正在缓冲 %1$s</string>
-    <string name="player_seek_now">立即跳转</string>
-    <string name="player_seek_preload_failed">%1$s 缓冲失败</string>
     <string name="player_error_retry">从当前位置重试</string>
     <string name="player_error_close">关闭</string>
     <string name="player_server_downscale_4k">服务器转码为 4K</string>

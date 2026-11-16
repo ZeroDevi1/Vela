@@ -347,9 +347,6 @@ fun PlayerScreen(
             Toast.makeText(context, R.string.player_auto_skip_intro_hint, Toast.LENGTH_SHORT).show()
             delay(3_000)
         }
-        if (viewModel.pendingSeekPositionMs != null || viewModel.seekPreloadErrorPositionMs != null) {
-            return@LaunchedEffect
-        }
         viewModel.seekTo(segment.seekToMs)
     }
 
@@ -626,7 +623,6 @@ fun PlayerScreen(
             getPlaybackPosition = { viewModel.getCurrentPosition() },
             getPlaybackDuration = { viewModel.getDuration() },
             onSeekPreview = { previewMs ->
-                if (previewMs != null) viewModel.cancelPendingSeek()
                 uiState = uiState.copy(swipeSeekPositionMs = previewMs)
             },
             onHoldSpeed = { holding ->

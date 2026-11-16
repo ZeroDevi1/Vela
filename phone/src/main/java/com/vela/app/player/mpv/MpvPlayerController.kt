@@ -81,9 +81,6 @@ class MpvPlayerController(
     @Volatile
     private var cacheAheadMs: Long = 0L
     @Volatile
-    var hasReachedEnd = false
-        private set
-    @Volatile
     private var sourceBitrate: Int? = null
     @Volatile
     private var playWhenReady = true
@@ -163,12 +160,6 @@ class MpvPlayerController(
     val isPlaying: Boolean
         get() = ready && playWhenReady && !pausedForCache
 
-    val wantsPlayback: Boolean
-        get() = playWhenReady
-
-    val usesSeekCache: Boolean
-        get() = playbackDescriptor != null
-
     val currentPosition: Long
         get() = positionMs
 
@@ -177,9 +168,6 @@ class MpvPlayerController(
 
     val bufferedPosition: Long
         get() = (positionMs + cacheAheadMs).coerceAtLeast(positionMs)
-
-    fun isPositionBuffered(positionMs: Long): Boolean =
-        positionMs in currentPosition..bufferedPosition
 
     init {
         MPVLib.create(appContext)
@@ -218,15 +206,13 @@ class MpvPlayerController(
         sourceBitrate = bitrate
         ready = false
         pausedForCache = false
-        hasReachedEnd = false
         positionMs = startPositionMs?.coerceAtLeast(0L) ?: 0L
         cacheAheadMs = 0L
         restartStartedAtMs = SystemClock.elapsedRealtime()
         playWhenReady = startPlayback
         preferFastSeek = opticalDiscPlayback
         pendingRemoteHttpPlayback = remoteHttpPlayback
-        // 起播和 seek 使用同一个预缓冲门槛；必须在 loadfile 前生效。
-        applyCachePolicy(asOptions = false)
+        applyCachePolicy(asOptions = false, initialLoad = true)
         pendingSubtitleUrls = subtitleUrls
         pendingSelectedSubtitleUrl = selectedSubtitleUrl
         pendingSubtitleTrackId = subtitleTrackId?.takeUnless { it == "no" }
@@ -405,16 +391,18 @@ class MpvPlayerController(
 
     fun seekTo(positionMs: Long, exact: Boolean = true) {
         if (released) return
-        this.positionMs = positionMs.coerceAtLeast(0L)
+        val targetMs = positionMs.coerceAtLeast(0L)
         ready = false
-        hasReachedEnd = false
+        this.positionMs = targetMs
         cacheAheadMs = 0L
         restartStartedAtMs = SystemClock.elapsedRealtime()
         listener.onBuffering()
         val flags = MpvPlaybackTuning.seekFlags(exact, preferFastSeek)
-        Log.i(PERFORMANCE_LOG_TAG, "seek targetMs=${this.positionMs} flags=$flags")
+        // mpv 也会在 seek 后应用起播预缓冲；跳转只等首批可播放数据，实际欠载仍由 mpv 处理。
+        MPVLib.setPropertyBoolean("cache-pause-initial", false)
+        Log.i(PERFORMANCE_LOG_TAG, "seek targetMs=$targetMs flags=$flags")
         MPVLib.command(
-            arrayOf("seek", (this.positionMs / 1000.0).toString(), flags)
+            arrayOf("seek", (targetMs / 1000.0).toString(), flags)
         )
         if (playWhenReady) {
             MPVLib.setPropertyBoolean("pause", false)
@@ -830,7 +818,6 @@ class MpvPlayerController(
                 }
             }
             "eof-reached" -> {
-                hasReachedEnd = value
                 if (value) listener.onEnded()
             }
         }
@@ -1074,11 +1061,10 @@ class MpvPlayerController(
     }
 
     @OptIn(UnstableApi::class)
-    private fun applyCachePolicy(asOptions: Boolean) {
+    private fun applyCachePolicy(asOptions: Boolean, initialLoad: Boolean = false) {
         val budget = PlayerUtils.playbackCacheBudget(appContext, playerPreferences)
         val cacheTimeSeconds = budget.cacheTimeSeconds.toString()
-        val pauseWait = MpvPlaybackTuning.cachePauseWaitSeconds(sourceBitrate, budget.cacheTimeSeconds).toString()
-        val pauseInitial = if (pauseWait.toInt() > 1) "yes" else "no"
+        val pauseWait = MpvPlaybackTuning.cachePauseWaitSeconds(sourceBitrate, budget.cacheTimeSeconds)
         val cacheSize = "${budget.cacheSizeMb}MiB"
         val backCacheSize = "${(budget.cacheSizeMb / 2).coerceAtLeast(32)}MiB"
         if (asOptions) {
@@ -1086,17 +1072,18 @@ class MpvPlayerController(
             MPVLib.setOptionString("demuxer-readahead-secs", cacheTimeSeconds)
             MPVLib.setOptionString("demuxer-max-bytes", cacheSize)
             MPVLib.setOptionString("demuxer-max-back-bytes", backCacheSize)
-            MPVLib.setOptionString("cache-pause-wait", pauseWait)
-            MPVLib.setOptionString("cache-pause-initial", pauseInitial)
+            MPVLib.setOptionString("cache-pause-wait", pauseWait.toString())
         } else {
             MPVLib.setPropertyString("cache-secs", cacheTimeSeconds)
             MPVLib.setPropertyString("demuxer-readahead-secs", cacheTimeSeconds)
             MPVLib.setPropertyString("demuxer-max-bytes", cacheSize)
             MPVLib.setPropertyString("demuxer-max-back-bytes", backCacheSize)
-            MPVLib.setPropertyString("cache-pause-wait", pauseWait)
-            MPVLib.setPropertyString("cache-pause-initial", pauseInitial)
+            MPVLib.setPropertyString("cache-pause-wait", pauseWait.toString())
+            if (initialLoad) {
+                MPVLib.setPropertyBoolean("cache-pause-initial", pauseWait > 1)
+            }
         }
-        Log.i(PERFORMANCE_LOG_TAG, "cachePolicy maxMiB=${budget.cacheSizeMb} resumeSeconds=$pauseWait prebuffer=$pauseInitial bitrate=$sourceBitrate")
+        Log.i(PERFORMANCE_LOG_TAG, "cachePolicy maxMiB=${budget.cacheSizeMb} resumeSeconds=$pauseWait bitrate=$sourceBitrate")
     }
 
     private fun addSubtitleTrack(url: String, flags: String) {

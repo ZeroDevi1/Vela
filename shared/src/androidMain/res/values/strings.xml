@@ -1059,9 +1059,6 @@
     <string name="server_private_unlock">Unlock</string>
     <string name="server_private_use_public">Use %1$s</string>
     <string name="player_error_title">Playback error</string>
-    <string name="player_seek_preloading">Buffering %1$s</string>
-    <string name="player_seek_now">Jump now</string>
-    <string name="player_seek_preload_failed">Could not buffer %1$s</string>
     <string name="player_error_retry">Retry</string>
     <string name="player_error_close">Close</string>
     <string name="player_server_downscale_4k">Server transcode to 4K</string>
